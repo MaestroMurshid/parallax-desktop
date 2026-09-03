@@ -1,0 +1,507 @@
+.sheet {
+  position: absolute;
+  top: var(--chrome-top);
+  right: var(--pill-inset);
+  bottom: var(--chrome-bottom);
+  z-index: 5;
+  width: 560px;
+  max-width: calc(100vw - var(--pill-inset) * 2);
+  padding: 20px 24px 28px;
+  overflow-y: auto;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: var(--pill-radius);
+  box-shadow: var(--pill-shadow);
+  animation: pillSlideIn 190ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.meta,
+.close {
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.close {
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.close:hover {
+  color: var(--title);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 150px;
+  gap: 24px;
+  align-items: start;
+}
+
+/* Primary column, full type size, normal contrast (sec 1.1). */
+.transcript {
+  margin: 0;
+  font-size: var(--size-body);
+  line-height: 1.7;
+  color: var(--title);
+  white-space: pre-wrap;
+}
+
+/* Quoted material, kept visually separate so it reads as someone else's (sec 7.3). */
+.attributed {
+  color: var(--edge-label);
+  font-style: italic;
+}
+
+.side {
+  padding-top: 3px;
+}
+
+.summary,
+.type {
+  margin: 0 0 10px;
+  font-size: var(--size-meta);
+  line-height: 1.5;
+  color: var(--meta);
+}
+
+.type {
+  color: var(--edge-label);
+}
+
+.tasks {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: var(--size-meta);
+  color: var(--title);
+  cursor: pointer;
+}
+
+.task input {
+  margin: 2px 0 0;
+  accent-color: var(--stroke-hub);
+}
+
+/* No green, no tick styling that reads as achievement (sec 5.3). */
+.taskDone {
+  color: var(--meta);
+  text-decoration: line-through;
+}
+
+.resolution {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+}
+
+.resolutionLabel,
+.layerLabel {
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.resolutionText {
+  margin: 6px 0 0;
+  font-size: var(--size-body);
+  line-height: 1.6;
+  color: var(--title);
+}
+
+.stack {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.layer {
+  display: grid;
+  grid-template-columns: 88px 74px 1fr;
+  gap: 10px;
+  font-size: var(--size-meta);
+  line-height: 1.5;
+}
+
+.layerDate {
+  color: var(--meta);
+}
+
+.layerText {
+  color: var(--title);
+}
+
+.analysisToggle {
+  display: block;
+  margin-top: 26px;
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+}
+
+.analysisToggle:hover {
+  color: var(--title);
+}
+
+.analysis {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.questionText {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--size-question);
+  line-height: 1.5;
+  color: var(--title);
+}
+
+/* Every analytical claim quotes a span (sec 3.4). */
+.quoted {
+  margin: 10px 0 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--edge);
+  font-size: var(--size-meta);
+  line-height: 1.6;
+  color: var(--meta);
+}
+
+.provider {
+  margin-top: 8px;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+}
+
+.card {
+  padding: 12px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+}
+
+.cardHead {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.relation {
+  font-size: var(--size-edge-label);
+  color: var(--edge-label);
+}
+
+.cardTitle {
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.cardQuestion {
+  margin: 8px 0 0;
+  font-family: var(--font-serif);
+  font-size: var(--size-meta);
+  line-height: 1.55;
+  color: var(--meta);
+}
+
+.cardActions {
+  margin-top: 10px;
+  display: flex;
+  gap: 14px;
+}
+
+.cardActions button {
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+}
+
+.cardActions button:hover {
+  color: var(--title);
+}
+
+.nothing {
+  margin: 0;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+@keyframes pillSlideIn {
+  from {
+    transform: translateX(14px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Motion is otherwise reserved for live audio (§8), so it goes away on request. */
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+.answerHint {
+  margin: 10px 0 0;
+  font-size: var(--size-meta);
+  line-height: 1.55;
+  color: var(--meta);
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--title);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin: 0 2px;
+}
+
+.headerActions {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.headerAction,
+.deleteArmed {
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.headerAction:hover {
+  color: var(--title);
+}
+
+/* Armed state is stated in words, not colour — the one colour is spoken for. */
+.deleteArmed {
+  color: var(--title);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.headerAction:focus-visible,
+.deleteArmed:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 3px;
+}
+
+/* Heavy probes: offered, never fired on their own (§3.6). */
+.probes {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+}
+
+
+
+
+
+
+
+/* No tick, no green — closing a thread must never feel like a win (§6.3). */
+.resolveOpen {
+  display: block;
+  margin-top: 22px;
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.resolveOpen:hover {
+  color: var(--title);
+}
+
+.resolutionField {
+  width: 100%;
+  resize: vertical;
+  margin-top: 8px;
+  padding: 9px 11px;
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 7px;
+  color: var(--title);
+  font-family: var(--font-serif);
+  font-size: var(--size-body);
+  line-height: 1.6;
+}
+
+.resolutionField::placeholder {
+  color: var(--edge-label);
+}
+
+.resolveActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.resolveLink {
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.resolveLink:hover {
+  color: var(--title);
+}
+
+.resolveSave {
+  border: 1px solid var(--stroke-ordinary);
+  border-radius: 999px;
+  padding: 4px 14px;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.resolveSave:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.resolveOpen:focus-visible,
+.resolveLink:focus-visible,
+.resolveSave:focus-visible,
+.resolutionField:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 2px;
+}
+
+/* WCAG 2.2 target size: these are bare text buttons, so the hit area is grown
+   with a centred pseudo-element instead of padding — nothing reflows. */
+.close::after,
+.analysisToggle::after,
+.cardActions button::after,
+.deleteArmed::after,
+.resolveOpen::after,
+.resolveLink::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(calc(100% + 8px), 24px);
+  height: max(calc(100% + 10px), 24px);
+}
+
+/* The pointer-free route to a manual edge, next to the proposed ones (§5.4). */
+.connectRow {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.connect {
+  padding: 5px 10px;
+  background: none;
+  border: 1px solid var(--edge-control);
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.connect:hover {
+  border-color: var(--stroke-hub);
+}
+
+.connect:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 2px;
+}
+
+.connectHint {
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+/* One door, not a menu — the model picks the probe (§3.6). */
+.ask {
+  padding: 5px 11px;
+  background: none;
+  border: 1px solid var(--edge-control);
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.ask:hover:not(:disabled) {
+  border-color: var(--stroke-hub);
+}
+
+.ask:disabled {
+  cursor: default;
+  color: var(--meta);
+}
+
+.ask:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 2px;
+}
+
+.askHint {
+  font-size: var(--size-meta);
+  color: var(--meta);
+}

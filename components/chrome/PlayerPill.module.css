@@ -1,0 +1,94 @@
+/* Bottom-centre but on its own line, so it never collides with the status
+   cluster at narrow widths. */
+.pill {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--pill-inset) + 38px);
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 30px;
+  padding: 0 6px 0 14px;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  box-shadow: var(--pill-shadow);
+  font-size: var(--size-meta);
+  overflow: hidden;
+}
+
+/* The progress line is the motion; nothing else in the pill moves. */
+.track {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: transparent;
+}
+
+.fill {
+  height: 100%;
+  background: var(--stroke-weighty);
+}
+
+.title {
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  color: var(--title);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title:hover {
+  color: var(--stroke-hub);
+}
+
+.time {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.stop {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+  border-radius: 999px;
+}
+
+.stop:hover {
+  color: var(--title);
+}
+
+.title:focus-visible,
+.stop:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 2px;
+}
+
+/* WCAG 2.2 target size: these are bare text buttons, so the hit area is grown
+   with a centred pseudo-element instead of padding — nothing reflows. */
+.title::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(calc(100% + 8px), 24px);
+  height: max(calc(100% + 10px), 24px);
+}

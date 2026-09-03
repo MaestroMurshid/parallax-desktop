@@ -1,0 +1,109 @@
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 6px;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  box-shadow: var(--pill-shadow);
+}
+
+.action {
+  background: none;
+  border: none;
+  border-radius: 999px;
+  padding: 4px 11px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+}
+
+.action:hover:not(:disabled) {
+  background: var(--edge);
+  color: var(--title);
+}
+
+.action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.action:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: -1px;
+}
+
+/* Armed delete. Still no accent — that colour is the open question only. */
+.armed {
+  composes: action;
+  color: var(--title);
+  background: var(--edge);
+}
+
+.divider {
+  width: 1px;
+  height: 14px;
+  background: var(--edge);
+  margin: 0 3px;
+}
+
+.file {
+  display: none;
+}
+
+/* Rises out of the pill rather than dropping over the canvas. */
+.menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 190px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  box-shadow: var(--pill-shadow);
+}
+
+.menuHead {
+  padding: 5px 9px 6px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.06em;
+  color: var(--meta);
+}
+
+.menuItem {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 9px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--edge);
+  outline: none;
+}
+
+.menuLabel {
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.menuHint {
+  font-size: var(--size-micro);
+  color: var(--meta);
+}

@@ -1,0 +1,173 @@
+/*
+ * Design tokens (§8): single source of truth, read off computed style by the
+ * Pixi renderer (lib/scene/tokens.ts) so DOM and canvas can't drift apart.
+ * One saturated colour total, allocated per §5.3's guess-vs-certain principle.
+ */
+
+:root {
+  /* surface — space, not desk/paper/whiteboard (§8) */
+  --surface: #0b0d0e;
+
+  /* blobs */
+  --blob-fill: #1c2224;
+  --blob-fill-felt: #2b3538; /* + gaussian blur, no stroke */
+
+  /* strokes, by weight */
+  --stroke-ordinary: #5c6a6d;
+  --stroke-weighty: #7c8b8e;
+  --stroke-hub: #8da1a4;
+
+  /* edges */
+  --edge: #2a3335;
+  --edge-fact: #5a6b6e; /* accepted/manual — a fact, not a guess (§5.4) */
+  /* borders that identify a control (inputs, buttons): non-text 3:1.
+     --edge is decorative hairline only and never outlines a target. */
+  --edge-control: #5c6a6d;
+
+  /* text */
+  --title: #9dacaf;
+  --edge-label: #7d8b8e;
+  --meta: #7d8b8e;
+
+  /* connects to nothing (§5.3) */
+  --dimmed-fg: #6e7c7f;
+  --dimmed-bg: #171d1f;
+
+  /* return rings, outer → inner (§5.3) */
+  --ring-1: #252e30;
+  --ring-2: #2e3739;
+  --ring-3: #3e4b4e;
+
+  /* THE one colour — unanswered question dot only. Nothing else. (§8) */
+  --accent: #d85a30;
+
+  /* type — system sans throughout, small (§8) */
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, Cambria, "Times New Roman", Times,
+    serif;
+  /* machine specs line only — nothing else reads as a system readout */
+  --legend-w: 172px;
+  --pill-inset: 10px;
+  --pill-radius: 12px;
+  --pill-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  /* clearance for the floating top and bottom pills */
+  --chrome-top: 58px;
+  --chrome-bottom: 50px;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, "SF Mono", Consolas,
+    "Liberation Mono", monospace;
+
+  --size-canvas-title: 11px;
+  --size-edge-label: 11px;
+  /* floor for tracked mono labels and glosses — nothing goes under it */
+  --size-micro: 11px;
+  --size-meta: 12px;
+  --size-body: 14px;
+  --size-question: 15px; /* the one serif exception (§8) */
+
+  /* Motion means exactly one thing: audio is running now. (§8)
+     There is no general-purpose transition token on purpose. */
+  --dur-audio-frame: 16ms;
+}
+
+
+/* Light — the lexicon specimen's palette: paper ground, ink titles, one blue. */
+:root[data-theme='light'] {
+  --surface: #f1f3f3;
+  --blob-fill: #e7eaea;
+  --blob-fill-felt: #dde3e4;
+  --stroke-ordinary: #9aa5a8;
+  --stroke-weighty: #7c8a8d;
+  --stroke-hub: #5e6c6f;
+  --edge: #dfe4e5;
+  --edge-fact: #b3bec0;
+  --edge-control: #78868a;
+  --title: #14181a;
+  --edge-label: #5f6a6e;
+  --meta: #5f6a6e;
+  --dimmed-fg: #a8b2b5;
+  --dimmed-bg: #e7eaea;
+  --ring-1: #e2e6e7;
+  --ring-2: #d3d9da;
+  --ring-3: #bfc7c9;
+  --pill-shadow: 0 6px 20px rgba(20, 24, 26, 0.10);
+  --accent: #1d4ed8;
+}
+
+/* No explicit choice: follow the OS. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --surface: #f1f3f3;
+    --blob-fill: #e7eaea;
+    --blob-fill-felt: #dde3e4;
+    --stroke-ordinary: #9aa5a8;
+    --stroke-weighty: #7c8a8d;
+    --stroke-hub: #5e6c6f;
+    --edge: #dfe4e5;
+    --edge-fact: #b3bec0;
+    --edge-control: #78868a;
+    --title: #14181a;
+    --edge-label: #5f6a6e;
+    --meta: #5f6a6e;
+    --dimmed-fg: #a8b2b5;
+    --dimmed-bg: #e7eaea;
+    --ring-1: #e2e6e7;
+    --ring-2: #d3d9da;
+    --ring-3: #bfc7c9;
+    --pill-shadow: 0 6px 20px rgba(20, 24, 26, 0.10);
+    --accent: #1d4ed8;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden; /* the canvas owns panning; the page never scrolls */
+  background: var(--surface);
+  color: var(--title);
+  font-family: var(--font-sans);
+  font-size: var(--size-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The capture panel is a borderless transparent Tauri window sitting over
+   whatever you were working in. The page surface would fill it back in and put
+   an opaque rectangle on the desktop, so it steps aside for that window only. */
+html[data-window='panel'],
+html[data-window='panel'] body {
+  background: transparent;
+}
+
+/* Tauri chrome: no text selection or native drag on the shell itself.
+   Transcript and resolution text opt back in — those are the record (§1.1). */
+body {
+  user-select: none;
+  cursor: default;
+}
+
+.selectable {
+  user-select: text;
+  cursor: auto;
+}
+
+/* Nothing animates except live audio, so honouring reduced-motion costs
+   nothing here — but the equalizer is information, not decoration, so it
+   degrades to a static level readout rather than disappearing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

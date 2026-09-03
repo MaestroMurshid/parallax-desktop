@@ -1,0 +1,41 @@
+/* Top bar, canvas, status bar — the canvas gets whatever height is left
+   over, so its own ResizeObserver (components/canvas/Canvas.tsx) still
+   drives pan/zoom correctly. */
+.main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.canvasArea {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* Its own transparent Tauri window; the panel positions itself inside it. */
+.panelWindow {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+}
+
+.panelWindow :global(.capturePanelHost) {
+  bottom: auto;
+}
+
+/* State then actions, one cluster. Two separately-anchored pills read as
+   arbitrary; the legend already owns the right edge. */
+.bottomRow {
+  position: absolute;
+  left: var(--pill-inset);
+  bottom: var(--pill-inset);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

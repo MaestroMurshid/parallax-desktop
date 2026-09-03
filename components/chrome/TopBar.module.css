@@ -1,0 +1,180 @@
+.bar {
+  position: absolute;
+  top: var(--pill-inset);
+  left: var(--pill-inset);
+  right: var(--pill-inset);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 40px;
+  padding: 0 16px;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: var(--pill-radius);
+  box-shadow: var(--pill-shadow);
+}
+
+.appName {
+  flex: none;
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.searchWrap {
+  position: relative;
+  flex: 1 1 auto;
+  max-width: 420px;
+}
+
+.search {
+  width: 100%;
+  padding: 5px 9px;
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.search::placeholder {
+  color: var(--meta);
+}
+
+.search:focus-visible {
+  outline: none;
+  border-color: var(--stroke-hub);
+}
+
+.results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 420px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.empty {
+  margin: 0;
+  padding: 8px 8px;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 8px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.result:hover,
+.result:focus-visible {
+  background: var(--edge);
+  outline: none;
+}
+
+.resultHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.resultTitle {
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.resultDate {
+  flex: none;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.snippet {
+  font-size: var(--size-meta);
+  line-height: 1.5;
+  color: var(--meta);
+}
+
+/* Accent is reserved for the unanswered-question dot — a match gets a raised
+   chip instead, derived from the existing stroke/dimmed tokens. */
+.mark {
+  background: var(--stroke-ordinary);
+  background: color-mix(in srgb, var(--stroke-ordinary) 32%, var(--dimmed-bg));
+  color: var(--title);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.right {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.textButton {
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+}
+
+.textButton:hover {
+  color: var(--title);
+}
+
+.textButton:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 2px;
+}
+
+/* Header for a result set: it is a subgraph, not a list. */
+.summary {
+  margin: 0;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--edge);
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.05em;
+  color: var(--meta);
+}
+
+.orphan {
+  color: var(--edge-label);
+}
+
+/* WCAG 2.2 target size: these are bare text buttons, so the hit area is grown
+   with a centred pseudo-element instead of padding — nothing reflows. */
+.textButton::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(calc(100% + 8px), 24px);
+  height: max(calc(100% + 10px), 24px);
+}

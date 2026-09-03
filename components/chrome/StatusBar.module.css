@@ -1,0 +1,34 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 30px;
+  padding: 0 14px;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  box-shadow: var(--pill-shadow);
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.model {
+  color: var(--meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.models {
+  display: flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.divider {
+  color: var(--edge);
+}
+
+/* Speech not yet ready is worth noticing — it is the one that gates recording. */
+.modelPending {
+  color: var(--title);
+}

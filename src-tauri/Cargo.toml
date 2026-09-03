@@ -1,0 +1,27 @@
+[package]
+name = "parallax"
+version = "0.0.1"
+description = "Voice capture that puts your past entries next to your present ones"
+edition = "2021"
+license = "AGPL-3.0-only"
+rust-version = "1.77"
+
+[lib]
+name = "parallax_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

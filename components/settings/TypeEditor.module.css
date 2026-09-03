@@ -1,0 +1,150 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.typeRow {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--edge);
+}
+
+.typeName {
+  color: var(--title);
+  font-size: 13px;
+}
+
+.typeMeta {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--meta);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.06em;
+  color: var(--meta);
+}
+
+.input,
+.textarea,
+.select {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--title);
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 2px;
+  padding: 5px 6px;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 48px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip,
+.chipOn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--title);
+  background: none;
+  border: 1px solid var(--edge-control);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.chipOn {
+  border-color: var(--stroke-weighty);
+  background: var(--blob-fill);
+}
+
+.markInput {
+  width: 52px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.markRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview {
+  border: 1px solid var(--edge);
+  border-radius: 2px;
+  padding: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+}
+
+.previewTitle {
+  font-size: var(--size-canvas-title);
+  color: var(--title);
+  margin-left: 3px;
+}
+
+.reject {
+  font-size: var(--size-micro);
+  color: var(--title);
+  opacity: 0.75;
+  padding: 8px 0;
+}
+
+.submit {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--title);
+  background: none;
+  border: 1px solid var(--stroke-weighty);
+  border-radius: 2px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.submit:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.remove {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--meta);
+  background: none;
+  border: none;
+  cursor: pointer;
+}

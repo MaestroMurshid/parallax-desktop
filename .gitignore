@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+
+# Next build output
+.next/
+out/
+.turbo/
+.vercel/
+next-env.d.ts
+*.tsbuildinfo
+
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+
+# Signing material. The Tauri updater generates a private key, and Windows code
+# signing uses .pfx/.p12 — a leaked one lets anyone ship a signed update over
+# the top of yours. Broad on purpose; nothing here is ever a source file.
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Environment. Note .env IS tracked: it holds NEXT_PUBLIC_BRIDGE and the
+# onboarding flag, no secrets, and those two flags are what make the mockup
+# run. Next's convention is .env committed, local overrides not.
+.env*.local
+
+# Editors and local tooling
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/settings.local.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test output — none yet, cheaper to have the line than to remember later
+coverage/
+
+# OS cruft. Authored on Windows, so these matter more here than .DS_Store does.
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Local scratch
+*.bak

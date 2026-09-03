@@ -1,0 +1,135 @@
+/* Sits where the capture panel sits, because it is the other way in (§4). */
+.composer {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--chrome-bottom) + 18px);
+  transform: translateX(-50%);
+  z-index: 6;
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 14px;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  box-shadow: var(--pill-shadow);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--meta);
+}
+
+.hint {
+  font-size: var(--size-micro);
+  color: var(--meta);
+}
+
+.field {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 7px;
+  color: var(--title);
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.field::placeholder {
+  color: var(--edge-label);
+}
+
+.field:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 1px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--title);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cancel {
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.cancel:hover {
+  color: var(--title);
+}
+
+.save {
+  border: 1px solid var(--stroke-weighty);
+  border-radius: 999px;
+  padding: 5px 16px;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.save:hover:not(:disabled) {
+  border-color: var(--stroke-hub);
+}
+
+.save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cancel:focus-visible,
+.save:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 3px;
+}
+
+/* WCAG 2.2 target size: these are bare text buttons, so the hit area is grown
+   with a centred pseudo-element instead of padding — nothing reflows. */
+.cancel::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(calc(100% + 8px), 24px);
+  height: max(calc(100% + 10px), 24px);
+}

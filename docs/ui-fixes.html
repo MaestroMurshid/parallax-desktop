@@ -1,0 +1,231 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contrast and Target Fixes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,600&display=swap">
+<style>
+  html{color-scheme:light dark}
+  :root {
+    --mount:#e9e7e4; --card:#f4f2ef; --ink:#1a1c1e; --ink2:#55585c; --ink3:#86898d;
+    --rule:#ccc8c2; --rule2:#b9b4ac;
+    --sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --serif:'Newsreader',Georgia,serif;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --mount:#16181a; --card:#1b1e21; --ink:#e7e9ea; --ink2:#a6abaf; --ink3:#767c81;
+    --rule:#2c3034; --rule2:#3b4046; } }
+  :root[data-theme="dark"]{ --mount:#16181a; --card:#1b1e21; --ink:#e7e9ea; --ink2:#a6abaf;
+    --ink3:#767c81; --rule:#2c3034; --rule2:#3b4046; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--mount);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:52px 28px 88px}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+  h1{margin:14px 0 0;font-family:var(--serif);font-weight:400;font-size:clamp(2rem,5vw,2.8rem);line-height:1.1;letter-spacing:-.015em}
+  .stand{margin:14px 0 0;max-width:66ch;color:var(--ink2)}
+  .mast{padding-bottom:26px;border-bottom:1px solid var(--rule)}
+
+  .item{margin-top:52px}
+  .head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+  .n{font-family:var(--mono);font-size:12px;color:var(--ink3)}
+  .head h2{margin:0;font-family:var(--serif);font-weight:400;font-size:1.55rem}
+  .why{margin:0 0 16px;max-width:70ch;color:var(--ink2);font-size:.94rem}
+
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .col{border:1px solid var(--rule2);overflow:hidden}
+  .cap{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 11px;border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3)}
+  .bad{color:#c2493a}.good{color:#3f7d55}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .bad{color:#e08272}:root:not([data-theme="light"]) .good{color:#7fbf95}}
+  :root[data-theme="dark"] .bad{color:#e08272}:root[data-theme="dark"] .good{color:#7fbf95}
+  .demo{background:#0b0d0e;padding:18px}
+  .sheet{background:#171d1f;border:1px solid #2a3335;border-radius:8px;padding:14px 16px}
+
+  .row{display:grid;grid-template-columns:96px 1fr;gap:14px;align-items:baseline;padding:5px 0}
+  .lbl{font-family:var(--sans);font-size:12px}
+  .val{font-family:var(--sans);font-size:12px;color:#9dacaf}
+  .lnk{font-family:var(--sans);font-size:12px;text-decoration:underline;text-underline-offset:3px}
+
+  .hit{outline:1px dashed rgba(216,90,48,.55);outline-offset:0}
+  .tgt{display:inline-block}
+  .padded{padding:6px 8px;margin:-6px -8px}
+
+  .legend{display:flex;flex-direction:column;gap:9px}
+  .lrow{display:grid;grid-template-columns:16px 1fr;gap:8px;align-items:start}
+  .mark{font-family:var(--mono);color:#5c6a6d}
+  .lname{font-family:var(--serif);color:#9dacaf}
+  .lgloss{font-family:var(--mono);display:block;margin-top:1px}
+
+  .node{font-family:var(--serif);color:#9dacaf;font-size:15px}
+  .stub{display:inline-block;width:14px;height:1px;background:#8da1a4;vertical-align:middle;margin-left:8px}
+  .altline{margin-top:12px;padding-top:10px;border-top:1px solid #2a3335;font-family:var(--sans);font-size:11px;color:#7d8b8e}
+  .chip{display:inline-block;border:1px solid #5c6a6d;border-radius:999px;padding:4px 10px;font-size:11px;color:#9dacaf;font-family:var(--sans)}
+
+  .note{margin-top:14px;font-size:.88rem;color:var(--ink2);border-left:2px solid var(--rule2);padding-left:11px;max-width:72ch}
+  code{font-family:var(--mono);font-size:.86em;color:var(--ink)}
+
+  table{border-collapse:collapse;width:100%;margin-top:12px;background:var(--card);border:1px solid var(--rule)}
+  th,td{text-align:left;padding:9px 12px;font-size:.86rem;border-bottom:1px solid var(--rule)}
+  th{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:500}
+  td{color:var(--ink2)}
+  td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  tbody tr:last-child td{border-bottom:none}
+  @media (max-width:820px){.pair{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style></head><body>
+
+<div class="wrap">
+  <header class="mast">
+    <div class="kicker">UI audit &middot; proposed changes</div>
+    <h1>Contrast and target fixes</h1>
+    <p class="stand">
+      Four changes, shown against the app&rsquo;s real palette and real content. The style
+      the design is reaching for &mdash; Swiss minimalism &mdash; lists <em>high contrast</em>
+      among its defining traits. The implementation has the minimalism and inverts the contrast.
+    </p>
+  </header>
+
+  <section class="item">
+    <div class="head"><span class="n">01</span><h2>Lift the chrome text</h2></div>
+    <p class="why">
+      <code>--meta</code> and <code>--edge-label</code> are the same value and carry nearly all
+      secondary text. On the void that scrapes AA at 4.50. Inside panels &mdash; where almost all
+      of it actually lives &mdash; it drops to 3.94 and fails.
+    </p>
+    <div class="pair">
+      <div class="col">
+        <div class="cap"><span>now &middot; <code>#6e7c7f</code></span><span class="bad">3.94:1 &#10007;</span></div>
+        <div class="demo"><div class="sheet">
+          <div class="row"><span class="lbl" style="color:#6e7c7f">record hotkey</span><span class="val">Ctrl+Shift+Space &nbsp;<span class="lnk" style="color:#6e7c7f">rebind</span></span></div>
+          <div class="row"><span class="lbl" style="color:#6e7c7f">discard key</span><span class="val">Escape &nbsp;<span class="lnk" style="color:#6e7c7f">rebind</span></span></div>
+          <div class="row"><span class="lbl" style="color:#6e7c7f">local-only</span><span class="val" style="color:#6e7c7f">new entries default to local-only</span></div>
+        </div></div>
+      </div>
+      <div class="col">
+        <div class="cap"><span>proposed &middot; <code>#7d8b8e</code></span><span class="good">4.83:1 &#10003;</span></div>
+        <div class="demo"><div class="sheet">
+          <div class="row"><span class="lbl" style="color:#7d8b8e">record hotkey</span><span class="val">Ctrl+Shift+Space &nbsp;<span class="lnk" style="color:#7d8b8e">rebind</span></span></div>
+          <div class="row"><span class="lbl" style="color:#7d8b8e">discard key</span><span class="val">Escape &nbsp;<span class="lnk" style="color:#7d8b8e">rebind</span></span></div>
+          <div class="row"><span class="lbl" style="color:#7d8b8e">local-only</span><span class="val" style="color:#7d8b8e">new entries default to local-only</span></div>
+        </div></div>
+      </div>
+    </div>
+    <p class="note">
+      One token, two characters different. It stays firmly in the quiet register &mdash; this is
+      not a brightening of the app, it is the difference between readable and not.
+    </p>
+  </section>
+
+  <section class="item">
+    <div class="head"><span class="n">02</span><h2>Give the small controls a body</h2></div>
+    <p class="why">
+      Nineteen pointer targets have <code>padding: 0</code>, so the clickable area is exactly the
+      text &mdash; about 12&times;14px. WCAG 2.2 AA asks for 24&times;24. The fix is padding plus a
+      negative margin, so nothing moves visually and only the hit area grows. Dashed outline shows
+      the real target.
+    </p>
+    <div class="pair">
+      <div class="col">
+        <div class="cap"><span>now</span><span class="bad">~12&times;14px &#10007;</span></div>
+        <div class="demo"><div class="sheet">
+          <div style="display:flex;gap:18px;align-items:baseline">
+            <span class="tgt hit lnk" style="color:#6e7c7f">analysis</span>
+            <span class="tgt hit lnk" style="color:#6e7c7f">delete</span>
+            <span class="tgt hit lnk" style="color:#6e7c7f">esc</span>
+          </div>
+        </div></div>
+      </div>
+      <div class="col">
+        <div class="cap"><span>proposed</span><span class="good">24&times;26px &#10003;</span></div>
+        <div class="demo"><div class="sheet">
+          <div style="display:flex;gap:18px;align-items:baseline">
+            <span class="tgt hit padded lnk" style="color:#7d8b8e">analysis</span>
+            <span class="tgt hit padded lnk" style="color:#7d8b8e">delete</span>
+            <span class="tgt hit padded lnk" style="color:#7d8b8e">esc</span>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="item">
+    <div class="head"><span class="n">03</span><h2>Raise the type floor</h2></div>
+    <p class="why">
+      29 declarations sit below 12px, bottoming out at 6.5px in the legend glosses. The legend is
+      the one thing that teaches the canvas&rsquo;s vocabulary, so it is the worst place to save
+      space. A floor of 11px costs almost nothing here.
+    </p>
+    <div class="pair">
+      <div class="col">
+        <div class="cap"><span>now &middot; gloss 6.5px</span><span class="bad">&#10007;</span></div>
+        <div class="demo"><div class="legend">
+          <div class="lrow"><span class="mark" style="font-size:11px">|</span><span><span class="lname" style="font-size:12px;font-weight:600">claim</span><span class="lgloss" style="font-size:6.5px;color:#6e7c7f">a stated position with reasons</span></span></div>
+          <div class="lrow"><span class="mark" style="font-size:11px">&#8767;</span><span><span class="lname" style="font-size:12px;font-style:italic">rant</span><span class="lgloss" style="font-size:6.5px;color:#6e7c7f">working something out, unresolved</span></span></div>
+          <div class="lrow"><span class="mark" style="font-size:11px">&#9866;</span><span><span class="lname" style="font-size:12px;font-weight:300">felt</span><span class="lgloss" style="font-size:6.5px;color:#6e7c7f">personal, emotionally live</span></span></div>
+        </div></div>
+      </div>
+      <div class="col">
+        <div class="cap"><span>proposed &middot; gloss 11px</span><span class="good">&#10003;</span></div>
+        <div class="demo"><div class="legend">
+          <div class="lrow"><span class="mark" style="font-size:12px">|</span><span><span class="lname" style="font-size:13px;font-weight:600">claim</span><span class="lgloss" style="font-size:11px;color:#7d8b8e">a stated position with reasons</span></span></div>
+          <div class="lrow"><span class="mark" style="font-size:12px">&#8767;</span><span><span class="lname" style="font-size:13px;font-style:italic">rant</span><span class="lgloss" style="font-size:11px;color:#7d8b8e">working something out, unresolved</span></span></div>
+          <div class="lrow"><span class="mark" style="font-size:12px">&#9866;</span><span><span class="lname" style="font-size:13px;font-weight:300">felt</span><span class="lgloss" style="font-size:11px;color:#7d8b8e">personal, emotionally live</span></span></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="item">
+    <div class="head"><span class="n">04</span><h2>A second route to connect</h2></div>
+    <p class="why">
+      The stub handle is hover-only, which is the guidance&rsquo;s named High-severity
+      anti-pattern &mdash; and it means touch and keyboard have no path at all. The handle stays;
+      it just stops being the only door. The analysis block already holds proposed connections,
+      so manual linking belongs beside them.
+    </p>
+    <div class="pair">
+      <div class="col">
+        <div class="cap"><span>now &middot; hover only</span><span class="bad">no touch, no keys &#10007;</span></div>
+        <div class="demo"><div class="sheet">
+          <span class="node">decoupling isn&rsquo;t happening<span class="stub"></span></span>
+          <div class="altline" style="color:#6e7c7f">visible on hover; unreachable otherwise</div>
+        </div></div>
+      </div>
+      <div class="col">
+        <div class="cap"><span>proposed</span><span class="good">three routes &#10003;</span></div>
+        <div class="demo"><div class="sheet">
+          <span class="node">decoupling isn&rsquo;t happening<span class="stub"></span></span>
+          <div class="altline">
+            <span class="chip">connect to&hellip;</span>
+            &nbsp; in the analysis block, and <code style="color:#9dacaf">C</code> on a selected entry
+          </div>
+        </div></div>
+      </div>
+    </div>
+    <p class="note">
+      All three end at the same relation picker, so there is one concept with three entrances
+      rather than three features.
+    </p>
+  </section>
+
+  <section class="item">
+    <div class="head"><span class="n">&mdash;</span><h2>The whole change, as tokens</h2></div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>What</th><th>From</th><th>To</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>--meta</code> / <code>--edge-label</code></td><td class="num">#6e7c7f</td><td class="num">#7d8b8e</td><td>3.94 &rarr; 4.83 on panels</td></tr>
+        <tr><td>Interactive borders</td><td><code>--edge</code> 1.51</td><td><code>--stroke-ordinary</code> 3.47</td><td>inputs meet non-text 3:1</td></tr>
+        <tr><td>Inline controls</td><td class="num">padding 0</td><td class="num">6px 8px, &minus;6px &minus;8px margin</td><td>24px targets, no visual shift</td></tr>
+        <tr><td>Type floor</td><td class="num">6.5px</td><td class="num">11px</td><td>29 declarations, legend worst</td></tr>
+        <tr><td>Connect</td><td>hover stub only</td><td>+ analysis entry, + key</td><td>touch and keyboard reachable</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">
+      Decorative hairlines keep <code>--edge</code>; only borders that identify a control move to
+      <code>--stroke-ordinary</code>. The canvas keeps its austerity &mdash; every change here is
+      to the chrome, which is where the failures actually are.
+    </p>
+  </section>
+</div>
+</body></html>

@@ -1,0 +1,122 @@
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  padding: 20px 22px 16px;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  box-shadow: var(--pill-shadow);
+}
+
+.pair {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.node {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--title);
+}
+
+.blank {
+  font-family: var(--font-mono);
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+}
+
+.field {
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 7px;
+  color: var(--title);
+  font-family: inherit;
+  font-size: var(--size-meta);
+}
+
+.field::placeholder {
+  color: var(--meta);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 268px;
+  margin-top: 10px;
+  overflow-y: auto;
+}
+
+.row,
+.rowOn {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.rowOn {
+  background: var(--surface);
+}
+
+.title {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  color: var(--title);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.when {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--meta);
+}
+
+.nothing,
+.note {
+  margin: 12px 0 0;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--title);
+}
+
+.field:focus-visible,
+.row:focus-visible,
+.rowOn:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: -1px;
+}

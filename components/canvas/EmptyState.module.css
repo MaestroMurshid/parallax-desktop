@@ -1,0 +1,118 @@
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 0 32px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Same treatment as the capture panel, so this reads as that card dormant
+   rather than as a message on an empty page. */
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 420px;
+  max-width: 100%;
+  padding: 22px 22px 18px;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+}
+
+.equalizer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 38px;
+}
+
+.bar {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--stroke-weighty);
+  opacity: 0.75;
+}
+
+.prompt {
+  margin: 0;
+  font-size: var(--size-body);
+  color: var(--title);
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: var(--size-meta);
+  color: var(--title);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 0 3px;
+}
+
+.sub {
+  margin: 0;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.body {
+  margin: 0;
+  max-width: 46ch;
+  font-size: var(--size-meta);
+  line-height: 1.6;
+  color: var(--meta);
+}
+
+.sample {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sample:hover {
+  color: var(--title);
+}
+
+.sample:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 3px;
+}
+
+/* §14 — a few entries and no edges reads as broken unless you say why. */
+.sparse {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--chrome-bottom) + 18px);
+  transform: translateX(-50%);
+  max-width: 52ch;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* WCAG 2.2 target size: these are bare text buttons, so the hit area is grown
+   with a centred pseudo-element instead of padding — nothing reflows. */
+.sample::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(calc(100% + 8px), 24px);
+  height: max(calc(100% + 10px), 24px);
+}

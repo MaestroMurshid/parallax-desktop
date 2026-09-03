@@ -1,0 +1,66 @@
+.host {
+  background: var(--surface);
+  position: absolute;
+  inset: 0 calc(var(--legend-w) + var(--pill-inset) * 2) 0 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.node,
+.edgeLabel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+/* The node: mark on a rail, title, audio signature under it. Sized in em so
+   one font-size write per camera frame scales the whole thing. */
+.node {
+  opacity: calc(var(--node-alpha, 1) * var(--node-dim, 1));
+  display: grid;
+  grid-template-columns: 0.72em auto;
+  column-gap: 0.18em;
+  align-items: start;
+  color: var(--title);
+  line-height: 1.13;
+  text-align: left;
+}
+
+.rail {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.16em;
+}
+
+.nodeTitle {
+  display: flex;
+  flex-direction: column;
+}
+
+.signature {
+  grid-column: 2;
+  margin-top: 0.16em;
+  overflow: visible;
+}
+
+.node[data-detail='off'] .rail,
+.node[data-detail='off'] .signature {
+  visibility: hidden;
+}
+
+/* Background knocked out behind the text so lines don't run through it (sec 5.4). */
+.edgeLabel {
+  font-size: var(--size-edge-label);
+  color: var(--edge-label);
+  background: var(--surface);
+  padding: 0 4px;
+}
