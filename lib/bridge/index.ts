@@ -70,7 +70,7 @@ export interface Bridge {
   startRecording(): Promise<void>;
   /** Returns the entry once transcription lands (~2s). `parentEdge` makes it
    *  an answer — a layer on that entry rather than its own node (§6.2). */
-  stopRecording(parentEdge?: string | null): Promise<Entry>;
+  stopRecording(parentEdge?: string | null, questionId?: string | null): Promise<Entry>;
   /** Discard belongs in the recording state, not after — you know it's junk
    *  before you stop (§4). Backed by a ~60s undo window, not a dialog. */
   discardRecording(): Promise<void>;

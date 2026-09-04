@@ -13,7 +13,8 @@ const RELATIONS: Array<{ id: Relation; gloss: string }> = [
   { id: 'questions', gloss: 'asks something of it' },
   { id: 'extends', gloss: 'carries it further' },
   { id: 'example of', gloss: 'an instance of the other' },
-  { id: 'echoes', gloss: 'rhymes without arguing' },
+  { id: 'answers', gloss: 'replies to a question on it' },
+  { id: 'related', gloss: "you know it belongs, you can't say why yet" },
 ];
 
 /**
@@ -70,7 +71,8 @@ export default function RelationPicker() {
         </div>
 
         <p className={styles.note}>
-          If none of these fit, the connection probably isn&rsquo;t one —{' '}
+          If you can&rsquo;t name it, <em>related</em> is honest. If it isn&rsquo;t a connection
+          at all,{' '}
           <button type="button" className={styles.cancel} onClick={() => setPendingLink(null)}>
             leave it
           </button>

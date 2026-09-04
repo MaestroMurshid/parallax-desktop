@@ -59,6 +59,14 @@ export default function Legend() {
         </>
       )}
 
+      <div className={styles.divider} />
+      <div className={styles.registerRow}>
+        <span className={styles.registerSample}>live</span>
+        <span className={styles.gloss}>
+          something personal is at stake in it, so it is left alone unless you ask
+        </span>
+      </div>
+
       <div className={styles.question}>
         <span className={styles.dot} />
         <span className={styles.questionLabel}>open question</span>

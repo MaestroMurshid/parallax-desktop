@@ -89,8 +89,8 @@ export class TauriBridge implements Bridge {
     return invoke('start_recording');
   }
 
-  stopRecording(parentEdge: string | null = null): Promise<Entry> {
-    return invoke('stop_recording', { parentEdge });
+  stopRecording(parentEdge: string | null = null, questionId: string | null = null): Promise<Entry> {
+    return invoke('stop_recording', { parentEdge, questionId });
   }
 
   discardRecording(): Promise<void> {

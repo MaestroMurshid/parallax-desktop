@@ -91,3 +91,21 @@
   font-size: var(--size-micro);
   color: var(--meta);
 }
+
+/* `live` is the only word in the app that does not say what it is, and it is
+   the one that decides whether the app speaks. Show the treatment beside it. */
+.registerRow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 2px;
+}
+
+.registerSample {
+  font-family: var(--font-serif);
+  font-weight: 300;
+  font-size: var(--size-canvas-title);
+  letter-spacing: 0.6px;
+  opacity: 0.8;
+  color: var(--title);
+}

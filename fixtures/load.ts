@@ -77,6 +77,7 @@ function toEntry(s: SeedEntry, x: number, y: number): Entry {
     x,
     y,
     parentEdge: s.parentEdge,
+    answersQuestionId: null,
     role: s.role,
     register: s.register,
     typeId: s.typeId,

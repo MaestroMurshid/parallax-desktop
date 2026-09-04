@@ -49,11 +49,11 @@ export interface UiSlice {
 
 export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set) => ({
   overlay: 'none',
-  theme: 'system',
+  theme: 'light',
   setTheme: (theme) => set({ theme }),
   selectedEntryId: null,
   hoveredEntryId: null,
-  analysisOpen: false,
+  analysisOpen: true,
   sampleLoaded: false,
   dragging: null,
   composing: false,
@@ -62,10 +62,10 @@ export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set
   pendingLink: null,
 
   openEntry(id) {
-    set({ overlay: 'entry', selectedEntryId: id, analysisOpen: false });
+    set({ overlay: 'entry', selectedEntryId: id, analysisOpen: true });
   },
   closeOverlay() {
-    set({ overlay: 'none', selectedEntryId: null, analysisOpen: false });
+    set({ overlay: 'none', selectedEntryId: null, analysisOpen: true });
   },
   setOverlay(o) {
     set({ overlay: o });

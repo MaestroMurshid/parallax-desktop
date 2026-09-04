@@ -463,7 +463,7 @@
     {
       "a": "the-word-does-damage",
       "b": "targets-became-ritual",
-      "relation": "echoes",
+      "relation": "same move",
       "status": "proposed",
       "question": null
     },
@@ -512,7 +512,7 @@
     {
       "a": "a-datacentre-drinks",
       "b": "targets-became-ritual",
-      "relation": "echoes",
+      "relation": "same move",
       "status": "proposed",
       "question": null
     },
@@ -547,7 +547,7 @@
     {
       "a": "they-knew-for-years",
       "b": "a-datacentre-drinks",
-      "relation": "echoes",
+      "relation": "same move",
       "status": "proposed",
       "question": null
     },
@@ -564,7 +564,7 @@
       "entryId": "decoupling-isnt-happening",
       "text": "The entry rejects growth in the base case but keeps the same energy demand curve underneath it. Is the demand curve also an assumption?",
       "spanQuote": "every plan I've read still has growth sitting in the base case",
-      "answered": true,
+      "answered": false,
       "providerName": "Qwen3-4B-Q4"
     },
     {

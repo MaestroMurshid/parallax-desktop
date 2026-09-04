@@ -38,6 +38,11 @@ export type ProbeTier = 'silent' | 'safe' | 'heavy' | 'retrieval';
 // ---------------------------------------------------------------------------
 // Relations — §5.4. An edge requires a nameable relation. If the best the
 // model can produce is "related" or "same subject", we draw nothing.
+//
+// `echoes` is gone: it meant the same as `same move` and nothing in the corpus
+// told them apart, which diluted the one relation the move vector exists to
+// find. It was also "related" under a better name, which is the escape hatch
+// §5.4 was written to close.
 // ---------------------------------------------------------------------------
 
 export type Relation =
@@ -47,7 +52,23 @@ export type Relation =
   | 'questions'
   | 'extends'
   | 'example of'
-  | 'echoes';
+  | 'answers'
+  | 'related';
+
+/**
+ * What the model is allowed to emit. `related` is deliberately outside it: the
+ * rule that stops the app drawing a line it cannot name does not apply to a
+ * person who knows two notes belong together and cannot yet say why. Refusing
+ * them the link only loses the connection.
+ */
+export const MODEL_RELATIONS: Relation[] = [
+  'contradicts',
+  'same move',
+  'returns to',
+  'questions',
+  'extends',
+  'example of',
+];
 
 /**
  * §5.4/§6.2 resolution: no parent→child line exists (§6.2's child entries
@@ -116,8 +137,11 @@ export interface Entry {
   x: number;
   y: number;
 
-  /** Set => this entry is an answer; it thickens the parent's ring (§6.2). */
+  /** Set => this entry is an answer to the entry named here. */
   parentEdge: string | null;
+  /** Which question it answers. Without it, an answer can only be paired to a
+   *  question by order, which guesses as soon as an entry has two open. */
+  answersQuestionId: string | null;
 
   /** Facet 1 — what this entry does. Display and retrieval only. */
   role: Role;

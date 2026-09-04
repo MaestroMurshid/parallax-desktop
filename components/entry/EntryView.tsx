@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getBridge } from '@/lib/bridge';
-import { hasOwnSpan, invokedProbes, resolveTypes, typeLabel } from '@/lib/scene/classification';
+import { hasOwnSpan, invokedProbes, resolveTypes, slotFor, typeLabel } from '@/lib/scene/classification';
 import { useApp } from '@/lib/store';
 import type { Edge, Entry, Question, Span } from '@/lib/types';
 import styles from './EntryView.module.css';
@@ -24,6 +24,18 @@ function segments(transcript: string, spans: Span[]) {
 
 const EMPTY: Question[] = [];
 
+/** The target renders in the letterform the canvas gives it, so the panel
+ *  speaks the same vocabulary rather than flattening everything to one face. */
+function letterform(target: Entry): CSSProperties {
+  const slot = slotFor(target);
+  if (!slot) return {};
+  return {
+    fontFamily: slot.family === 'mono' ? 'var(--font-mono)' : 'var(--font-serif)',
+    fontWeight: slot.weight,
+    letterSpacing: `${slot.tracking}px`,
+  };
+}
+
 /**
  * §5.3's best decision is currently invisible: a felt entry and a broken one
  * say the same eleven words. Name the reason, and the guardrail becomes the
@@ -31,9 +43,10 @@ const EMPTY: Question[] = [];
  */
 function silenceReason(entry: Entry): string {
   if (entry.role === 'note') return 'A note — kept as written.';
-  if (entry.role === 'evidence') return 'It won’t argue with something you noticed. Select a sentence and it will ask you to say it back.';
   if (!hasOwnSpan(entry)) return "Every word here is someone else's. Nothing of yours to push on.";
-  if (entry.register === 'live') return 'Left alone — this one reads as live. Select a sentence to push it anyway.';
+  // Register first: evidence opens on its own now, so when a live one is quiet
+  // the reason is the register, not the role.
+  if (entry.register === 'live') return 'Left alone — this one reads as live. Select a sentence to take it on anyway.';
   if (entry.durationMs < 30_000) return 'Under thirty seconds — said once, not interrogated.';
   return 'Nothing proposed for this entry.';
 }
@@ -60,12 +73,15 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   const customTypes = useApp((s) => s.customTypes);
   const addQuestion = useApp((s) => s.addQuestion);
   const dismissQuestion = useApp((s) => s.dismissQuestion);
+  const openEntry = useApp((s) => s.openEntry);
+  const startRecording = useApp((s) => s.startRecording);
   const resolveEntry = useApp((s) => s.resolveEntry);
   const reopenEntry = useApp((s) => s.reopenEntry);
   const [resolving, setResolving] = useState(false);
   const [resolutionDraft, setResolutionDraft] = useState('');
   const [probing, setProbing] = useState<string | null>(null);
   const [selection, setSelection] = useState<Span | null>(null);
+  const [selectAt, setSelectAt] = useState<{ x: number; y: number } | null>(null);
   const [proposed, setProposed] = useState<Edge[]>([]);
   const [children, setChildren] = useState<Entry[]>([]);
 
@@ -83,6 +99,10 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
 
   const items = actionItems.filter((a) => a.entryId === entry.id);
   const probes = invokedProbes(entry, resolveTypes(customTypes));
+  // Which child answered which question is not stored yet, so they pair in the
+  // order both were made. Right for the common case of one question, one answer.
+  const answeredIds = questions.filter((q) => q.answered).map((q) => q.id);
+  const answerFor = (qid: string): Entry | undefined => children[answeredIds.indexOf(qid)];
   const other = (edge: Edge) => entries.get(edge.entryA === entry.id ? edge.entryB : edge.entryA);
 
   return (
@@ -136,10 +156,17 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
             pre.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
             const start = pre.toString().length;
             const end = start + sel.toString().length;
-            if (end - start < 12) return setSelection(null);
+            if (end - start < 12) {
+              setSelectAt(null);
+              return setSelection(null);
+            }
+            const rect = sel.getRangeAt(0).getBoundingClientRect();
+            setSelectAt({ x: rect.left + rect.width / 2, y: rect.top });
             // Facet 3, exactly rather than by inference: this span, not the entry.
             const borrowed = entry.spans.some((sp) => sp.attributed && start < sp.end && end > sp.start);
-            setSelection(borrowed || probes.length === 0 ? null : { start, end, attributed: false });
+            const ok = !borrowed && probes.length > 0;
+            if (!ok) setSelectAt(null);
+            setSelection(ok ? { start, end, attributed: false } : null);
           }}
         >
           {segments(entry.transcript, entry.spans).map((seg, i) => (
@@ -258,6 +285,29 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
         </section>
       )}
 
+      {selection && selectAt && (
+        <button
+          type="button"
+          className={styles.askFloating}
+          style={{ left: selectAt.x, top: selectAt.y }}
+          disabled={probing !== null}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={async () => {
+            setProbing('span');
+            try {
+              addQuestion(entry.id, await getBridge().askQuestion(entry.id, selection));
+              setSelection(null);
+              setSelectAt(null);
+              window.getSelection()?.removeAllRanges();
+            } finally {
+              setProbing(null);
+            }
+          }}
+        >
+          {probing ? 'thinking…' : 'ask me about this'}
+        </button>
+      )}
+
       <button type="button" className={styles.analysisToggle} onClick={toggleAnalysis}>
         {analysisOpen ? 'hide analysis' : 'analysis'}
       </button>
@@ -265,17 +315,28 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
       {analysisOpen && (
         <section className={styles.analysis}>
           {questions.map((q) => (
-            <div key={q.id} className={q.dismissed ? styles.questionDismissed : styles.question}>
-              <p className={styles.questionText}>{q.text}</p>
+            <div
+              key={q.id}
+              className={
+                q.dismissed
+                  ? styles.questionDismissed
+                  : q.answered
+                    ? styles.questionAnswered
+                    : styles.question
+              }
+            >
               {q.span && (
                 <blockquote className={styles.quoted}>
                   {entry.transcript.slice(q.span.start, q.span.end)}
                 </blockquote>
               )}
+              <p className={styles.questionText}>{q.text}</p>
               <div className={styles.provider}>
                 <span>{q.providerName}</span>
                 {q.dismissed ? (
                   <span className={styles.dismissedTag}>dismissed</span>
+                ) : q.answered ? (
+                  <span className={styles.answeredTag}>answered</span>
                 ) : (
                   !q.answered && (
                     <button
@@ -288,14 +349,37 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
                   )
                 )}
               </div>
+              {q.answered && answerFor(q.id) && (
+                <button
+                  type="button"
+                  className={styles.answerLink}
+                  onClick={() => openEntry(answerFor(q.id)!.id)}
+                >
+                  <span className={styles.answerDate}>
+                    {dateFmt.format(new Date(answerFor(q.id)!.createdAt))}
+                  </span>
+                  <span className={styles.answerTitle}>{answerFor(q.id)!.title}</span>
+                </button>
+              )}
+
               {!q.answered && !q.dismissed && (
-                <p className={styles.answerHint}>
-                  Press <kbd className={styles.kbd}>{hotkey}</kbd> to answer it out loud — the
-                  answer becomes a layer on this entry, not a new note.
-                </p>
+                <button
+                  type="button"
+                  className={styles.answerThis}
+                  onClick={() => void startRecording(entry.id, q.id)}
+                >
+                  answer this
+                  <span className={styles.answerKey}>{hotkey}</span>
+                </button>
               )}
             </div>
           ))}
+
+          {proposed.length > 0 && (
+            <p className={styles.sectionLabel}>
+              {proposed.length === 1 ? 'one connection proposed' : `${proposed.length} connections proposed`}
+            </p>
+          )}
 
           {proposed.map((edge) => {
             const target = other(edge);
@@ -304,7 +388,14 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
               <div key={edge.id} className={styles.card}>
                 <div className={styles.cardHead}>
                   <span className={styles.relation}>{edge.relation}</span>
-                  <span className={styles.cardTitle}>{target.title}</span>
+                  <button
+                    type="button"
+                    className={styles.cardTitle}
+                    style={letterform(target)}
+                    onClick={() => openEntry(target.id)}
+                  >
+                    {target.title}
+                  </button>
                 </div>
                 {edge.question && <p className={styles.cardQuestion}>{edge.question}</p>}
                 <div className={styles.cardActions}>
@@ -323,33 +414,15 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
             <p className={styles.nothing}>{silenceReason(entry)}</p>
           )}
 
-          {/* §11 rejected contention-as-a-button twice. Invocation lives on a
-              selection instead: you ask about a sentence, which keeps the
-              question specific and proves the span is yours before it fires. */}
-          {selection && (
-            <div className={styles.probes}>
-              <button
-                type="button"
-                className={styles.ask}
-                disabled={probing !== null}
-                onClick={async () => {
-                  setProbing('span');
-                  try {
-                    addQuestion(entry.id, await getBridge().askQuestion(entry.id, selection));
-                    setSelection(null);
-                    window.getSelection()?.removeAllRanges();
-                  } finally {
-                    setProbing(null);
-                  }
-                }}
-              >
-                {probing ? 'thinking…' : 'ask about this'}
-              </button>
-              <span className={styles.askHint}>
-                {entry.transcript.slice(selection.start, selection.start + 34).trim()}…
-              </span>
-            </div>
-          )}
+          {/* Nothing is waiting, but this is the entry you came back to. */}
+          {questions.length > 0 &&
+            proposed.length === 0 &&
+            questions.every((q) => q.answered || q.dismissed) && (
+            <p className={styles.answerHint}>
+              Nothing open here. Press <kbd className={styles.kbd}>{hotkey}</kbd> to say something
+              else about it. It joins on as its own note.
+            </p>
+            )}
 
           <div className={styles.connectRow}>
             <button

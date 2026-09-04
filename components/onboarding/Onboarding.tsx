@@ -46,7 +46,7 @@ export default function Onboarding({
   settings: Settings;
   onDone(next: Settings): void;
 }) {
-  const [step, setStep] = useState<'models' | 'types' | 'links' | 'field'>('models');
+  const [step, setStep] = useState<'models' | 'field' | 'types' | 'links'>('models');
   const theme = useApp((s) => s.theme);
   const setTheme = useApp((s) => s.setTheme);
   const [profile, setProfile] = useState<SystemProfile | null>(null);
@@ -113,7 +113,7 @@ export default function Onboarding({
       await bridge.setSettings({ modelId });
       void bridge.downloadModel(modelId);
     }
-    setStep('types');
+    setStep('field');
   };
 
   const start = async () => {
@@ -127,8 +127,8 @@ export default function Onboarding({
       if (e.key !== 'Enter' || capturing) return;
       if ((e.target as HTMLElement | null)?.tagName === 'BUTTON') return;
       if (step === 'models') return void chooseModels();
+      if (step === 'field') return setStep('types');
       if (step === 'types') return setStep('links');
-      if (step === 'links') return setStep('field');
       void start();
     };
     window.addEventListener('keydown', onKeyDown);
@@ -183,7 +183,7 @@ export default function Onboarding({
             </div>
 
             <div className={styles.node}>
-              <span className={styles.t}>The question</span>
+              <span className={styles.t}>Reasoning</span>
               <span className={styles.m}>
                 {reasoning ? `${reasoning.name} ${reasoning.quantization} · ${size(reasoning)}` : 'detecting…'}
                 <span className={styles.sep}>·</span>
@@ -193,7 +193,7 @@ export default function Onboarding({
               </span>
               <span className={styles.helper}>
                 Only needed for the question, so it can arrive late
-                {profile && ` — ${gb(profile.totalRamBytes)} RAM · ${profile.cpuCores} cores`}.
+                {profile && `. ${gb(profile.totalRamBytes)} RAM · ${profile.cpuCores} cores`}.
               </span>
             </div>
 
@@ -254,8 +254,8 @@ export default function Onboarding({
                   <span className={`${styles.kindName} ${styles.kPosition}`}>position</span>
                 </span>
                 <span className={styles.said}>
-                  &ldquo;Upbringing, genetics, circumstances &mdash; they shape what I want. But I
-                  still choose how I respond to it.&rdquo;
+                  &ldquo;Upbringing, genetics, circumstances. They shape what I want. But I still
+                  choose how I respond to it.&rdquo;
                 </span>
                 <span className={styles.back}>
                   This rests on the responding being separate from what shaped you. Is it separate,
@@ -269,8 +269,8 @@ export default function Onboarding({
                   <span className={`${styles.kindName} ${styles.kEvidence}`}>evidence</span>
                 </span>
                 <span className={styles.said}>
-                  &ldquo;The hard problem is why there is something it is like to be you at all
-                  &mdash; not how the brain processes information.&rdquo;
+                  &ldquo;The hard problem is why there is something it is like to be you at all,
+                  not how the brain processes information.&rdquo;
                 </span>
                 <span className={styles.back}>
                   You wake up tomorrow unable to feel pain, emotion or pleasure, but you can still
@@ -289,7 +289,7 @@ export default function Onboarding({
                   got acquired.&rdquo;
                 </span>
                 <span className={styles.backQuiet}>
-                  both items &rarr; task list &mdash; nothing asked
+                  both items &rarr; task list, nothing asked
                 </span>
               </div>
             </div>
@@ -332,7 +332,6 @@ export default function Onboarding({
               <line x1="95" y1="50" x2="215" y2="148" />
               <line x1="420" y1="74" x2="245" y2="150" />
               <line x1="255" y1="158" x2="400" y2="198" />
-              <line x1="212" y1="162" x2="98" y2="232" />
             </svg>
 
             <div className={styles.node} style={{ left: '4%', top: '10%' }}>
@@ -379,18 +378,10 @@ export default function Onboarding({
             </div>
 
             <div className={styles.node} style={{ left: '62%', top: '62%' }}>
-              <span className={styles.t}>The question</span>
+              <span className={styles.t}>Reasoning</span>
               <span className={styles.m}>{reasoningProgress.label || 'arriving'}</span>
             </div>
 
-            {/* Not a control — it teaches the accent dot before the canvas uses it. */}
-            <div className={styles.node} style={{ left: '4%', top: '74%' }}>
-              <span className={styles.t}>Open questions</span>
-              <span className={styles.m}>
-                <span className={styles.dot} />
-                it pushed back &mdash; answer out loud
-              </span>
-            </div>
           </div>
         )}
 
@@ -416,12 +407,12 @@ export default function Onboarding({
         <div className={styles.go}>
           <span className={styles.note}>
             {step === 'models'
-              ? 'Both start downloading now, so they run while you read the next two screens.'
-              : step === 'types'
-                ? 'It decides this itself. You can change it on any note.'
-                : step === 'links'
-                  ? 'Nothing here needs filing. It happens while you are not looking.'
-                  : 'Speech lands first — you can record as soon as it does. The question waits on the larger one.'}{' '}
+              ? 'Both start downloading now, so they run while you set the rest up.'
+              : step === 'field'
+                ? 'Speech lands first, so you can record as soon as it does. The question waits on the larger one.'
+                : step === 'types'
+                  ? 'It decides this itself. You can change it on any note.'
+                  : 'Nothing here needs filing. It happens while you are not looking.'}{' '}
             Press <kbd className={styles.kbdInline}>Enter</kbd>.
           </span>
           <button
@@ -429,12 +420,12 @@ export default function Onboarding({
             className={styles.start}
             onClick={() => {
               if (step === 'models') return void chooseModels();
+              if (step === 'field') return setStep('types');
               if (step === 'types') return setStep('links');
-              if (step === 'links') return setStep('field');
               void start();
             }}
           >
-            {step === 'field' ? 'Start' : 'Continue'}
+            {step === 'links' ? 'Start' : 'Continue'}
           </button>
         </div>
       </div>

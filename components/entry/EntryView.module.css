@@ -172,22 +172,41 @@
   gap: 18px;
 }
 
+/* The question is the one voice that isn't the user's (§8) and was reading at
+   the same weight as the metadata around it. It gets the size. */
 .questionText {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: var(--size-question);
-  line-height: 1.5;
+  font-size: clamp(16px, 2.4cqw, 19px);
+  line-height: 1.45;
   color: var(--title);
 }
 
-/* Every analytical claim quotes a span (sec 3.4). */
+/* Two different things were running together: what it asked about this entry,
+   and what it wants to join it to. */
+.sectionLabel {
+  margin: 18px 0 8px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.08em;
+  color: var(--edge-label);
+}
+
+.sectionLabel:first-child {
+  margin-top: 2px;
+}
+
+/* Every analytical claim quotes a span (sec 3.4). The span now leads, so it
+   needs saying whose words these are — without the label it reads as a stray
+   line of prose above an unrelated question. */
 .quoted {
-  margin: 10px 0 0;
+  margin: 0 0 9px;
   padding-left: 12px;
-  border-left: 1px solid var(--edge);
+  border-left: 2px solid var(--edge-control);
   font-size: var(--size-meta);
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--meta);
+  font-style: italic;
 }
 
 .provider {
@@ -199,6 +218,12 @@
   color: var(--edge-label);
 }
 
+/* Answered is settled, not rejected: it recedes but keeps its full text, so a
+   question with no prompt under it reads as done rather than as broken. */
+.questionAnswered {
+  opacity: 0.62;
+}
+
 /* Struck out, still on the record. Dismissing is allowed; escaping is not. */
 .questionDismissed {
   opacity: 0.5;
@@ -208,6 +233,16 @@
   text-decoration: line-through;
   text-decoration-color: var(--edge-control);
   text-decoration-thickness: 1px;
+}
+
+.answeredTag {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.04em;
+  color: var(--edge-label);
+  text-decoration: underline;
+  text-decoration-color: var(--edge-control);
+  text-underline-offset: 3px;
 }
 
 .dismissedTag {
@@ -245,10 +280,12 @@
   height: max(calc(100% + 10px), 24px);
 }
 
+/* A rounded bordered box is generic UI; the canvas draws a relation as a named
+   line. The card follows it: a rule, the relation in the machine's mono, the
+   target in its own letterform. */
 .card {
-  padding: 12px 14px;
-  border: 1px solid var(--edge);
-  border-radius: 8px;
+  padding: 2px 0 14px 14px;
+  border-left: 1px solid var(--edge-control);
 }
 
 .cardHead {
@@ -262,16 +299,43 @@
   color: var(--edge-label);
 }
 
+/* The other end of a proposed connection is a note; you should be able to go
+   and read it before deciding whether the link is real. */
 .cardTitle {
-  font-size: var(--size-meta);
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: clamp(14px, 2cqw, 16px);
+  line-height: 1.3;
   color: var(--title);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 120ms;
+}
+
+.cardTitle:hover {
+  text-decoration-color: var(--edge-control);
+}
+
+/* WCAG 2.2 target size without disturbing the baseline row (§16). */
+.cardTitle::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 100%;
+  height: max(100%, 24px);
 }
 
 .cardQuestion {
   margin: 8px 0 0;
   font-family: var(--font-serif);
-  font-size: var(--size-meta);
-  line-height: 1.55;
+  font-size: clamp(14px, 2cqw, 16px);
+  line-height: 1.5;
   color: var(--meta);
 }
 
@@ -321,10 +385,11 @@
 }
 
 .answerHint {
-  margin: 10px 0 0;
-  font-size: var(--size-meta);
-  line-height: 1.55;
-  color: var(--meta);
+  margin: 9px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.04em;
+  color: var(--edge-label);
 }
 
 .kbd {
@@ -553,4 +618,108 @@
 .askHint {
   font-size: var(--size-meta);
   color: var(--meta);
+}
+
+/* What you said back, under the question it settled. An `answered` tag alone
+   tells you the state; this tells you where the answer went, which is the part
+   worth finding again in eight months. */
+.answerLink {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.answerDate {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+.answerTitle {
+  font-family: var(--font-serif);
+  font-size: var(--size-meta);
+  line-height: 1.4;
+  color: var(--meta);
+  text-decoration: underline;
+  text-decoration-color: var(--edge-control);
+  text-underline-offset: 3px;
+}
+
+.answerLink:hover .answerTitle {
+  color: var(--title);
+}
+
+.answerLink::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 100%;
+  height: max(100%, 24px);
+}
+
+/* Each open question is answerable on its own. The hotkey still works and takes
+   the oldest, but nothing forces you through them in order any more. */
+.answerThis {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 4px 10px;
+  border: 1px solid var(--edge-control);
+  border-radius: 999px;
+  background: none;
+  font-family: var(--font-sans);
+  font-size: var(--size-meta);
+  color: var(--title);
+  cursor: pointer;
+}
+
+.answerThis:hover {
+  border-color: var(--meta);
+}
+
+.answerKey {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+/* At the selection rather than at the foot of the panel: you asked about that
+   sentence, so the offer belongs where the sentence is. */
+.askFloating {
+  position: fixed;
+  translate: -50% calc(-100% - 9px);
+  z-index: 40;
+  padding: 6px 12px;
+  border: 1px solid var(--edge-control);
+  border-radius: 999px;
+  background: var(--dimmed-bg);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  font-family: var(--font-sans);
+  font-size: var(--size-meta);
+  color: var(--title);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.askFloating:hover {
+  border-color: var(--meta);
+}
+
+/* Questions on one entry need telling apart. */
+.question,
+.questionAnswered,
+.questionDismissed {
+  padding: 14px 0 16px;
 }

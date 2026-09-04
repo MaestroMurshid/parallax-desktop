@@ -15,7 +15,7 @@ import type {
   Span,
 } from '@/lib/types';
 import { radiusForDuration } from '@/lib/scene/blob';
-import { invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
+import { automaticProbes, invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
 import { detectUnfinished } from '@/lib/scene/markers';
 import { placeEntry, type PlacedNode } from '@/lib/scene/placement';
 import { titleSizeForDuration, wrapTitle } from '@/lib/scene/lexicon';
@@ -197,6 +197,7 @@ export class MockBridge implements Bridge {
       role: 'position',
       register: 'neutral',
       typeId: 'position',
+      answersQuestionId: null,
       resolved: false,
       resolutionText: null,
       title: deriveTitle(draft.transcript),
@@ -275,7 +276,10 @@ export class MockBridge implements Bridge {
     }, 33);
   }
 
-  async stopRecording(parentEdge: string | null = null): Promise<Entry> {
+  async stopRecording(
+    parentEdge: string | null = null,
+    questionId: string | null = null,
+  ): Promise<Entry> {
     const durationMs = Date.now() - this.recordingStartedAt;
     this.stopAmplitude();
     await sleep(1800); // §4 — transcription runs (~2s)
@@ -285,7 +289,25 @@ export class MockBridge implements Bridge {
     const transcript = PLACEHOLDER_TRANSCRIPTS[idx] ?? PLACEHOLDER_TRANSCRIPTS[0]!;
     const fingerprint = Array.from({ length: 8 }, () => 0.15 + r() * 0.85);
 
-    return this.createEntry({ transcript, durationMs, fingerprint, parentEdge });
+    const entry = await this.createEntry({ transcript, durationMs, fingerprint, parentEdge });
+    entry.answersQuestionId = questionId;
+    this.entries.set(entry.id, entry);
+
+    // An answer is a note in its own right, not a turn in a conversation. It
+    // lands on the canvas, carries a drawn line back to what it answers, and
+    // is eligible for its own question like anything else you say.
+    if (parentEdge && this.entries.has(parentEdge)) {
+      this.edges.push({
+        id: `edge-answer-${entry.id}`,
+        entryA: parentEdge,
+        entryB: entry.id,
+        relation: 'answers',
+        question: null,
+        status: 'accepted',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return entry;
   }
 
   async discardRecording(): Promise<void> {
@@ -317,7 +339,18 @@ export class MockBridge implements Bridge {
     if (!entry) return null;
     // §3.2 suppression re-enforced here rather than trusted upstream.
     if (!mayProbeAutomatically(entry)) return null;
-    return this.questions.get(entryId)?.[0] ?? null;
+    const existing = this.questions.get(entryId)?.[0];
+    if (existing) return existing;
+    // Stands in for §7.2's background pass: a real backend generates and stores
+    // during enrichment and this call only reads. Generating lazily here keeps
+    // the invariant — anything the gate lets through has a question — without
+    // it depending on whether one was written into the fixture. The seed corpus
+    // still supplies the better-written examples where it has them.
+    //
+    // Restricted to the Safe tier. Reaching for invokedProbes here fires a
+    // steelman as the opening move, which §3.2 forbids.
+    const probe = automaticProbes(entry)[0];
+    return probe ? this.runProbe(entryId, probe.id) : null;
   }
 
   /**
@@ -372,8 +405,11 @@ export class MockBridge implements Bridge {
         'What would you have to see for the entry to be wrong about this?',
       munchhausen:
         'The entry rests on that being the case. What is that resting on?',
+      // A real model writes this against the transcript, so it lands on the
+      // subject: a case the concept has to cover, a consequence to follow. This
+      // stub cannot do that and should not be read as the shape of the mode.
       feynman:
-        'Stated to someone who has not read the source, which part of this stops being obvious?',
+        'Take a case this would have to cover that has not come up yet. Does it still hold?',
     };
 
     const question: Question = {

@@ -99,10 +99,12 @@ export function resolveTypes(custom: TypeDefinition[] = []): TypeDefinition[] {
   const merged = new Map(BUILT_IN_TYPES.map((t) => [t.id, t]));
   for (const t of custom) {
     if (BUILT_IN_IDS.has(t.id)) continue;
-    const optedIn = t.autoApproved === true;
-    const tier: ProbeTier = !optedIn && AUTO_FIRING.includes(t.tier) ? 'heavy' : t.tier;
+    // A type you defined fires like any built-in. §3.6 rule 1 wanted an extra
+    // opt-in, but the suppressions below it are the ones with teeth: role,
+    // provenance and register are not overridable, so the tier a user picks
+    // can only ever be narrower than what those already allow.
     const role = t.role && SLOTS[t.role] ? t.role : null;
-    merged.set(t.id, { ...t, builtIn: false, tier, role, autoApproved: optedIn });
+    merged.set(t.id, { ...t, builtIn: false, role, autoApproved: true });
   }
   return [...merged.values()];
 }
@@ -182,20 +184,6 @@ export function hasOwnSpan(entry: Entry): boolean {
 }
 
 /**
- * The automatic question (§3.2) — post-recording, once, and the only path the
- * user did not ask for. All three facets gate it, and every one of them fails
- * closed.
- */
-export function mayProbeAutomatically(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): boolean {
-  if (entry.register === 'live') return false;
-  if (entry.durationMs < 30_000) return false;
-  if (!hasOwnSpan(entry)) return false;
-  if (roleOf(entry, types) !== 'position') return false;
-  const def = definitionFor(entry, types);
-  return def ? def.tier !== 'silent' : true;
-}
-
-/**
  * The invoked path, adversarial half. §3.2: "the user chooses to be challenged,
  * so the risk of misfire is theirs" — so register does not gate here, and
  * neither does duration. Role and provenance still do, because there is nothing
@@ -205,7 +193,8 @@ export function mayProbeOnRequest(entry: Entry, types: TypeDefinition[] = BUILT_
   if (!hasOwnSpan(entry)) return false;
   if (roleOf(entry, types) !== 'position') return false;
   const def = definitionFor(entry, types);
-  return def ? def.tier !== 'silent' || !def.builtIn : true;
+  // Silent means silent on both paths.
+  return def ? def.tier !== 'silent' : true;
 }
 
 /**
@@ -231,15 +220,66 @@ export interface Probe {
   id: 'steelman' | 'boundary' | 'disconfirming' | 'munchhausen' | 'feynman';
   label: string;
   hint: string;
+  /**
+   * §3.6's tier, declared rather than implied by position in the array. Safe
+   * may fire on its own; Heavy is invoked only. Reading this off array order
+   * is how a steelman ends up firing automatically.
+   */
+  tier: 'safe' | 'heavy';
 }
 
 const ALL_PROBES: Probe[] = [
-  { id: 'steelman', label: 'steelman it', hint: 'state it better than you did, then push' },
-  { id: 'boundary', label: 'find the edge', hint: 'where does this stop holding?' },
-  { id: 'disconfirming', label: 'what would break it', hint: 'what would make you drop this?' },
-  { id: 'munchhausen', label: 'ask why, four times', hint: 'follow the reasons until they bottom out' },
-  { id: 'feynman', label: 'explain it simply', hint: 'only useful where there is a concept to master' },
+  // §3.1 D — being understood before being challenged, but it states a position
+  // of its own, so it is never the app's opening move.
+  { id: 'steelman', label: 'steelman it', hint: 'state it better than you did, then push', tier: 'heavy' },
+  // §3.1 B and C — the two that may open, per §3.2's A/B/C-or-nothing.
+  { id: 'boundary', label: 'find the edge', hint: 'where does this stop holding?', tier: 'safe' },
+  { id: 'disconfirming', label: 'what would break it', hint: 'what would make you drop this?', tier: 'safe' },
+  // §3.1 E and F — §3.3 gates one, the other needs a concept being held.
+  { id: 'munchhausen', label: 'ask why, four times', hint: 'follow the reasons until they bottom out', tier: 'heavy' },
+  { id: 'feynman', label: 'show you have it', hint: 'apply it to a case you have not been given', tier: 'heavy' },
 ];
+
+/**
+ * What the app may open with, unprompted — the primitive the automatic path is
+ * built from. Three gates apply to everything: register, duration, and having
+ * words of your own in it. Beyond that it depends on what the entry is.
+ *
+ * §3.2 restricts the opening move to A, B or C, and that holds for a position:
+ * never a steelman, never Münchhausen. But it also said never F, and that was
+ * wrong for the same reason F did not need the position gate — being asked to
+ * say something back takes no stance and cannot wound. Withholding it until the
+ * user thinks to ask means the one move that makes learning stick only fires
+ * for someone who already knows to want it.
+ */
+export function automaticProbes(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): Probe[] {
+  if (entry.register === 'live') return [];
+  if (entry.durationMs < 30_000) return [];
+  if (!hasOwnSpan(entry)) return [];
+
+  const role = roleOf(entry, types);
+  const def = definitionFor(entry, types);
+  // A user type set to silent opens nothing, whatever its role.
+  if (def && !def.builtIn && def.tier === 'silent') return [];
+
+  if (role === 'position') {
+    const mayInitiate = !def || def.builtIn || AUTO_FIRING.includes(def.tier);
+    return mayInitiate ? ALL_PROBES.filter((p) => p.tier === 'safe') : [];
+  }
+  // A concept you are holding gets asked for, in whatever form the topic
+  // suits — a case to apply it to, a consequence to follow, a restatement.
+  // Notes get nothing.
+  if (role === 'evidence') return ALL_PROBES.filter((p) => p.id === 'feynman');
+  return [];
+}
+
+/** Whether anything at all opens on its own. */
+export function mayProbeAutomatically(
+  entry: Entry,
+  types: TypeDefinition[] = BUILT_IN_TYPES,
+): boolean {
+  return automaticProbes(entry, types).length > 0;
+}
 
 /**
  * Which probes an entry may be asked. Empty unless the entry is a position with

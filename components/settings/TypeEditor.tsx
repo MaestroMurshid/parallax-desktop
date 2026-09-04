@@ -14,7 +14,9 @@ import { useApp } from '@/lib/store';
 import type { ProbeTier } from '@/lib/types';
 import styles from './TypeEditor.module.css';
 
-const TIERS: ProbeTier[] = ['silent', 'heavy', 'safe', 'retrieval'];
+/** What a user may pick. `retrieval` describes mode G, which is edge-driven
+ *  and not a property of a type, so it is not offered. */
+const TIERS: ProbeTier[] = ['silent', 'heavy', 'safe'];
 
 /** The tier word is the gate; on its own it tells the user nothing. */
 const TIER_TEXT: Record<ProbeTier, string> = {
@@ -32,11 +34,11 @@ const TIER_TEXT: Record<ProbeTier, string> = {
 function tierGloss(t: TypeDefinition): string {
   if (t.builtIn) {
     if (t.role === 'position') return 'asks on its own';
-    if (t.role === 'evidence') return 'only when you ask';
+    if (t.role === 'evidence') return 'asks you to show you have it';
     return 'never asks';
   }
   const base = TIER_TEXT[t.tier];
-  return t.autoApproved ? base : `${base} · not approved to fire`;
+  return base;
 }
 const SLOT_IDS = Object.keys(SLOTS) as SlotId[];
 const slug = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -48,7 +50,7 @@ const blank = {
   tier: 'heavy' as ProbeTier,
   role: '' as SlotId | '',
   mark: '',
-  autoApproved: false,
+  autoApproved: true,
 };
 
 export default function TypeEditor() {
@@ -224,20 +226,10 @@ export default function TypeEditor() {
             ))}
           </select>
           <span className={styles.hint}>
-            How far it may go. Whatever you pick, it still cannot fire on its own until you approve
-            it below, and never on a note, on someone else&rsquo;s words, or on an entry that reads
-            as live.
+            How far it may go. Whatever you pick, it never fires on a note, on someone
+            else&rsquo;s words, or on an entry that reads as live.
           </span>
         </div>
-
-        <label className={styles.markRow}>
-          <input
-            type="checkbox"
-            checked={draft.autoApproved}
-            onChange={(e) => setDraft({ ...draft, autoApproved: e.target.checked })}
-          />
-          <span className={styles.fieldLabel}>let this fire automatically</span>
-        </label>
 
         <button type="button" className={styles.submit} disabled={!canSubmit} onClick={submit}>
           add type
