@@ -265,20 +265,28 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
       {analysisOpen && (
         <section className={styles.analysis}>
           {questions.map((q) => (
-            <div key={q.id} className={q.dismissed ? styles.questionDismissed : styles.question}>
+            <div
+              key={q.id}
+              className={
+                q.dismissed
+                  ? styles.questionDismissed
+                  : q.answered
+                    ? styles.questionAnswered
+                    : styles.question
+              }
+            >
               {q.span && (
-                <div className={styles.anchor}>
-                  <span className={styles.anchorLabel}>about</span>
-                  <blockquote className={styles.quoted}>
-                    {entry.transcript.slice(q.span.start, q.span.end)}
-                  </blockquote>
-                </div>
+                <blockquote className={styles.quoted}>
+                  {entry.transcript.slice(q.span.start, q.span.end)}
+                </blockquote>
               )}
               <p className={styles.questionText}>{q.text}</p>
               <div className={styles.provider}>
                 <span>{q.providerName}</span>
                 {q.dismissed ? (
                   <span className={styles.dismissedTag}>dismissed</span>
+                ) : q.answered ? (
+                  <span className={styles.dismissedTag}>answered</span>
                 ) : (
                   !q.answered && (
                     <button

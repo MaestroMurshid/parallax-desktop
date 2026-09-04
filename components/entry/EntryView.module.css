@@ -183,25 +183,10 @@
 /* Every analytical claim quotes a span (sec 3.4). The span now leads, so it
    needs saying whose words these are — without the label it reads as a stray
    line of prose above an unrelated question. */
-.anchor {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
+.quoted {
   margin: 0 0 9px;
   padding-left: 12px;
   border-left: 2px solid var(--edge-control);
-}
-
-.anchorLabel {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--size-micro);
-  letter-spacing: 0.06em;
-  color: var(--edge-label);
-}
-
-.quoted {
-  margin: 0;
   font-size: var(--size-meta);
   line-height: 1.55;
   color: var(--meta);
@@ -215,6 +200,12 @@
   gap: 10px;
   font-size: var(--size-meta);
   color: var(--edge-label);
+}
+
+/* Answered is settled, not rejected: it recedes but keeps its full text, so a
+   question with no prompt under it reads as done rather than as broken. */
+.questionAnswered {
+  opacity: 0.62;
 }
 
 /* Struck out, still on the record. Dismissing is allowed; escaping is not. */
