@@ -96,8 +96,10 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
     const entry: Entry = await getBridge().stopRecording(answering);
     get().upsertEntry(entry);
 
-    // An answer thickens its parent's rings and closes the open question; it
-    // never gets probed itself, or one question becomes an interrogation (§3.4).
+    // An answer closes the question it replies to, then goes on to be a note
+    // like any other: drawn on the canvas, joined to what it answers, and
+    // asked its own question. Speaking is how the thread continues, which is
+    // the point at which one entry becomes two rather than a conversation.
     if (answering) {
       // The oldest unanswered one is the one they just spoke to.
       const questions = new Map(get().questions);
@@ -110,9 +112,14 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
           return { ...q, answered: true };
         }));
       }
-      // Answering always starts from an entry already open in this window, so
-      // there is no window boundary to cross and nothing new to open.
-      set({ questions, captureState: 'idle', answeringEntryId: null });
+      const own = long ? null : await getBridge().getQuestion(entry.id);
+      if (own) questions.set(entry.id, [own]);
+      set({
+        questions,
+        edges: await getBridge().listEdges(),
+        captureState: 'idle',
+        answeringEntryId: null,
+      });
       return;
     }
 

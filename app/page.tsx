@@ -127,7 +127,7 @@ export default function Page() {
         if (state.captureState === 'recording') void state.stopRecording();
         else if (state.captureState === 'idle') {
           // An open entry with an unanswered question makes the hotkey mean
-          // "answer this" — the answer becomes a layer on it (§6.2).
+          // "answer this" — the answer becomes its own note, joined to it.
           const target = state.selectedEntryId;
           const answering =
             state.overlay === 'entry' && target && state.hasUnansweredQuestion(target)

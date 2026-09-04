@@ -99,10 +99,12 @@ export function resolveTypes(custom: TypeDefinition[] = []): TypeDefinition[] {
   const merged = new Map(BUILT_IN_TYPES.map((t) => [t.id, t]));
   for (const t of custom) {
     if (BUILT_IN_IDS.has(t.id)) continue;
-    const optedIn = t.autoApproved === true;
-    const tier: ProbeTier = !optedIn && AUTO_FIRING.includes(t.tier) ? 'heavy' : t.tier;
+    // A type you defined fires like any built-in. §3.6 rule 1 wanted an extra
+    // opt-in, but the suppressions below it are the ones with teeth: role,
+    // provenance and register are not overridable, so the tier a user picks
+    // can only ever be narrower than what those already allow.
     const role = t.role && SLOTS[t.role] ? t.role : null;
-    merged.set(t.id, { ...t, builtIn: false, tier, role, autoApproved: optedIn });
+    merged.set(t.id, { ...t, builtIn: false, role, autoApproved: true });
   }
   return [...merged.values()];
 }
