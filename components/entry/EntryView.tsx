@@ -31,9 +31,10 @@ const EMPTY: Question[] = [];
  */
 function silenceReason(entry: Entry): string {
   if (entry.role === 'note') return 'A note — kept as written.';
-  if (entry.role === 'evidence') return 'It won’t argue with something you noticed. Select a sentence and it will ask you to say it back.';
   if (!hasOwnSpan(entry)) return "Every word here is someone else's. Nothing of yours to push on.";
-  if (entry.register === 'live') return 'Left alone — this one reads as live. Select a sentence to push it anyway.';
+  // Register first: evidence opens on its own now, so when a live one is quiet
+  // the reason is the register, not the role.
+  if (entry.register === 'live') return 'Left alone — this one reads as live. Select a sentence to take it on anyway.';
   if (entry.durationMs < 30_000) return 'Under thirty seconds — said once, not interrogated.';
   return 'Nothing proposed for this entry.';
 }

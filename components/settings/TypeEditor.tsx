@@ -34,7 +34,7 @@ const TIER_TEXT: Record<ProbeTier, string> = {
 function tierGloss(t: TypeDefinition): string {
   if (t.builtIn) {
     if (t.role === 'position') return 'asks on its own';
-    if (t.role === 'evidence') return 'only when you ask';
+    if (t.role === 'evidence') return 'asks you to say it back';
     return 'never asks';
   }
   const base = TIER_TEXT[t.tier];

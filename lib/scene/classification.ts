@@ -184,22 +184,6 @@ export function hasOwnSpan(entry: Entry): boolean {
 }
 
 /**
- * The automatic question (§3.2) — post-recording, once, and the only path the
- * user did not ask for. All three facets gate it, and every one of them fails
- * closed.
- */
-export function mayProbeAutomatically(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): boolean {
-  if (entry.register === 'live') return false;
-  if (entry.durationMs < 30_000) return false;
-  if (!hasOwnSpan(entry)) return false;
-  if (roleOf(entry, types) !== 'position') return false;
-  const def = definitionFor(entry, types);
-  // Only these tiers initiate. `heavy` means invoked-only and must not slip
-  // through here; checking `!== 'silent'` let it fire like `safe`.
-  return def ? AUTO_FIRING.includes(def.tier) : true;
-}
-
-/**
  * The invoked path, adversarial half. §3.2: "the user chooses to be challenged,
  * so the risk of misfire is theirs" — so register does not gate here, and
  * neither does duration. Role and provenance still do, because there is nothing
@@ -209,8 +193,7 @@ export function mayProbeOnRequest(entry: Entry, types: TypeDefinition[] = BUILT_
   if (!hasOwnSpan(entry)) return false;
   if (roleOf(entry, types) !== 'position') return false;
   const def = definitionFor(entry, types);
-  // Silent means silent on both paths. A user type set to silent used to stay
-  // askable, which made it indistinguishable from heavy.
+  // Silent means silent on both paths.
   return def ? def.tier !== 'silent' : true;
 }
 
@@ -258,13 +241,42 @@ const ALL_PROBES: Probe[] = [
 ];
 
 /**
- * What the app may open with, unprompted. §3.2 restricts the automatic question
- * to A, B, C or nothing — never D, never E, never F. The invoked set is a
- * superset of this and lives in `invokedProbes`.
+ * What the app may open with, unprompted — the primitive the automatic path is
+ * built from. Three gates apply to everything: register, duration, and having
+ * words of your own in it. Beyond that it depends on what the entry is.
+ *
+ * §3.2 restricts the opening move to A, B or C, and that holds for a position:
+ * never a steelman, never Münchhausen. But it also said never F, and that was
+ * wrong for the same reason F did not need the position gate — being asked to
+ * say something back takes no stance and cannot wound. Withholding it until the
+ * user thinks to ask means the one move that makes learning stick only fires
+ * for someone who already knows to want it.
  */
 export function automaticProbes(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): Probe[] {
-  if (!mayProbeAutomatically(entry, types)) return [];
-  return ALL_PROBES.filter((p) => p.tier === 'safe');
+  if (entry.register === 'live') return [];
+  if (entry.durationMs < 30_000) return [];
+  if (!hasOwnSpan(entry)) return [];
+
+  const role = roleOf(entry, types);
+  const def = definitionFor(entry, types);
+  // A user type set to silent opens nothing, whatever its role.
+  if (def && !def.builtIn && def.tier === 'silent') return [];
+
+  if (role === 'position') {
+    const mayInitiate = !def || def.builtIn || AUTO_FIRING.includes(def.tier);
+    return mayInitiate ? ALL_PROBES.filter((p) => p.tier === 'safe') : [];
+  }
+  // A concept you are holding gets asked to be said back. Notes get nothing.
+  if (role === 'evidence') return ALL_PROBES.filter((p) => p.id === 'feynman');
+  return [];
+}
+
+/** Whether anything at all opens on its own. */
+export function mayProbeAutomatically(
+  entry: Entry,
+  types: TypeDefinition[] = BUILT_IN_TYPES,
+): boolean {
+  return automaticProbes(entry, types).length > 0;
 }
 
 /**
