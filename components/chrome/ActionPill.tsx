@@ -101,7 +101,7 @@ export default function ActionPill() {
             type="button"
             className={styles.menuItem}
             onClick={() => {
-              exportJson(all(), edges, [...questions.values()]);
+              exportJson(all(), edges, [...questions.values()].flat());
               setMenu(null);
             }}
           >

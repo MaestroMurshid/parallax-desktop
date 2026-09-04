@@ -12,9 +12,10 @@ import type {
   Question,
   Settings,
   SystemProfile,
+  Span,
 } from '@/lib/types';
 import { radiusForDuration } from '@/lib/scene/blob';
-import { invokedProbes } from '@/lib/scene/classification';
+import { invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
 import { detectUnfinished } from '@/lib/scene/markers';
 import { placeEntry, type PlacedNode } from '@/lib/scene/placement';
 import { titleSizeForDuration, wrapTitle } from '@/lib/scene/lexicon';
@@ -62,7 +63,8 @@ export class MockBridge implements Bridge {
 
   private entries = new Map<string, Entry>();
   private edges: Edge[] = [];
-  private questions = new Map<string, Question>();
+  /** Per entry, in the order they were asked. Nothing is ever replaced. */
+  private questions = new Map<string, Question[]>();
   private actionItems: ActionItem[] = [];
 
   private amplitudeListeners = new Set<(level: number) => void>();
@@ -177,7 +179,7 @@ export class MockBridge implements Bridge {
     for (const e of this.entries.values()) {
       if (e.parentEdge !== null) continue;
       field.push({ id: e.id, x: e.x, y: e.y, ...liveBox(e.durationMs, e.title), isolated: false });
-      vectors.set(e.id, mockVector(e.storedType, e.id));
+      vectors.set(e.id, mockVector(e.typeId, e.id));
     }
     const placed = placeEntry({ id, vec: mockVector('live-capture', id), ...box }, field, vectors);
 
@@ -189,8 +191,12 @@ export class MockBridge implements Bridge {
       x: placed.x,
       y: placed.y,
       parentEdge: draft.parentEdge ?? null,
-      type: 'rant',
-      storedType: 'live-capture',
+      // A fresh capture before the classifier has seen it. `neutral` is not a
+      // guess about the speaker — nothing has run yet, and the automatic
+      // question is gated on role and duration too.
+      role: 'position',
+      register: 'neutral',
+      typeId: 'position',
       resolved: false,
       resolutionText: null,
       title: deriveTitle(draft.transcript),
@@ -310,9 +316,8 @@ export class MockBridge implements Bridge {
     const entry = this.entries.get(entryId);
     if (!entry) return null;
     // §3.2 suppression re-enforced here rather than trusted upstream.
-    if (entry.type === 'felt' || entry.type === 'inert') return null;
-    if (entry.durationMs < 30_000) return null;
-    return this.questions.get(entryId) ?? null;
+    if (!mayProbeAutomatically(entry)) return null;
+    return this.questions.get(entryId)?.[0] ?? null;
   }
 
   /**
@@ -320,25 +325,44 @@ export class MockBridge implements Bridge {
    * the §3.4 stance rules; these keep the shape — one question, span-anchored,
    * third person about the entry, never a verdict.
    */
-  async askQuestion(entryId: string): Promise<Question> {
+  async askQuestion(entryId: string, span?: Span | null): Promise<Question> {
     const entry = this.entries.get(entryId);
     if (!entry) throw new Error(`No entry ${entryId}`);
     // Stands in for the model's choice: the eligible set, then the first that
     // fits. Real inference would weigh the transcript, not the order.
     const eligible = invokedProbes(entry);
-    const chosen = eligible[0];
+    // Rotate rather than always returning the first: questions accumulate now,
+    // so asking twice about different sentences should not repeat itself.
+    const chosen = eligible[(this.questions.get(entryId)?.length ?? 0) % eligible.length];
     if (!chosen) throw new Error(`Nothing to ask of ${entryId}`);
-    return this.runProbe(entryId, chosen.id);
+    return this.runProbe(entryId, chosen.id, span);
   }
 
-  async runProbe(entryId: string, probeId: string): Promise<Question> {
+  async runProbe(entryId: string, probeId: string, span?: Span | null): Promise<Question> {
     const entry = this.entries.get(entryId);
     if (!entry) throw new Error(`No entry ${entryId}`);
     await sleep(900);
 
-    const sentences = entry.transcript.split(/(?<=[.?!])\s+/).filter((x) => x.length > 24);
-    const pick = sentences[Math.min(1, sentences.length - 1)] ?? entry.transcript.slice(0, 90);
-    const start = entry.transcript.indexOf(pick);
+    // Facet 3: the app may only push on the user's own words. The gate lets a
+    // mixed entry through — most notes about a book contain a real position —
+    // so the anchor has to be chosen, not assumed. Without this the steelman
+    // lands on the author's sentence and asks you to defend someone else's book.
+    const attributed = entry.spans.filter((sp) => sp.attributed);
+    const borrowed = (from: number, to: number) =>
+      attributed.some((sp) => from < sp.end && to > sp.start);
+
+    const candidates = entry.transcript
+      .split(/(?<=[.?!])\s+/)
+      .filter((x) => x.length > 24)
+      .map((text) => ({ text, start: entry.transcript.indexOf(text) }))
+      .filter((c) => c.start >= 0 && !borrowed(c.start, c.start + c.text.length));
+
+    // A span the user selected wins: they already said what this is about.
+    const chosen = candidates[Math.min(1, candidates.length - 1)];
+    const pick = span
+      ? entry.transcript.slice(span.start, span.end)
+      : chosen?.text ?? entry.transcript.slice(0, 90);
+    const start = span ? span.start : chosen ? chosen.start : entry.transcript.indexOf(pick);
     const text: Record<string, string> = {
       steelman:
         'Put at its strongest, the entry says the constraint is structural rather than chosen. Does the argument still need the weaker version it actually makes?',
@@ -358,11 +382,21 @@ export class MockBridge implements Bridge {
       text: text[probeId] ?? 'What is this resting on?',
       span: start >= 0 ? { start, end: start + pick.length, attributed: false } : null,
       answered: false,
+      dismissed: false,
       providerName: `${this.settings.providerName} · ${probeId}`,
       createdAt: new Date().toISOString(),
     };
-    this.questions.set(entryId, question);
+    this.questions.set(entryId, [...(this.questions.get(entryId) ?? []), question]);
     return question;
+  }
+
+  async dismissQuestion(entryId: string, questionId: string): Promise<void> {
+    const prior = this.questions.get(entryId);
+    if (!prior) return;
+    this.questions.set(
+      entryId,
+      prior.map((q) => (q.id === questionId ? { ...q, dismissed: true } : q)),
+    );
   }
 
   async listProposedEdges(entryId: string): Promise<Edge[]> {
@@ -497,7 +531,7 @@ export class MockBridge implements Bridge {
       this.entries.set(e.id, o ? { ...e, x: o.x, y: o.y } : e);
     }
     this.edges = [...this.edges, ...seeded.edges];
-    for (const q of seeded.questions) this.questions.set(q.entryId, q);
+    for (const q of seeded.questions) this.questions.set(q.entryId, [q]);
     this.actionItems = [...this.actionItems, ...seeded.actionItems];
   }
 
@@ -520,7 +554,7 @@ export class MockBridge implements Bridge {
     }
     for (const q of data.questions) {
       if (mode === 'merge' && this.questions.has(q.entryId)) continue;
-      if (this.entries.has(q.entryId)) this.questions.set(q.entryId, q);
+      if (this.entries.has(q.entryId)) this.questions.set(q.entryId, [q]);
     }
     // Action items live on the entry, so the flat list is rebuilt rather than merged.
     this.actionItems = [...this.entries.values()].flatMap((e) => e.actionItems ?? []);

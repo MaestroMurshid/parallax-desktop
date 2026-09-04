@@ -5,6 +5,7 @@ import { getBridge } from '@/lib/bridge';
 import { APP_NAME } from '@/lib/constants';
 import { useApp } from '@/lib/store';
 import type { ModelInfo, Residency, Settings, SystemProfile } from '@/lib/types';
+import MarkGlyph from '@/components/canvas/MarkGlyph';
 import styles from './Onboarding.module.css';
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)}GB`;
@@ -45,7 +46,7 @@ export default function Onboarding({
   settings: Settings;
   onDone(next: Settings): void;
 }) {
-  const [step, setStep] = useState<'models' | 'field'>('models');
+  const [step, setStep] = useState<'models' | 'types' | 'links' | 'field'>('models');
   const theme = useApp((s) => s.theme);
   const setTheme = useApp((s) => s.setTheme);
   const [profile, setProfile] = useState<SystemProfile | null>(null);
@@ -112,7 +113,7 @@ export default function Onboarding({
       await bridge.setSettings({ modelId });
       void bridge.downloadModel(modelId);
     }
-    setStep('field');
+    setStep('types');
   };
 
   const start = async () => {
@@ -125,7 +126,10 @@ export default function Onboarding({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Enter' || capturing) return;
       if ((e.target as HTMLElement | null)?.tagName === 'BUTTON') return;
-      void (step === 'models' ? chooseModels() : start());
+      if (step === 'models') return void chooseModels();
+      if (step === 'types') return setStep('links');
+      if (step === 'links') return setStep('field');
+      void start();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -135,7 +139,7 @@ export default function Onboarding({
     <div className={styles.stage}>
       <div className={styles.frame}>
         <div className={styles.topRow}>
-          <span className={styles.top}>{APP_NAME}</span>
+          <span className={styles.top}>{step === 'models' ? '' : APP_NAME}</span>
           {/* Here rather than buried in settings: this is the first thing the
               app shows, and it is the screen you would want to change it on. */}
           <div className={styles.themes} role="group" aria-label="Appearance">
@@ -153,10 +157,19 @@ export default function Onboarding({
           </div>
         </div>
 
-        {step === 'models' ? (
-          <div className={styles.canvas}>
-            <div className={styles.node} style={{ left: '8%', top: '22%' }}>
-              <span className={styles.t}>what turns it into words</span>
+        {step === 'models' && (
+          <div className={styles.masthead}>
+            <h1 className={styles.wordmark}>{APP_NAME}</h1>
+            <p className={styles.tagline}>
+              Talk. It files what you said, and later puts it next to something you said before.
+            </p>
+          </div>
+        )}
+
+        {step === 'models' && (
+          <div className={styles.rows}>
+            <div className={styles.node}>
+              <span className={styles.t}>Transcription</span>
               <span className={styles.m}>
                 {speech ? `transcribe.cpp ${speech.name} · ${size(speech)}` : 'detecting…'}
                 <span className={styles.sep}>·</span>
@@ -169,8 +182,8 @@ export default function Onboarding({
               </span>
             </div>
 
-            <div className={styles.node} style={{ left: '8%', top: '56%' }}>
-              <span className={styles.t}>what reads it back</span>
+            <div className={styles.node}>
+              <span className={styles.t}>The question</span>
               <span className={styles.m}>
                 {reasoning ? `${reasoning.name} ${reasoning.quantization} · ${size(reasoning)}` : 'detecting…'}
                 <span className={styles.sep}>·</span>
@@ -228,7 +241,110 @@ export default function Onboarding({
               </div>
             )}
           </div>
-        ) : (
+        )}
+
+        {step === 'types' && (
+          <div className={styles.how}>
+            <p className={styles.lede}>What a note can be.</p>
+
+            <div className={styles.kinds}>
+              <div className={styles.kind}>
+                <span className={styles.kindHead}>
+                  <MarkGlyph mark={{ kind: 'glyph', id: 'position' }} size={11} />
+                  <span className={`${styles.kindName} ${styles.kPosition}`}>position</span>
+                </span>
+                <span className={styles.said}>
+                  &ldquo;Upbringing, genetics, circumstances &mdash; they shape what I want. But I
+                  still choose how I respond to it.&rdquo;
+                </span>
+                <span className={styles.back}>
+                  This rests on the responding being separate from what shaped you. Is it separate,
+                  or only later?
+                </span>
+              </div>
+
+              <div className={styles.kind}>
+                <span className={styles.kindHead}>
+                  <MarkGlyph mark={{ kind: 'glyph', id: 'evidence' }} size={11} />
+                  <span className={`${styles.kindName} ${styles.kEvidence}`}>evidence</span>
+                </span>
+                <span className={styles.said}>
+                  &ldquo;The hard problem is why there is something it is like to be you at all
+                  &mdash; not how the brain processes information.&rdquo;
+                </span>
+                <span className={styles.back}>
+                  You wake up tomorrow unable to feel pain, emotion or pleasure, but you can still
+                  think, speak, remember your childhood and solve problems. Would you still call
+                  yourself conscious?
+                </span>
+              </div>
+
+              <div className={styles.kind}>
+                <span className={styles.kindHead}>
+                  <MarkGlyph mark={{ kind: 'glyph', id: 'note' }} size={11} />
+                  <span className={`${styles.kindName} ${styles.kNote}`}>note</span>
+                </span>
+                <span className={styles.said}>
+                  &ldquo;Cancel the storage tier, and move the climate feeds off that reader that
+                  got acquired.&rdquo;
+                </span>
+                <span className={styles.backQuiet}>
+                  both items &rarr; task list &mdash; nothing asked
+                </span>
+              </div>
+            </div>
+
+            <p className={styles.howNote}>
+              It stays quiet on anything you felt, and on words that aren&rsquo;t yours &mdash; until
+              you select a sentence and ask.
+            </p>
+          </div>
+        )}
+
+        {step === 'links' && (
+          <div className={styles.how}>
+            <p className={styles.lede}>How notes find each other.</p>
+
+            <div className={styles.pair}>
+              <div className={styles.pairSide}>
+                <span className={styles.pairDate}>12 Mar</span>
+                <span className={styles.pairTitle}>I still choose how I respond</span>
+              </div>
+              <div className={styles.pairLink} aria-hidden="true">
+                <span className={styles.pairRule} />
+                <span className={styles.relation}>contradicts</span>
+                <span className={styles.gapLabel}>200 days apart</span>
+              </div>
+              <div className={styles.pairSide}>
+                <span className={styles.pairDate}>28 Sep</span>
+                <span className={styles.pairTitle}>the choosing is conditioned too</span>
+              </div>
+            </div>
+
+            <blockquote className={styles.asked}>
+              If you never had control over the conditions that shaped you, can you still be
+              responsible for what those conditions eventually cause you to do?
+            </blockquote>
+
+            <div className={styles.moves}>
+              <span className={styles.movesLabel}>it can only say</span>
+              <span className={styles.move}>contradicts</span>
+              <span className={styles.move}>same move</span>
+              <span className={styles.move}>returns to</span>
+              <span className={styles.move}>questions</span>
+              <span className={styles.move}>extends</span>
+              <span className={styles.move}>example of</span>
+              <span className={styles.move}>echoes</span>
+            </div>
+
+            <p className={styles.howNote}>
+              If it cannot name the relation, it draws no line. Proximity already says
+              &ldquo;related&rdquo;.
+            </p>
+          </div>
+        )}
+
+        {step === 'field' && (
           <div className={styles.canvas}>
             {/* Same hairline weight and colour the canvas uses for a proposed edge. */}
             <svg className={styles.threads} viewBox="0 0 600 300" preserveAspectRatio="none" aria-hidden="true">
@@ -239,7 +355,7 @@ export default function Onboarding({
             </svg>
 
             <div className={styles.node} style={{ left: '4%', top: '10%' }}>
-              <span className={`${styles.t} ${styles.claim}`}>what you say</span>
+              <span className={styles.t}>Hotkey</span>
               <span className={styles.m}>
                 <kbd className={styles.kbd}>{capturing ? 'press a combination…' : hotkey}</kbd>
                 <span className={styles.sep}>·</span>
@@ -250,7 +366,7 @@ export default function Onboarding({
             </div>
 
             <div className={styles.node} style={{ left: '66%', top: '18%' }}>
-              <span className={`${styles.t} ${styles.rant}`}>what hears you</span>
+              <span className={styles.t}>Microphone</span>
               <span className={styles.m}>
                 microphone
                 <span className={styles.sep}>·</span>
@@ -277,21 +393,21 @@ export default function Onboarding({
             </div>
 
             <div className={styles.node} style={{ left: '30%', top: '44%' }}>
-              <span className={styles.t}>what turns it into words</span>
+              <span className={styles.t}>Transcription</span>
               <span className={styles.m}>{speechProgress.label || 'arriving'}</span>
             </div>
 
             <div className={styles.node} style={{ left: '62%', top: '62%' }}>
-              <span className={styles.t}>what reads it back</span>
+              <span className={styles.t}>The question</span>
               <span className={styles.m}>{reasoningProgress.label || 'arriving'}</span>
             </div>
 
             {/* Not a control — it teaches the accent dot before the canvas uses it. */}
             <div className={styles.node} style={{ left: '4%', top: '74%' }}>
-              <span className={styles.t}>what it asks later</span>
+              <span className={styles.t}>Open questions</span>
               <span className={styles.m}>
                 <span className={styles.dot} />
-                one question, never a verdict
+                it pushed back &mdash; answer out loud
               </span>
             </div>
           </div>
@@ -319,16 +435,25 @@ export default function Onboarding({
         <div className={styles.go}>
           <span className={styles.note}>
             {step === 'models'
-              ? 'Both start downloading now, so they run while you set the rest up.'
-              : 'Speech lands first — you can record as soon as it does. The question waits on the larger one.'}{' '}
+              ? 'Both start downloading now, so they run while you read the next two screens.'
+              : step === 'types'
+                ? 'It decides this itself. You can change it on any note.'
+                : step === 'links'
+                  ? 'Nothing here needs filing. It happens while you are not looking.'
+                  : 'Speech lands first — you can record as soon as it does. The question waits on the larger one.'}{' '}
             Press <kbd className={styles.kbdInline}>Enter</kbd>.
           </span>
           <button
             type="button"
             className={styles.start}
-            onClick={() => void (step === 'models' ? chooseModels() : start())}
+            onClick={() => {
+              if (step === 'models') return void chooseModels();
+              if (step === 'types') return setStep('links');
+              if (step === 'links') return setStep('field');
+              void start();
+            }}
           >
-            {step === 'models' ? 'Continue' : 'Start'}
+            {step === 'field' ? 'Start' : 'Continue'}
           </button>
         </div>
       </div>

@@ -4,6 +4,7 @@
  * saturated element.
  */
 
+import { edgeTreatmentFor } from '@/lib/scene/classification';
 import type { Entry } from '@/lib/types';
 
 export interface EntryMarkers {
@@ -61,20 +62,15 @@ export function markersFor(entry: Entry, ctx: MarkerContext): EntryMarkers {
 
 /**
  * Edge treatment by type (§5.2) — reads as texture at canvas scale, not text.
- * §5.3 known issue: the soft felt blob gets a faint stroke below the
- * fingerprint threshold so it doesn't vanish at low zoom.
+ * §5.3 known issue: the soft treatment a `live` entry takes gets a faint
+ * stroke below the fingerprint threshold so it doesn't vanish at low zoom.
  */
 export type EdgeTreatment = 'crisp' | 'irregular' | 'soft' | 'plain';
 
+/**
+ * Role sets the base treatment; `live` softens it. Re-exported from the
+ * registry so there is one definition of what a role looks like.
+ */
 export function edgeTreatment(entry: Entry): EdgeTreatment {
-  switch (entry.type) {
-    case 'claim':
-      return 'crisp';
-    case 'rant':
-      return 'irregular';
-    case 'felt':
-      return 'soft';
-    case 'inert':
-      return 'plain';
-  }
+  return edgeTreatmentFor(entry);
 }

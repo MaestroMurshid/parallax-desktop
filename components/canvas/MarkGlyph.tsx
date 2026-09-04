@@ -18,22 +18,13 @@ const B = MARK_BOX;
 
 function glyph(id: SlotId) {
   switch (id) {
-    case 'claim':
+    // An assertion stands up.
+    case 'position':
       return <rect x={B / 2 - 0.8} y={0.5} width={1.6} height={8} fill="var(--title)" />;
-    case 'rant':
-      return (
-        <path
-          d={`M${B / 2 - 1.5},0.5 q3,2 0,4 q-3,2 0,4`}
-          fill="none"
-          stroke="var(--title)"
-          strokeWidth={1}
-        />
-      );
-    case 'felt':
-      return (
-        <rect x={B / 2 - 3} y={3.1} width={6} height={2.8} rx={1.4} fill="var(--meta)" opacity={0.5} />
-      );
-    case 'inert':
+    // A fact lies flat — the same stroke, laid down.
+    case 'evidence':
+      return <rect x={B / 2 - 4} y={3.7} width={8} height={1.6} fill="var(--title)" />;
+    case 'note':
       return (
         <rect
           x={B / 2 - 2}

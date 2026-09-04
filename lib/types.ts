@@ -8,22 +8,31 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Axis 1, rendered. A blob carries roughly three visual encodings before it
- * becomes noise (§5.3), so the canvas only ever sees these four.
+ * Facet 1 — role. What the entry *does*. Drives letterform and retrieval,
+ * never the gate. Three values: the canvas budget (§5.3) is a ceiling, not a
+ * quota, and `position` absorbs the old claim/rant split because that
+ * difference was always resolved-vs-unresolved, which `resolved` already
+ * carries deliberately.
  */
-export type RenderedType = 'claim' | 'rant' | 'felt' | 'inert';
+export type Role = 'position' | 'evidence' | 'note';
 
 /**
- * Axis 1, stored. Deliberately a string, not a union — user-defined types (§3.6)
- * live here too. Costs nothing on canvas since we render the collapse, not this.
+ * Facet 2 — register. Whole-entry and binary, never span-level: the one study
+ * that tried a span-scoped affect layer alongside an argument layer got
+ * αU 0.30 on affect against 0.48 on role and dropped it. Gates the
+ * *automatic* question only (§3.2); the invoked path is the user's to spend.
+ *
+ * Defaults to `live` under uncertainty. A false `live` costs a missed
+ * question; a false `neutral` costs the thing that cannot be taken back.
  */
-export type StoredType = string;
+export type Register = 'live' | 'neutral';
 
 /**
- * Probe risk tiers (§3.6). Modes may proliferate within a tier, but the tier
- * assignment stays hardcoded — a missed question costs nothing, a heavy probe
- * on a grief entry is unrecoverable.
+ * The registry key. Equals the role id for built-ins; a user-defined type
+ * (§3.6) puts its own id here and binds to a role for its letterform.
  */
+export type TypeId = string;
+
 export type ProbeTier = 'silent' | 'safe' | 'heavy' | 'retrieval';
 
 // ---------------------------------------------------------------------------
@@ -67,7 +76,13 @@ export interface Edge {
 export interface Span {
   start: number;
   end: number;
-  /** true = quoted from a source, false = the user's own words */
+  /**
+   * Facet 3 — provenance. true = someone else's words, false = the user's own.
+   * Span-level because speech fuses the two in one breath: a note about a book
+   * carries the author's argument and the speaker's own position together.
+   * The app may only *push* on an `own` span; attributed spans can still be
+   * quoted, connected and cited (§7.3).
+   */
   attributed: boolean;
 }
 
@@ -104,8 +119,12 @@ export interface Entry {
   /** Set => this entry is an answer; it thickens the parent's ring (§6.2). */
   parentEdge: string | null;
 
-  type: RenderedType;
-  storedType: StoredType;
+  /** Facet 1 — what this entry does. Display and retrieval only. */
+  role: Role;
+  /** Facet 2 — emotionally live? Gates the automatic question, not the invoked one. */
+  register: Register;
+  /** Registry key: a role id, or a user-defined type's id (§3.6). */
+  typeId: TypeId;
 
   /** User-declared only. The AI never decides you're done thinking (§6.3). */
   resolved: boolean;
@@ -150,6 +169,14 @@ export interface Question {
   /** The span the question is anchored to. Unanchored output is not allowed. */
   span: Span | null;
   answered: boolean;
+  /**
+   * Struck out, not deleted. §3.4 bans a regenerate button — rerolling until
+   * the question is agreeable is the echo chamber by the back door — but a
+   * genuinely bad question still needs somewhere to go. Dismissing keeps it in
+   * the record and stops it counting as open; replacing it would let you
+   * escape the one that stung.
+   */
+  dismissed: boolean;
   /** Shown in the UI — the user always knows who answered (§9.4). */
   providerName: string;
   createdAt: string;

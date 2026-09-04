@@ -111,7 +111,7 @@ export default function Page() {
     return onHandOff(({ entry, question }) => {
       const state = useApp.getState();
       state.upsertEntry(entry);
-      if (question) state.setQuestion(entry.id, question);
+      if (question) state.addQuestion(entry.id, question);
     });
   }, [isPanel]);
 

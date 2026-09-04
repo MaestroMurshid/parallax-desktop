@@ -23,7 +23,7 @@ const blank = {
   match: '',
   prompt: '',
   tier: 'heavy' as ProbeTier,
-  renderSlot: '' as SlotId | '',
+  role: '' as SlotId | '',
   mark: '',
   autoApproved: false,
 };
@@ -36,7 +36,7 @@ export default function TypeEditor() {
 
   const resolved = useMemo(() => resolveTypes(customTypes), [customTypes]);
   const markResult = useMemo(() => (draft.mark ? validateMark(draft.mark) : null), [draft.mark]);
-  const slot = draft.renderSlot ? SLOTS[draft.renderSlot] : null;
+  const slot = draft.role ? SLOTS[draft.role] : null;
   const canSubmit = draft.label.trim() !== '' && markResult?.ok === true;
 
   function submit() {
@@ -50,7 +50,7 @@ export default function TypeEditor() {
       match: draft.match.trim() || 'manual',
       prompt: draft.prompt.trim() || null,
       tier: draft.tier,
-      renderSlot: draft.renderSlot || null,
+      role: draft.role || null,
       mark: { kind: 'char', char: markResult.char },
       autoApproved: draft.autoApproved,
     });
@@ -112,8 +112,8 @@ export default function TypeEditor() {
           <span className={styles.fieldLabel}>letterform</span>
           <select
             className={styles.select}
-            value={draft.renderSlot}
-            onChange={(e) => setDraft({ ...draft, renderSlot: e.target.value as SlotId | '' })}
+            value={draft.role}
+            onChange={(e) => setDraft({ ...draft, role: e.target.value as SlotId | '' })}
           >
             <option value="">none — default letterform</option>
             {SLOT_IDS.map((id) => (
@@ -210,5 +210,5 @@ export default function TypeEditor() {
 /** Legend and rows want the mark for a definition, not for an entry. */
 function markMarkOf(t: TypeDefinition) {
   if (t.mark) return t.mark;
-  return t.renderSlot ? ({ kind: 'glyph', id: t.renderSlot } as const) : null;
+  return t.role ? ({ kind: 'glyph', id: t.role } as const) : null;
 }

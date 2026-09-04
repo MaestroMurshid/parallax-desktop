@@ -11,6 +11,7 @@ import type {
   ModelInfo,
   Question,
   Settings,
+  Span,
   SystemProfile,
 } from '@/lib/types';
 
@@ -79,19 +80,23 @@ export interface Bridge {
 
   // -- enrichment ---------------------------------------------------------
   /**
-   * Auto post-recording question; resolves to null when suppressed — felt,
-   * inert, or under ~30s entries (§3.2). A missed question beats a bad probe.
+   * Auto post-recording question; resolves to null when any of the three
+   * facets suppresses it — not a position, live register, someone else's
+   * words, or under ~30s (§3.2). A missed question beats a bad probe.
    */
   getQuestion(entryId: string): Promise<Question | null>;
   /**
    * User-invoked question (§3.6). Which probe fits is the model's call — the
-   * UI offers one door, not a menu of techniques. Eligibility still comes from
-   * the entry's type, so felt and inert entries reach nothing.
+   * UI offers one door, not a menu of techniques. Register does not gate here
+   * — §3.2 gives the invoked path to the user — but role and provenance do,
+   * because a fact, a list and someone else's sentence offer nothing to push on.
    */
-  askQuestion(entryId: string): Promise<Question>;
+  askQuestion(entryId: string, span?: Span | null): Promise<Question>;
   /** The primitive askQuestion picks from. Kept for replay and evaluation;
    *  no UI path names a probe. */
-  runProbe(entryId: string, probeId: string): Promise<Question>;
+  runProbe(entryId: string, probeId: string, span?: Span | null): Promise<Question>;
+  /** Strikes a question out. It stays on the entry; it stops being open. */
+  dismissQuestion(entryId: string, questionId: string): Promise<void>;
   /** Proposed connections, shown as dismissible cards below the transcript (§6.1). */
   listProposedEdges(entryId: string): Promise<Edge[]>;
   /** Dismissals are training signal, not just UI (§6.1). */
