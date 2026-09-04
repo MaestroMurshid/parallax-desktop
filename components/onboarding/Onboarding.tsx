@@ -5,6 +5,7 @@ import { getBridge } from '@/lib/bridge';
 import { APP_NAME } from '@/lib/constants';
 import { useApp } from '@/lib/store';
 import type { ModelInfo, Residency, Settings, SystemProfile } from '@/lib/types';
+import MarkGlyph from '@/components/canvas/MarkGlyph';
 import styles from './Onboarding.module.css';
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)}GB`;
@@ -45,7 +46,7 @@ export default function Onboarding({
   settings: Settings;
   onDone(next: Settings): void;
 }) {
-  const [step, setStep] = useState<'models' | 'how' | 'field'>('models');
+  const [step, setStep] = useState<'models' | 'types' | 'links' | 'field'>('models');
   const theme = useApp((s) => s.theme);
   const setTheme = useApp((s) => s.setTheme);
   const [profile, setProfile] = useState<SystemProfile | null>(null);
@@ -112,7 +113,7 @@ export default function Onboarding({
       await bridge.setSettings({ modelId });
       void bridge.downloadModel(modelId);
     }
-    setStep('how');
+    setStep('types');
   };
 
   const start = async () => {
@@ -126,7 +127,8 @@ export default function Onboarding({
       if (e.key !== 'Enter' || capturing) return;
       if ((e.target as HTMLElement | null)?.tagName === 'BUTTON') return;
       if (step === 'models') return void chooseModels();
-      if (step === 'how') return setStep('field');
+      if (step === 'types') return setStep('links');
+      if (step === 'links') return setStep('field');
       void start();
     };
     window.addEventListener('keydown', onKeyDown);
@@ -241,9 +243,50 @@ export default function Onboarding({
           </div>
         )}
 
-        {step === 'how' && (
+        {step === 'types' && (
           <div className={styles.how}>
-            <p className={styles.lede}>It asks; you answer out loud.</p>
+            <p className={styles.lede}>What a note can be.</p>
+
+            <div className={styles.kinds}>
+              <div className={styles.kind}>
+                <MarkGlyph mark={{ kind: 'glyph', id: 'position' }} size={11} />
+                <span className={`${styles.kindName} ${styles.kPosition}`}>position</span>
+                <span className={styles.kindDoes}>
+                  your own reasoning &mdash; it pushes back: what this rests on, where it stops
+                  holding, what would change your mind
+                </span>
+              </div>
+              <div className={styles.kind}>
+                <MarkGlyph mark={{ kind: 'glyph', id: 'evidence' }} size={11} />
+                <span className={`${styles.kindName} ${styles.kEvidence}`}>evidence</span>
+                <span className={styles.kindDoes}>
+                  a number, or something you are learning &mdash; it won&rsquo;t argue, it asks you
+                  to say it back without the word
+                </span>
+              </div>
+              <div className={styles.kind}>
+                <MarkGlyph mark={{ kind: 'glyph', id: 'note' }} size={11} />
+                <span className={`${styles.kindName} ${styles.kNote}`}>note</span>
+                <span className={styles.kindDoes}>admin, lists, intents &mdash; it stays out of the way</span>
+              </div>
+            </div>
+
+            <div className={styles.moves}>
+              <span className={styles.movesLabel}>it waits to be asked</span>
+              <span className={styles.move}>when a note is emotionally live</span>
+              <span className={styles.move}>when the words are someone else&rsquo;s</span>
+            </div>
+
+            <p className={styles.howNote}>
+              Select a sentence and it will go anyway. You mark a note resolved &mdash; never it.
+              Add your own kind too, and what it should ask.
+            </p>
+          </div>
+        )}
+
+        {step === 'links' && (
+          <div className={styles.how}>
+            <p className={styles.lede}>How notes find each other.</p>
 
             <div className={styles.pair}>
               <div className={styles.pairSide}>
@@ -267,15 +310,19 @@ export default function Onboarding({
             </blockquote>
 
             <div className={styles.moves}>
-              <span className={styles.movesLabel}>it also asks</span>
-              <span className={styles.move}>what this rests on</span>
-              <span className={styles.move}>where it stops holding</span>
-              <span className={styles.move}>what would change your mind</span>
-              <span className={styles.move}>say it back without the word</span>
+              <span className={styles.movesLabel}>it can only say</span>
+              <span className={styles.move}>contradicts</span>
+              <span className={styles.move}>same move</span>
+              <span className={styles.move}>returns to</span>
+              <span className={styles.move}>questions</span>
+              <span className={styles.move}>extends</span>
+              <span className={styles.move}>example of</span>
+              <span className={styles.move}>echoes</span>
             </div>
 
             <p className={styles.howNote}>
-              It never answers &mdash; you do. Add your own kind of note, and what it should ask.
+              If it cannot name the relation, it draws no line. Proximity already says
+              &ldquo;related&rdquo;.
             </p>
           </div>
         )}
@@ -371,10 +418,12 @@ export default function Onboarding({
         <div className={styles.go}>
           <span className={styles.note}>
             {step === 'models'
-              ? 'Both start downloading now, so they run while you read the next screen.'
-              : step === 'how'
-                ? 'This is what the app is for. Everything else is setup.'
-                : 'Speech lands first — you can record as soon as it does. The question waits on the larger one.'}{' '}
+              ? 'Both start downloading now, so they run while you read the next two screens.'
+              : step === 'types'
+                ? 'It decides this itself. You can change it on any note.'
+                : step === 'links'
+                  ? 'Nothing here needs filing. It happens while you are not looking.'
+                  : 'Speech lands first — you can record as soon as it does. The question waits on the larger one.'}{' '}
             Press <kbd className={styles.kbdInline}>Enter</kbd>.
           </span>
           <button
@@ -382,7 +431,8 @@ export default function Onboarding({
             className={styles.start}
             onClick={() => {
               if (step === 'models') return void chooseModels();
-              if (step === 'how') return setStep('field');
+              if (step === 'types') return setStep('links');
+              if (step === 'links') return setStep('field');
               void start();
             }}
           >

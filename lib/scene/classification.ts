@@ -196,16 +196,31 @@ export function mayProbeAutomatically(entry: Entry, types: TypeDefinition[] = BU
 }
 
 /**
- * The invoked path. §3.2: "the user chooses to be challenged, so the risk of
- * misfire is theirs" — so register does not gate here, and neither does
- * duration. Role and provenance still do, because there is nothing to push on
- * in a fact, a list, or a sentence that isn't yours.
+ * The invoked path, adversarial half. §3.2: "the user chooses to be challenged,
+ * so the risk of misfire is theirs" — so register does not gate here, and
+ * neither does duration. Role and provenance still do, because there is nothing
+ * to *push on* in a fact, a list, or a sentence that isn't yours.
  */
 export function mayProbeOnRequest(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): boolean {
   if (!hasOwnSpan(entry)) return false;
   if (roleOf(entry, types) !== 'position') return false;
   const def = definitionFor(entry, types);
   return def ? def.tier !== 'silent' || !def.builtIn : true;
+}
+
+/**
+ * Feynman is not a challenge. "Say it again without the word" takes no stance,
+ * makes no claim and cannot misfire the way a steelman can, so it does not need
+ * the position gate — and gating it there silently broke the case it exists
+ * for. A note recording that something finally clicked classifies as
+ * `evidence` far more often than as `position`, which meant the one move that
+ * makes you do the thinking was the least reachable in the app.
+ *
+ * It needs a concept being held, which is anything that is not admin.
+ */
+export function mayAskToExplain(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): boolean {
+  if (!hasOwnSpan(entry)) return false;
+  return roleOf(entry, types) !== 'note';
 }
 
 /**
@@ -232,15 +247,10 @@ const ALL_PROBES: Probe[] = [
  * user-defined type (§3.6 rule 2).
  */
 export function invokedProbes(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): Probe[] {
-  if (!mayProbeOnRequest(entry, types)) return [];
-  return ALL_PROBES.filter((p) => {
-    // §3.3 — Münchhausen needs a reason-giving structure, never a list or a source.
-    if (p.id === 'munchhausen') return roleOf(entry, types) === 'position';
-    // §3.1 F — Feynman only where there is a concept to master, which is what
-    // an attributed span is: someone else's idea you are working to hold.
-    if (p.id === 'feynman') return entry.spans.some((s) => s.attributed);
-    return true;
-  });
+  const canPush = mayProbeOnRequest(entry, types);
+  const canExplain = mayAskToExplain(entry, types);
+  if (!canPush && !canExplain) return [];
+  return ALL_PROBES.filter((p) => (p.id === 'feynman' ? canExplain : canPush));
 }
 
 export function edgeTreatmentFor(entry: Entry, types?: TypeDefinition[]): EdgeTreatment {
