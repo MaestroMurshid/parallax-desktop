@@ -43,7 +43,10 @@ export interface CorpusSlice {
   acceptEdge(id: string): Promise<void>;
   toggleActionItem(id: string): Promise<void>;
   loadSample(): Promise<void>;
+  /** Removes the sample and nothing else — the pair to loadSample in settings. */
   clearSample(): Promise<void>;
+  /** Wipes the corpus, sample or not. What the status bar's `clear` means. */
+  clearAll(): Promise<void>;
   importCorpus(data: CorpusImport, mode: ImportMode): Promise<void>;
 
   // -- derived, memo-free because they are O(edges) over a few hundred items --
@@ -206,6 +209,14 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
 
   async clearSample() {
     await getBridge().clearSampleCorpus();
+    await get().loadCorpus();
+  },
+
+  // Replacing with an empty corpus rather than a new bridge verb: 'replace' is
+  // already defined as wipe-then-load, so this needs nothing of Rust that
+  // importCorpus does not already owe it (§9.1).
+  async clearAll() {
+    await getBridge().importCorpus({ entries: [], edges: [], questions: [] }, 'replace');
     await get().loadCorpus();
   },
 

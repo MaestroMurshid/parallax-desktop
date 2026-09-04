@@ -214,7 +214,10 @@ export default function Page() {
 
       <div className={styles.bottomRow}>
         {settings && <StatusBar settings={settings} />}
-        {loaded && hasEntries && <ActionPill />}
+        {/* Not gated on having entries: upload is how a corpus arrives, and
+            hiding the pill until one exists left no way to import into an empty
+            app. Everything in it that needs entries disables itself. */}
+        {loaded && <ActionPill />}
       </div>
     </main>
   );

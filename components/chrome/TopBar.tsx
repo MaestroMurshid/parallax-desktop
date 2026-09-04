@@ -79,6 +79,8 @@ export default function TopBar() {
   };
 
   const showPanel = open && value.trim().length >= MIN_QUERY;
+  const trimmed = value.trim();
+  const quoted = trimmed.length > 2 && trimmed.startsWith('"') && trimmed.endsWith('"');
 
   return (
     <header className={styles.bar}>
@@ -97,6 +99,13 @@ export default function TopBar() {
         {showPanel && (
           <div className={styles.results}>
             {hits.length === 0 && <p className={styles.empty}>no matches</p>}
+            {/* Discoverable where it is needed: you find out `ai` matched
+                `maintain` by reading the snippets, and this is where they are. */}
+            {hits.length > 0 && !quoted && (
+              <p className={styles.hint}>
+                <kbd className={styles.hintKey}>&ldquo;{trimmed}&rdquo;</kbd> for whole words only
+              </p>
+            )}
             {/* A result is a subgraph: say how much of it hangs together. */}
             {hits.length > 0 && matchedIds && (
               <p className={styles.summary}>
