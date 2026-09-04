@@ -8,10 +8,20 @@
 .typeRow {
   display: grid;
   grid-template-columns: 16px 1fr auto;
-  align-items: center;
+  align-items: baseline;
   column-gap: 8px;
-  padding: 6px 0;
+  padding: 7px 0;
   border-bottom: 1px solid var(--edge);
+}
+
+/* The label and the tier word are both jargon on their own. The gloss is the
+   same sentence the classifier matches against, so what you read here is
+   literally what decides the type. */
+.typeGloss {
+  grid-column: 2;
+  font-size: var(--size-micro);
+  line-height: 1.45;
+  color: var(--meta);
 }
 
 .typeName {

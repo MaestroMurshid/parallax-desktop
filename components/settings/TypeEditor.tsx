@@ -15,6 +15,19 @@ import type { ProbeTier } from '@/lib/types';
 import styles from './TypeEditor.module.css';
 
 const TIERS: ProbeTier[] = ['silent', 'heavy', 'safe', 'retrieval'];
+
+/** The tier word is the gate; on its own it tells the user nothing. */
+const TIER_TEXT: Record<ProbeTier, string> = {
+  safe: 'asks on its own',
+  silent: 'never asks on its own',
+  heavy: 'only when you ask',
+  retrieval: 'pairs it up, never asks',
+};
+
+function tierGloss(t: TypeDefinition): string {
+  const base = TIER_TEXT[t.tier];
+  return t.builtIn || t.autoApproved ? base : `${base} · not approved to fire`;
+}
 const SLOT_IDS = Object.keys(SLOTS) as SlotId[];
 const slug = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -64,8 +77,9 @@ export default function TypeEditor() {
           <div key={t.id} className={styles.typeRow}>
             <MarkGlyph mark={markMarkOf(t)} size={12} />
             <span className={styles.typeName}>{t.label}</span>
+            <span className={styles.typeGloss}>{t.match}</span>
             <span className={styles.typeMeta}>
-              {t.builtIn ? t.tier : `${t.tier}${t.autoApproved ? ' · auto' : ''}`}
+              {tierGloss(t)}
               {!t.builtIn && (
                 <button type="button" className={styles.remove} onClick={() => removeType(t.id)}>
                   {' '}
