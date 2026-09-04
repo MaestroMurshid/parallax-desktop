@@ -383,14 +383,6 @@ export default function Onboarding({
               <span className={styles.m}>{reasoningProgress.label || 'arriving'}</span>
             </div>
 
-            {/* Not a control — it teaches the accent dot before the canvas uses it. */}
-            <div className={styles.node} style={{ left: '4%', top: '74%' }}>
-              <span className={styles.t}>Open questions</span>
-              <span className={styles.m}>
-                <span className={styles.dot} />
-                it pushed back &mdash; answer out loud
-              </span>
-            </div>
           </div>
         )}
 
