@@ -243,37 +243,52 @@ export default function Onboarding({
 
         {step === 'how' && (
           <div className={styles.how}>
-            <p className={styles.lede}>The interlocutor is your past self, not the AI.</p>
-            <p className={styles.ledeSub}>
-              A note from March isn&rsquo;t trying to agree with your August position. It gets
-              retrieved, put next to something relevant, and asked about.
+            <p className={styles.lede}>It asks; you answer out loud. The thinking stays yours.</p>
+
+            <div className={styles.beat}>
+              <span className={styles.beatLabel}>it puts two of your own notes together</span>
+              <div className={styles.pair}>
+                <div className={styles.pairSide}>
+                  <span className={styles.pairDate}>4 Mar</span>
+                  <span className={styles.pairTitle}>the job isn&rsquo;t the problem</span>
+                </div>
+                <div className={styles.pairLink} aria-hidden="true">
+                  <span className={styles.pairRule} />
+                  <span className={styles.relation}>contradicts</span>
+                  <span className={styles.gapLabel}>199 days apart</span>
+                </div>
+                <div className={styles.pairSide}>
+                  <span className={styles.pairDate}>19 Sep</span>
+                  <span className={styles.pairTitle}>I turned down the other one</span>
+                </div>
+              </div>
+              <blockquote className={styles.asked}>
+                March said the commute was the problem, not the job. September turned down a remote
+                role. Is it still the commute?
+              </blockquote>
+            </div>
+
+            <div className={styles.beat}>
+              <span className={styles.beatLabel}>it asks what a position rests on</span>
+              <blockquote className={styles.asked}>
+                The entry treats starting late as the reason it won&rsquo;t work. Is that the reason,
+                or is it the hour a day you don&rsquo;t have?
+              </blockquote>
+            </div>
+
+            <div className={styles.beat}>
+              <span className={styles.beatLabel}>it makes you explain what you learnt</span>
+              <blockquote className={styles.asked}>
+                You said the index fund thing finally clicked. Say it back without the article&rsquo;s
+                words &mdash; where does it stop being obvious?
+              </blockquote>
+            </div>
+
+            <p className={styles.howNote}>
+              It never answers. You do, out loud, and the answer becomes a layer on the note &mdash;
+              which is the difference between working something out and reading someone else&rsquo;s.
+              Add your own kind of note too: name it, say when it applies, write what it should ask.
             </p>
-
-            <div className={styles.pair}>
-              <div className={styles.pairSide}>
-                <span className={styles.pairDate}>6 Mar 2025</span>
-                <span className={styles.pairTitle}>still need the build</span>
-              </div>
-              <div className={styles.pairLink} aria-hidden="true">
-                <span className={styles.pairRule} />
-                <span className={styles.relation}>contradicts</span>
-                <span className={styles.gapLabel}>162 days apart</span>
-              </div>
-              <div className={styles.pairSide}>
-                <span className={styles.pairDate}>14 Aug 2025</span>
-                <span className={styles.pairTitle}>who owns the model</span>
-              </div>
-            </div>
-
-            <blockquote className={styles.asked}>
-              March treats the build as something we collectively need. This entry says the thing
-              being built is owned in four places. Who is the we in the March entry?
-            </blockquote>
-
-            <div className={styles.howNotes}>
-              <span>You filed neither of these. It found them &mdash; and it asked instead of telling you.</span>
-              <span>The question stays on the note. Answering out loud adds a layer, not a new chat.</span>
-            </div>
           </div>
         )}
 
