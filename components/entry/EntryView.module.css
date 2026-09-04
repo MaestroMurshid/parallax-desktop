@@ -180,14 +180,32 @@
   color: var(--title);
 }
 
-/* Every analytical claim quotes a span (sec 3.4). */
-.quoted {
-  margin: 10px 0 0;
+/* Every analytical claim quotes a span (sec 3.4). The span now leads, so it
+   needs saying whose words these are — without the label it reads as a stray
+   line of prose above an unrelated question. */
+.anchor {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0 0 9px;
   padding-left: 12px;
-  border-left: 1px solid var(--edge);
+  border-left: 2px solid var(--edge-control);
+}
+
+.anchorLabel {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.06em;
+  color: var(--edge-label);
+}
+
+.quoted {
+  margin: 0;
   font-size: var(--size-meta);
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--meta);
+  font-style: italic;
 }
 
 .provider {

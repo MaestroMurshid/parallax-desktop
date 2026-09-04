@@ -267,9 +267,12 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
           {questions.map((q) => (
             <div key={q.id} className={q.dismissed ? styles.questionDismissed : styles.question}>
               {q.span && (
-                <blockquote className={styles.quoted}>
-                  {entry.transcript.slice(q.span.start, q.span.end)}
-                </blockquote>
+                <div className={styles.anchor}>
+                  <span className={styles.anchorLabel}>about</span>
+                  <blockquote className={styles.quoted}>
+                    {entry.transcript.slice(q.span.start, q.span.end)}
+                  </blockquote>
+                </div>
               )}
               <p className={styles.questionText}>{q.text}</p>
               <div className={styles.provider}>
@@ -324,12 +327,14 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
           )}
 
           {/* Nothing is waiting, but this is the entry you came back to. */}
-          {questions.length > 0 && questions.every((q) => q.answered || q.dismissed) && (
+          {questions.length > 0 &&
+            proposed.length === 0 &&
+            questions.every((q) => q.answered || q.dismissed) && (
             <p className={styles.answerHint}>
               Nothing open here. Press <kbd className={styles.kbd}>{hotkey}</kbd> to say something
-              else about it &mdash; it joins on as its own note.
+              else about it. It joins on as its own note.
             </p>
-          )}
+            )}
 
           {/* §11 rejected contention-as-a-button twice. Invocation lives on a
               selection instead: you ask about a sentence, which keeps the
