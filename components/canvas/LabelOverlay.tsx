@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import { useApp } from '@/lib/store';
-import { markFor, resolveTypes, slotFor } from '@/lib/scene/classification';
+import { markFor, resolveTypes, treatmentFor } from '@/lib/scene/classification';
 import { signatureBars, titleBox, titleSizeFor } from '@/lib/scene/lexicon';
 import { lodFor } from '@/lib/scene/lod';
 import type { Entry } from '@/lib/types';
@@ -52,7 +52,7 @@ export default function LabelOverlay({
         .map((id) => entries.get(id))
         .filter((e): e is Entry => !!e && e.parentEdge === null)
         .map((entry) => {
-          const slot = slotFor(entry, types);
+          const slot = treatmentFor(entry, types);
           const size = titleSizeFor(entry);
           const box = titleBox(entry, slot?.family ?? 'serif');
           const sigWidth = Math.min(box.w, SIGNATURE_MAX);

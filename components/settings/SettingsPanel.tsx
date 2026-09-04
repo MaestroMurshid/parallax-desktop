@@ -245,7 +245,8 @@ export default function SettingsPanel({
         <h2 className={styles.sectionTitle}>types</h2>
         <TypeEditor />
         <p className={styles.helper}>
-          A type you add cannot fire on felt or inert entries, or on anything under 30 seconds.
+          A type you add fires only on a position, only on your own words, and never on its
+          own when an entry reads as live. Ask it yourself and it will answer anything.
           The mark is yours; the gate is not.
         </p>
       </section>

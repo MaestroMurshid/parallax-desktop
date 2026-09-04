@@ -1,12 +1,26 @@
 /**
- * Classification registry (§3.6). Stored types are unbounded; the letterform
- * vocabulary is fixed at 3 + inert. A user type binds to a slot for its
- * letterform and carries its own mark glyph.
+ * Classification registry (§3.6), on three orthogonal facets rather than one
+ * flat list.
+ *
+ * The old four — claim / rant / felt / inert — were cut on four different bases
+ * (rhetorical form, epistemic state, affective register, a null class), so they
+ * were never mutually exclusive: a heated unresolved argument about your job is
+ * all three of the first at once and the model had to pick one arbitrarily.
+ * Worse, picking `felt` to stay safe also removed the entry from retrieval, so
+ * protecting it cost you what it meant.
+ *
+ *   role       what the entry does      → letterform, retrieval
+ *   register   is this emotionally live → the automatic question only
+ *   provenance whose words are these    → what a question may anchor to (§7.3)
+ *
+ * Only `role` is rendered as a letterform. Register composes on top of it as a
+ * treatment, and provenance lives on spans, so the canvas still carries three
+ * channels — which is what §5.3's budget actually says.
  */
 
-import type { Entry, ProbeTier, RenderedType } from '@/lib/types';
+import type { Entry, ProbeTier, Register, Role, Span } from '@/lib/types';
 
-export type SlotId = RenderedType;
+export type SlotId = Role;
 export type EdgeTreatment = 'crisp' | 'irregular' | 'soft' | 'plain';
 
 /** Built-in marks are drawn paths, not characters — pixel-exact at 11px and
@@ -25,12 +39,25 @@ export interface RenderSlot {
   opacity: number;
 }
 
+/**
+ * The weight ladder carries role; the italic that used to mean `rant` retires
+ * with it, because the rings say unresolved better than a slope does.
+ */
 export const SLOTS: Record<SlotId, RenderSlot> = {
-  claim: { id: 'claim', edge: 'crisp', family: 'serif', weight: 600, italic: false, tracking: 0, opacity: 1 },
-  rant: { id: 'rant', edge: 'irregular', family: 'serif', weight: 400, italic: true, tracking: 0, opacity: 1 },
-  felt: { id: 'felt', edge: 'soft', family: 'serif', weight: 300, italic: false, tracking: 0.6, opacity: 0.8 },
-  inert: { id: 'inert', edge: 'plain', family: 'mono', weight: 400, italic: false, tracking: -0.2, opacity: 0.7 },
+  position: { id: 'position', edge: 'crisp', family: 'serif', weight: 600, italic: false, tracking: 0, opacity: 1 },
+  evidence: { id: 'evidence', edge: 'plain', family: 'serif', weight: 400, italic: false, tracking: 0, opacity: 1 },
+  note: { id: 'note', edge: 'plain', family: 'mono', weight: 400, italic: false, tracking: -0.2, opacity: 0.7 },
 };
+
+/**
+ * Register is a treatment, not a slot. `live` reads as the soft, tracked-out
+ * setting the old `felt` type had — but an entry keeps its role underneath, so
+ * a live position is still a position everywhere retrieval looks.
+ */
+export function applyRegister(slot: RenderSlot, register: Register): RenderSlot {
+  if (register !== 'live') return slot;
+  return { ...slot, edge: 'soft', tracking: slot.tracking + 0.6, opacity: slot.opacity * 0.8 };
+}
 
 /** Offered in the type editor so the common case needs no hunting. Each one
  *  passes the validator; none is a disc. */
@@ -46,19 +73,18 @@ export interface TypeDefinition {
   match: string;
   prompt: string | null;
   tier: ProbeTier;
-  /** Letterform binding. null = default letterform, no mark. */
-  renderSlot: SlotId | null;
-  /** null on built-ins: they use their slot's drawn glyph. */
+  /** Letterform binding — facet 1 only. null = default letterform, no mark. */
+  role: SlotId | null;
+  /** null on built-ins: they use their role's drawn glyph. */
   mark: Mark | null;
   /** §3.6 rule 1 — must be set deliberately for a user type to fire on its own. */
   autoApproved: boolean;
 }
 
 export const BUILT_IN_TYPES: TypeDefinition[] = [
-  { id: 'claim', label: 'claim', builtIn: true, match: 'a stated position with reasons', prompt: null, tier: 'safe', renderSlot: 'claim', mark: null, autoApproved: true },
-  { id: 'rant', label: 'rant', builtIn: true, match: 'working something out, unresolved', prompt: null, tier: 'safe', renderSlot: 'rant', mark: null, autoApproved: true },
-  { id: 'felt', label: 'felt', builtIn: true, match: 'personal, emotionally live', prompt: null, tier: 'silent', renderSlot: 'felt', mark: null, autoApproved: true },
-  { id: 'inert', label: 'inert', builtIn: true, match: 'lists, admin, reference, intent notes', prompt: null, tier: 'silent', renderSlot: 'inert', mark: null, autoApproved: true },
+  { id: 'position', label: 'position', builtIn: true, match: 'your own reasoning, asserted with grounds', prompt: null, tier: 'safe', role: 'position', mark: null, autoApproved: true },
+  { id: 'evidence', label: 'evidence', builtIn: true, match: 'a fact, a number, a thing you noticed', prompt: null, tier: 'silent', role: 'evidence', mark: null, autoApproved: true },
+  { id: 'note', label: 'note', builtIn: true, match: 'admin, lists, intents, reminders', prompt: null, tier: 'silent', role: 'note', mark: null, autoApproved: true },
 ];
 
 const BUILT_IN_IDS = new Set(BUILT_IN_TYPES.map((t) => t.id));
@@ -75,28 +101,52 @@ export function resolveTypes(custom: TypeDefinition[] = []): TypeDefinition[] {
     if (BUILT_IN_IDS.has(t.id)) continue;
     const optedIn = t.autoApproved === true;
     const tier: ProbeTier = !optedIn && AUTO_FIRING.includes(t.tier) ? 'heavy' : t.tier;
-    const slot = t.renderSlot && SLOTS[t.renderSlot] ? t.renderSlot : null;
-    merged.set(t.id, { ...t, builtIn: false, tier, renderSlot: slot, autoApproved: optedIn });
+    const role = t.role && SLOTS[t.role] ? t.role : null;
+    merged.set(t.id, { ...t, builtIn: false, tier, role, autoApproved: optedIn });
   }
   return [...merged.values()];
 }
 
 function definitionFor(entry: Entry, types: TypeDefinition[]): TypeDefinition | undefined {
-  return types.find((t) => t.id === entry.storedType);
+  return types.find((t) => t.id === entry.typeId);
+}
+
+/**
+ * Facet 1 for gating. A user-defined type's role wins if it declares one,
+ * otherwise the entry's own role — which is always set, so this never falls
+ * through to "unknown" the way the old storedType lookup did.
+ */
+function roleOf(entry: Entry, types: TypeDefinition[]): Role {
+  const def = definitionFor(entry, types);
+  return def?.role ?? entry.role;
 }
 
 export function slotFor(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): RenderSlot | null {
-  const def = definitionFor(entry, types);
-  const id = def ? def.renderSlot : entry.type;
-  return id ? SLOTS[id] ?? null : null;
+  return SLOTS[roleOf(entry, types)] ?? null;
 }
 
-/** A user type's own mark wins; otherwise the slot's drawn glyph. */
+/** What the canvas draws: role letterform with register composed on top. */
+export function treatmentFor(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): RenderSlot | null {
+  const slot = slotFor(entry, types);
+  return slot ? applyRegister(slot, entry.register) : null;
+}
+
+/** A user type's own mark wins; otherwise the role's drawn glyph. */
 export function markFor(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): Mark | null {
   const def = definitionFor(entry, types);
   if (def?.mark) return def.mark;
   const slot = slotFor(entry, types);
   return slot ? { kind: 'glyph', id: slot.id } : null;
+}
+
+/**
+ * What the entry panel shows. §3.6 says render the collapse, so this is the
+ * legend's own vocabulary — never a raw registry key the legend never taught.
+ */
+export function typeLabel(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): string {
+  const def = definitionFor(entry, types);
+  const base = def?.label ?? roleOf(entry, types);
+  return entry.register === 'live' ? `${base} · live` : base;
 }
 
 export interface LegendRow {
@@ -109,22 +159,53 @@ export interface LegendRow {
 
 export function legend(types: TypeDefinition[] = BUILT_IN_TYPES): LegendRow[] {
   return types
-    .filter((t) => t.renderSlot || t.mark)
+    .filter((t) => t.role || t.mark)
     .map((t) => ({
       label: t.label,
       gloss: t.match,
-      mark: t.mark ?? (t.renderSlot ? { kind: 'glyph' as const, id: t.renderSlot } : null),
-      slot: t.renderSlot ? SLOTS[t.renderSlot] : null,
+      mark: t.mark ?? (t.role ? { kind: 'glyph' as const, id: t.role } : null),
+      slot: t.role ? SLOTS[t.role] : null,
       builtIn: t.builtIn,
     }));
 }
 
-/** §3.6 rule 2 — suppression is not overridable by a user-defined type. */
-export function mayProbe(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): boolean {
-  if (entry.type === 'felt' || entry.type === 'inert') return false;
+/**
+ * Facet 3. An entry offers something to push on unless every word of it is
+ * someone else's. Spans mark attributed regions, so an entry with none is
+ * wholly the user's own.
+ */
+export function hasOwnSpan(entry: Entry): boolean {
+  const attributed = entry.spans.filter((s: Span) => s.attributed);
+  if (attributed.length === 0) return true;
+  const covered = attributed.reduce((n, s) => n + Math.max(0, s.end - s.start), 0);
+  return covered < entry.transcript.length;
+}
+
+/**
+ * The automatic question (§3.2) — post-recording, once, and the only path the
+ * user did not ask for. All three facets gate it, and every one of them fails
+ * closed.
+ */
+export function mayProbeAutomatically(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): boolean {
+  if (entry.register === 'live') return false;
   if (entry.durationMs < 30_000) return false;
+  if (!hasOwnSpan(entry)) return false;
+  if (roleOf(entry, types) !== 'position') return false;
   const def = definitionFor(entry, types);
   return def ? def.tier !== 'silent' : true;
+}
+
+/**
+ * The invoked path. §3.2: "the user chooses to be challenged, so the risk of
+ * misfire is theirs" — so register does not gate here, and neither does
+ * duration. Role and provenance still do, because there is nothing to push on
+ * in a fact, a list, or a sentence that isn't yours.
+ */
+export function mayProbeOnRequest(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): boolean {
+  if (!hasOwnSpan(entry)) return false;
+  if (roleOf(entry, types) !== 'position') return false;
+  const def = definitionFor(entry, types);
+  return def ? def.tier !== 'silent' || !def.builtIn : true;
 }
 
 /**
@@ -145,26 +226,25 @@ const ALL_PROBES: Probe[] = [
   { id: 'feynman', label: 'explain it simply', hint: 'only useful where there is a concept to master' },
 ];
 
-/** Reference-ish material — the only place Feynman is not grotesque (§3.1 F). */
-const CONCEPT_TYPES = new Set(['reference', 'definition', 'quote', 'source', 'excerpt']);
-
 /**
- * Which probes an entry may be asked. Empty for felt, inert and sub-30s — the
- * suppression list, and it is not overridable (§3.2, §3.6).
+ * Which probes an entry may be asked. Empty unless the entry is a position with
+ * something of the user's own in it — the suppression is not overridable by a
+ * user-defined type (§3.6 rule 2).
  */
 export function invokedProbes(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): Probe[] {
-  if (!mayProbe(entry, types)) return [];
-  const slot = slotFor(entry, types);
+  if (!mayProbeOnRequest(entry, types)) return [];
   return ALL_PROBES.filter((p) => {
-    // §3.3 — Münchhausen needs a claim or a rant, never a list or a source.
-    if (p.id === 'munchhausen') return slot?.id === 'claim' || slot?.id === 'rant';
-    if (p.id === 'feynman') return CONCEPT_TYPES.has(entry.storedType);
+    // §3.3 — Münchhausen needs a reason-giving structure, never a list or a source.
+    if (p.id === 'munchhausen') return roleOf(entry, types) === 'position';
+    // §3.1 F — Feynman only where there is a concept to master, which is what
+    // an attributed span is: someone else's idea you are working to hold.
+    if (p.id === 'feynman') return entry.spans.some((s) => s.attributed);
     return true;
   });
 }
 
 export function edgeTreatmentFor(entry: Entry, types?: TypeDefinition[]): EdgeTreatment {
-  return slotFor(entry, types)?.edge ?? 'plain';
+  return treatmentFor(entry, types)?.edge ?? 'plain';
 }
 
-export type { RenderedType };
+export type { Role };

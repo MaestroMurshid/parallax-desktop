@@ -79,14 +79,16 @@ export interface Bridge {
 
   // -- enrichment ---------------------------------------------------------
   /**
-   * Auto post-recording question; resolves to null when suppressed — felt,
-   * inert, or under ~30s entries (§3.2). A missed question beats a bad probe.
+   * Auto post-recording question; resolves to null when any of the three
+   * facets suppresses it — not a position, live register, someone else's
+   * words, or under ~30s (§3.2). A missed question beats a bad probe.
    */
   getQuestion(entryId: string): Promise<Question | null>;
   /**
    * User-invoked question (§3.6). Which probe fits is the model's call — the
-   * UI offers one door, not a menu of techniques. Eligibility still comes from
-   * the entry's type, so felt and inert entries reach nothing.
+   * UI offers one door, not a menu of techniques. Register does not gate here
+   * — §3.2 gives the invoked path to the user — but role and provenance do,
+   * because a fact, a list and someone else's sentence offer nothing to push on.
    */
   askQuestion(entryId: string): Promise<Question>;
   /** The primitive askQuestion picks from. Kept for replay and evaluation;

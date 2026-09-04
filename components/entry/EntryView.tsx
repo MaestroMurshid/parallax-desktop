@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getBridge } from '@/lib/bridge';
-import { invokedProbes, resolveTypes } from '@/lib/scene/classification';
+import { invokedProbes, resolveTypes, typeLabel } from '@/lib/scene/classification';
 import { useApp } from '@/lib/store';
 import type { Edge, Entry, Span } from '@/lib/types';
 import styles from './EntryView.module.css';
@@ -117,7 +117,7 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
         {/* Secondary column, smaller and dimmer, so the tidy version never wins (§1.1). */}
         <div className={styles.side}>
           {entry.summary && <p className={styles.summary}>{entry.summary}</p>}
-          <p className={styles.type}>{entry.storedType}</p>
+          <p className={styles.type}>{typeLabel(entry, resolveTypes(customTypes))}</p>
         </div>
       </div>
 

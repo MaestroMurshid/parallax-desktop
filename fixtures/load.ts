@@ -10,6 +10,7 @@ import { titleSizeForDuration, wrapTitle } from '@/lib/scene/lexicon';
 import { placeCorpus, type PlacementCandidate } from '@/lib/scene/placement';
 import { relaxLayout } from '@/lib/scene/relax';
 import { detectUnfinished } from '@/lib/scene/markers';
+import { mayProbeAutomatically } from '@/lib/scene/classification';
 import { hash32, mockVector, rng } from '@/lib/scene/vector';
 import type { SeedCorpus, SeedEntry } from './types';
 import raw from './corpus.json';
@@ -76,13 +77,14 @@ function toEntry(s: SeedEntry, x: number, y: number): Entry {
     x,
     y,
     parentEdge: s.parentEdge,
-    type: s.type,
-    storedType: s.storedType,
+    role: s.role,
+    register: s.register,
+    typeId: s.typeId,
     resolved: s.resolved,
     resolutionText: s.resolutionText,
     title: s.title,
-    // Never generated for felt entries (§1.1) — belt and braces over the fixture.
-    summary: s.type === 'felt' ? null : s.summary,
+    // Never generated for live entries (§1.1) — belt and braces over the fixture.
+    summary: s.register === 'live' ? null : s.summary,
     durationMs: s.durationMs,
     fingerprint: s.audio ? makeFingerprint(s.id, s.durationMs) : [],
     unfinished: detectUnfinished(s.transcript),
@@ -188,12 +190,9 @@ export function loadSeedCorpus(): LoadedCorpus {
         createdAt: entry.createdAt,
       };
     })
-    // §3.2 suppression is structural, not advisory: felt, inert and sub-30s
-    // entries never carry a question, whatever the fixture says.
-    .filter((q) => {
-      const entry = byId.get(q.entryId)!;
-      return entry.type !== 'felt' && entry.type !== 'inert' && entry.durationMs >= 30_000;
-    });
+    // §3.2 suppression is structural, not advisory: the three facets decide
+    // what may carry an automatic question, whatever the fixture says.
+    .filter((q) => mayProbeAutomatically(byId.get(q.entryId)!));
 
   const actionItems = entries.flatMap((e) => e.actionItems);
 

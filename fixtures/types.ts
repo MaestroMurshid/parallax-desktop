@@ -4,7 +4,7 @@
  * anchor by quoted substring, not offset, so transcripts stay editable.
  */
 
-import type { Relation, RenderedType } from '@/lib/types';
+import type { Register, Relation, Role } from '@/lib/types';
 
 export interface SeedEntry {
   id: string;
@@ -14,11 +14,14 @@ export interface SeedEntry {
   transcript: string;
   /** 3–4 words, drawn from the user's own phrasing wherever possible (§5.2). */
   title: string;
-  /** null for felt entries — flattening those is worse than useless (§1.1). */
+  /** null for live entries — flattening those is worse than useless (§1.1). */
   summary: string | null;
-  type: RenderedType;
-  /** Finer classification, stored not rendered (§3.6). */
-  storedType: string;
+  /** Facet 1 — what the entry does (§3.6). */
+  role: Role;
+  /** Facet 2 — emotionally live? Gates the automatic question only. */
+  register: Register;
+  /** Registry key; equals the role id unless a user-defined type owns it. */
+  typeId: string;
   durationMs: number;
   /** false => typed entry: no fingerprint, a free visual distinction (§4). */
   audio: boolean;

@@ -14,7 +14,7 @@ import type {
   SystemProfile,
 } from '@/lib/types';
 import { radiusForDuration } from '@/lib/scene/blob';
-import { invokedProbes } from '@/lib/scene/classification';
+import { invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
 import { detectUnfinished } from '@/lib/scene/markers';
 import { placeEntry, type PlacedNode } from '@/lib/scene/placement';
 import { titleSizeForDuration, wrapTitle } from '@/lib/scene/lexicon';
@@ -177,7 +177,7 @@ export class MockBridge implements Bridge {
     for (const e of this.entries.values()) {
       if (e.parentEdge !== null) continue;
       field.push({ id: e.id, x: e.x, y: e.y, ...liveBox(e.durationMs, e.title), isolated: false });
-      vectors.set(e.id, mockVector(e.storedType, e.id));
+      vectors.set(e.id, mockVector(e.typeId, e.id));
     }
     const placed = placeEntry({ id, vec: mockVector('live-capture', id), ...box }, field, vectors);
 
@@ -189,8 +189,12 @@ export class MockBridge implements Bridge {
       x: placed.x,
       y: placed.y,
       parentEdge: draft.parentEdge ?? null,
-      type: 'rant',
-      storedType: 'live-capture',
+      // A fresh capture before the classifier has seen it. `neutral` is not a
+      // guess about the speaker — nothing has run yet, and the automatic
+      // question is gated on role and duration too.
+      role: 'position',
+      register: 'neutral',
+      typeId: 'position',
       resolved: false,
       resolutionText: null,
       title: deriveTitle(draft.transcript),
@@ -310,8 +314,7 @@ export class MockBridge implements Bridge {
     const entry = this.entries.get(entryId);
     if (!entry) return null;
     // §3.2 suppression re-enforced here rather than trusted upstream.
-    if (entry.type === 'felt' || entry.type === 'inert') return null;
-    if (entry.durationMs < 30_000) return null;
+    if (!mayProbeAutomatically(entry)) return null;
     return this.questions.get(entryId) ?? null;
   }
 
@@ -336,9 +339,23 @@ export class MockBridge implements Bridge {
     if (!entry) throw new Error(`No entry ${entryId}`);
     await sleep(900);
 
-    const sentences = entry.transcript.split(/(?<=[.?!])\s+/).filter((x) => x.length > 24);
-    const pick = sentences[Math.min(1, sentences.length - 1)] ?? entry.transcript.slice(0, 90);
-    const start = entry.transcript.indexOf(pick);
+    // Facet 3: the app may only push on the user's own words. The gate lets a
+    // mixed entry through — most notes about a book contain a real position —
+    // so the anchor has to be chosen, not assumed. Without this the steelman
+    // lands on the author's sentence and asks you to defend someone else's book.
+    const attributed = entry.spans.filter((sp) => sp.attributed);
+    const borrowed = (from: number, to: number) =>
+      attributed.some((sp) => from < sp.end && to > sp.start);
+
+    const candidates = entry.transcript
+      .split(/(?<=[.?!])\s+/)
+      .filter((x) => x.length > 24)
+      .map((text) => ({ text, start: entry.transcript.indexOf(text) }))
+      .filter((c) => c.start >= 0 && !borrowed(c.start, c.start + c.text.length));
+
+    const chosen = candidates[Math.min(1, candidates.length - 1)];
+    const pick = chosen?.text ?? entry.transcript.slice(0, 90);
+    const start = chosen ? chosen.start : entry.transcript.indexOf(pick);
     const text: Record<string, string> = {
       steelman:
         'Put at its strongest, the entry says the constraint is structural rather than chosen. Does the argument still need the weaker version it actually makes?',
