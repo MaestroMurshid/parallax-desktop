@@ -64,6 +64,11 @@
   --size-meta: 12px;
   --size-body: 14px;
   --size-question: 15px; /* the one serif exception (§8) */
+  /* Onboarding only. §8's visual quiet governs the canvas, which stays as it
+     is; §15 already granted the tagline "real size as the app's one moment to
+     introduce itself" and these are that exception, named. */
+  --size-lede: clamp(17px, 2.5cqw, 21px);
+  --size-display: clamp(38px, 6.4cqw, 58px);
 
   /* Motion means exactly one thing: audio is running now. (§8)
      There is no general-purpose transition token on purpose. */

@@ -45,7 +45,7 @@ export default function Onboarding({
   settings: Settings;
   onDone(next: Settings): void;
 }) {
-  const [step, setStep] = useState<'models' | 'field'>('models');
+  const [step, setStep] = useState<'models' | 'how' | 'field'>('models');
   const theme = useApp((s) => s.theme);
   const setTheme = useApp((s) => s.setTheme);
   const [profile, setProfile] = useState<SystemProfile | null>(null);
@@ -112,7 +112,7 @@ export default function Onboarding({
       await bridge.setSettings({ modelId });
       void bridge.downloadModel(modelId);
     }
-    setStep('field');
+    setStep('how');
   };
 
   const start = async () => {
@@ -125,7 +125,9 @@ export default function Onboarding({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Enter' || capturing) return;
       if ((e.target as HTMLElement | null)?.tagName === 'BUTTON') return;
-      void (step === 'models' ? chooseModels() : start());
+      if (step === 'models') return void chooseModels();
+      if (step === 'how') return setStep('field');
+      void start();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -135,7 +137,7 @@ export default function Onboarding({
     <div className={styles.stage}>
       <div className={styles.frame}>
         <div className={styles.topRow}>
-          <span className={styles.top}>{APP_NAME}</span>
+          <span className={styles.top}>{step === 'models' ? '' : APP_NAME}</span>
           {/* Here rather than buried in settings: this is the first thing the
               app shows, and it is the screen you would want to change it on. */}
           <div className={styles.themes} role="group" aria-label="Appearance">
@@ -153,10 +155,19 @@ export default function Onboarding({
           </div>
         </div>
 
-        {step === 'models' ? (
-          <div className={styles.canvas}>
-            <div className={styles.node} style={{ left: '8%', top: '22%' }}>
-              <span className={styles.t}>what turns it into words</span>
+        {step === 'models' && (
+          <div className={styles.masthead}>
+            <h1 className={styles.wordmark}>{APP_NAME}</h1>
+            <p className={styles.tagline}>
+              Talk. It files what you said, and later puts it next to something you said before.
+            </p>
+          </div>
+        )}
+
+        {step === 'models' && (
+          <div className={styles.rows}>
+            <div className={styles.node}>
+              <span className={styles.t}>Transcription</span>
               <span className={styles.m}>
                 {speech ? `transcribe.cpp ${speech.name} · ${size(speech)}` : 'detecting…'}
                 <span className={styles.sep}>·</span>
@@ -169,8 +180,8 @@ export default function Onboarding({
               </span>
             </div>
 
-            <div className={styles.node} style={{ left: '8%', top: '56%' }}>
-              <span className={styles.t}>what reads it back</span>
+            <div className={styles.node}>
+              <span className={styles.t}>The question</span>
               <span className={styles.m}>
                 {reasoning ? `${reasoning.name} ${reasoning.quantization} · ${size(reasoning)}` : 'detecting…'}
                 <span className={styles.sep}>·</span>
@@ -228,7 +239,45 @@ export default function Onboarding({
               </div>
             )}
           </div>
-        ) : (
+        )}
+
+        {step === 'how' && (
+          <div className={styles.how}>
+            <p className={styles.lede}>The interlocutor is your past self, not the AI.</p>
+            <p className={styles.ledeSub}>
+              A note from March isn&rsquo;t trying to agree with your August position. It gets
+              retrieved, put next to something relevant, and asked about.
+            </p>
+
+            <div className={styles.pair}>
+              <div className={styles.pairSide}>
+                <span className={styles.pairDate}>6 Mar 2025</span>
+                <span className={styles.pairTitle}>still need the build</span>
+              </div>
+              <div className={styles.pairLink} aria-hidden="true">
+                <span className={styles.pairRule} />
+                <span className={styles.relation}>contradicts</span>
+                <span className={styles.gapLabel}>162 days apart</span>
+              </div>
+              <div className={styles.pairSide}>
+                <span className={styles.pairDate}>14 Aug 2025</span>
+                <span className={styles.pairTitle}>who owns the model</span>
+              </div>
+            </div>
+
+            <blockquote className={styles.asked}>
+              March treats the build as something we collectively need. This entry says the thing
+              being built is owned in four places. Who is the we in the March entry?
+            </blockquote>
+
+            <div className={styles.howNotes}>
+              <span>You filed neither of these. It found them &mdash; and it asked instead of telling you.</span>
+              <span>The question stays on the note. Answering out loud adds a layer, not a new chat.</span>
+            </div>
+          </div>
+        )}
+
+        {step === 'field' && (
           <div className={styles.canvas}>
             {/* Same hairline weight and colour the canvas uses for a proposed edge. */}
             <svg className={styles.threads} viewBox="0 0 600 300" preserveAspectRatio="none" aria-hidden="true">
@@ -239,7 +288,7 @@ export default function Onboarding({
             </svg>
 
             <div className={styles.node} style={{ left: '4%', top: '10%' }}>
-              <span className={`${styles.t} ${styles.claim}`}>what you say</span>
+              <span className={styles.t}>Hotkey</span>
               <span className={styles.m}>
                 <kbd className={styles.kbd}>{capturing ? 'press a combination…' : hotkey}</kbd>
                 <span className={styles.sep}>·</span>
@@ -250,7 +299,7 @@ export default function Onboarding({
             </div>
 
             <div className={styles.node} style={{ left: '66%', top: '18%' }}>
-              <span className={`${styles.t} ${styles.rant}`}>what hears you</span>
+              <span className={styles.t}>Microphone</span>
               <span className={styles.m}>
                 microphone
                 <span className={styles.sep}>·</span>
@@ -277,18 +326,18 @@ export default function Onboarding({
             </div>
 
             <div className={styles.node} style={{ left: '30%', top: '44%' }}>
-              <span className={styles.t}>what turns it into words</span>
+              <span className={styles.t}>Transcription</span>
               <span className={styles.m}>{speechProgress.label || 'arriving'}</span>
             </div>
 
             <div className={styles.node} style={{ left: '62%', top: '62%' }}>
-              <span className={styles.t}>what reads it back</span>
+              <span className={styles.t}>The question</span>
               <span className={styles.m}>{reasoningProgress.label || 'arriving'}</span>
             </div>
 
             {/* Not a control — it teaches the accent dot before the canvas uses it. */}
             <div className={styles.node} style={{ left: '4%', top: '74%' }}>
-              <span className={styles.t}>what it asks later</span>
+              <span className={styles.t}>Open questions</span>
               <span className={styles.m}>
                 <span className={styles.dot} />
                 one question, never a verdict
@@ -319,16 +368,22 @@ export default function Onboarding({
         <div className={styles.go}>
           <span className={styles.note}>
             {step === 'models'
-              ? 'Both start downloading now, so they run while you set the rest up.'
-              : 'Speech lands first — you can record as soon as it does. The question waits on the larger one.'}{' '}
+              ? 'Both start downloading now, so they run while you read the next screen.'
+              : step === 'how'
+                ? 'This is what the app is for. Everything else is setup.'
+                : 'Speech lands first — you can record as soon as it does. The question waits on the larger one.'}{' '}
             Press <kbd className={styles.kbdInline}>Enter</kbd>.
           </span>
           <button
             type="button"
             className={styles.start}
-            onClick={() => void (step === 'models' ? chooseModels() : start())}
+            onClick={() => {
+              if (step === 'models') return void chooseModels();
+              if (step === 'how') return setStep('field');
+              void start();
+            }}
           >
-            {step === 'models' ? 'Continue' : 'Start'}
+            {step === 'field' ? 'Start' : 'Continue'}
           </button>
         </div>
       </div>
