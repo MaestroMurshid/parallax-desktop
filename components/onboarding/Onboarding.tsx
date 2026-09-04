@@ -243,49 +243,39 @@ export default function Onboarding({
 
         {step === 'how' && (
           <div className={styles.how}>
-            <p className={styles.lede}>It asks; you answer out loud. The thinking stays yours.</p>
+            <p className={styles.lede}>It asks; you answer out loud.</p>
 
-            <div className={styles.beat}>
-              <span className={styles.beatLabel}>it pairs two of your own notes</span>
-              <div className={styles.pair}>
-                <div className={styles.pairSide}>
-                  <span className={styles.pairDate}>12 Mar</span>
-                  <span className={styles.pairTitle}>collapse is bookkeeping</span>
-                </div>
-                <div className={styles.pairLink} aria-hidden="true">
-                  <span className={styles.pairRule} />
-                  <span className={styles.relation}>contradicts</span>
-                  <span className={styles.gapLabel}>200 days apart</span>
-                </div>
-                <div className={styles.pairSide}>
-                  <span className={styles.pairDate}>28 Sep</span>
-                  <span className={styles.pairTitle}>the observer has to do something</span>
-                </div>
+            <div className={styles.pair}>
+              <div className={styles.pairSide}>
+                <span className={styles.pairDate}>12 Mar</span>
+                <span className={styles.pairTitle}>free will is a story we tell after</span>
               </div>
-              <blockquote className={styles.asked}>
-                March treats collapse as bookkeeping, not an event. September needs the observer to
-                do something. Which one is the measurement?
-              </blockquote>
+              <div className={styles.pairLink} aria-hidden="true">
+                <span className={styles.pairRule} />
+                <span className={styles.relation}>contradicts</span>
+                <span className={styles.gapLabel}>200 days apart</span>
+              </div>
+              <div className={styles.pairSide}>
+                <span className={styles.pairDate}>28 Sep</span>
+                <span className={styles.pairTitle}>he should have known better</span>
+              </div>
             </div>
 
-            <div className={styles.beat}>
-              <span className={styles.beatLabel}>it asks what a claim rests on</span>
-              <blockquote className={styles.asked}>
-                This holds if the wavefunction is a thing rather than a description. Which are you
-                assuming?
-              </blockquote>
-            </div>
+            <blockquote className={styles.asked}>
+              March says the choice was never open. September blames him for it. Does blame need the
+              choice to have been open?
+            </blockquote>
 
-            <div className={styles.beat}>
-              <span className={styles.beatLabel}>it makes you say it back</span>
-              <blockquote className={styles.asked}>
-                You said decoherence finally made sense. Say it again without the word.
-              </blockquote>
+            <div className={styles.moves}>
+              <span className={styles.movesLabel}>it also asks</span>
+              <span className={styles.move}>what this rests on</span>
+              <span className={styles.move}>where it stops holding</span>
+              <span className={styles.move}>what would change your mind</span>
+              <span className={styles.move}>say it back without the word</span>
             </div>
 
             <p className={styles.howNote}>
-              It never answers &mdash; you do, and the answer becomes a layer on the note. Add your
-              own kind of note too: name it, say when it applies, write what it should ask.
+              It never answers &mdash; you do. Add your own kind of note, and what it should ask.
             </p>
           </div>
         )}

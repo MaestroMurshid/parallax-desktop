@@ -540,3 +540,28 @@
   position: static;
   max-width: 46em;
 }
+
+/* The repertoire, glanceable. Naming the moves is enough here; each one is
+   shown properly the first time it fires on something you actually said. */
+.moves {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--edge);
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.04em;
+  color: var(--meta);
+}
+
+.movesLabel {
+  color: var(--edge-label);
+}
+
+.move + .move::before {
+  content: '·';
+  margin-right: 14px;
+  color: var(--edge-label);
+}
