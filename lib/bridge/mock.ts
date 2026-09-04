@@ -285,7 +285,23 @@ export class MockBridge implements Bridge {
     const transcript = PLACEHOLDER_TRANSCRIPTS[idx] ?? PLACEHOLDER_TRANSCRIPTS[0]!;
     const fingerprint = Array.from({ length: 8 }, () => 0.15 + r() * 0.85);
 
-    return this.createEntry({ transcript, durationMs, fingerprint, parentEdge });
+    const entry = await this.createEntry({ transcript, durationMs, fingerprint, parentEdge });
+
+    // An answer is a note in its own right, not a turn in a conversation. It
+    // lands on the canvas, carries a drawn line back to what it answers, and
+    // is eligible for its own question like anything else you say.
+    if (parentEdge && this.entries.has(parentEdge)) {
+      this.edges.push({
+        id: `edge-answer-${entry.id}`,
+        entryA: parentEdge,
+        entryB: entry.id,
+        relation: 'extends',
+        question: null,
+        status: 'accepted',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return entry;
   }
 
   async discardRecording(): Promise<void> {

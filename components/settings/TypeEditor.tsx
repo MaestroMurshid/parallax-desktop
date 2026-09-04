@@ -36,7 +36,7 @@ function tierGloss(t: TypeDefinition): string {
     return 'never asks';
   }
   const base = TIER_TEXT[t.tier];
-  return t.autoApproved ? base : `${base} · not approved to fire`;
+  return base;
 }
 const SLOT_IDS = Object.keys(SLOTS) as SlotId[];
 const slug = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -48,7 +48,7 @@ const blank = {
   tier: 'heavy' as ProbeTier,
   role: '' as SlotId | '',
   mark: '',
-  autoApproved: false,
+  autoApproved: true,
 };
 
 export default function TypeEditor() {
@@ -224,20 +224,10 @@ export default function TypeEditor() {
             ))}
           </select>
           <span className={styles.hint}>
-            How far it may go. Whatever you pick, it still cannot fire on its own until you approve
-            it below, and never on a note, on someone else&rsquo;s words, or on an entry that reads
-            as live.
+            How far it may go. Whatever you pick, it never fires on a note, on someone
+            else&rsquo;s words, or on an entry that reads as live.
           </span>
         </div>
-
-        <label className={styles.markRow}>
-          <input
-            type="checkbox"
-            checked={draft.autoApproved}
-            onChange={(e) => setDraft({ ...draft, autoApproved: e.target.checked })}
-          />
-          <span className={styles.fieldLabel}>let this fire automatically</span>
-        </label>
 
         <button type="button" className={styles.submit} disabled={!canSubmit} onClick={submit}>
           add type

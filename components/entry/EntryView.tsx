@@ -266,12 +266,12 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
         <section className={styles.analysis}>
           {questions.map((q) => (
             <div key={q.id} className={q.dismissed ? styles.questionDismissed : styles.question}>
-              <p className={styles.questionText}>{q.text}</p>
               {q.span && (
                 <blockquote className={styles.quoted}>
                   {entry.transcript.slice(q.span.start, q.span.end)}
                 </blockquote>
               )}
+              <p className={styles.questionText}>{q.text}</p>
               <div className={styles.provider}>
                 <span>{q.providerName}</span>
                 {q.dismissed ? (
@@ -290,8 +290,8 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
               </div>
               {!q.answered && !q.dismissed && (
                 <p className={styles.answerHint}>
-                  Press <kbd className={styles.kbd}>{hotkey}</kbd> to answer it out loud — the
-                  answer becomes a layer on this entry, not a new note.
+                  Press <kbd className={styles.kbd}>{hotkey}</kbd> to answer it out loud — it
+                  becomes its own note, joined to this one, and gets a question of its own.
                 </p>
               )}
             </div>

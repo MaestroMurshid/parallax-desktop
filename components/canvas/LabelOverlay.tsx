@@ -50,7 +50,7 @@ export default function LabelOverlay({
     () =>
       order
         .map((id) => entries.get(id))
-        .filter((e): e is Entry => !!e && e.parentEdge === null)
+        .filter((e): e is Entry => !!e)
         .map((entry) => {
           const slot = treatmentFor(entry, types);
           const size = titleSizeFor(entry);
