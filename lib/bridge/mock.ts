@@ -333,7 +333,14 @@ export class MockBridge implements Bridge {
     if (!entry) return null;
     // §3.2 suppression re-enforced here rather than trusted upstream.
     if (!mayProbeAutomatically(entry)) return null;
-    return this.questions.get(entryId)?.[0] ?? null;
+    const existing = this.questions.get(entryId)?.[0];
+    if (existing) return existing;
+    // Anything the gate lets through gets asked. Whether a question exists is
+    // decided here, not by whether one was written into the fixture — the seed
+    // corpus supplies better-written examples where it has them, and this fills
+    // the rest so the invariant holds for every eligible entry.
+    const probe = invokedProbes(entry)[0];
+    return probe ? this.runProbe(entryId, probe.id) : null;
   }
 
   /**

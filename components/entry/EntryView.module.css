@@ -219,6 +219,16 @@
   text-decoration-thickness: 1px;
 }
 
+.answeredTag {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.04em;
+  color: var(--edge-label);
+  text-decoration: underline;
+  text-decoration-color: var(--edge-control);
+  text-underline-offset: 3px;
+}
+
 .dismissedTag {
   font-family: var(--font-mono);
   font-size: var(--size-micro);
@@ -562,4 +572,51 @@
 .askHint {
   font-size: var(--size-meta);
   color: var(--meta);
+}
+
+/* What you said back, under the question it settled. An `answered` tag alone
+   tells you the state; this tells you where the answer went, which is the part
+   worth finding again in eight months. */
+.answerLink {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.answerDate {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+.answerTitle {
+  font-family: var(--font-serif);
+  font-size: var(--size-meta);
+  line-height: 1.4;
+  color: var(--meta);
+  text-decoration: underline;
+  text-decoration-color: var(--edge-control);
+  text-underline-offset: 3px;
+}
+
+.answerLink:hover .answerTitle {
+  color: var(--title);
+}
+
+.answerLink::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 100%;
+  height: max(100%, 24px);
 }

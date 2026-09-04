@@ -60,6 +60,7 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   const customTypes = useApp((s) => s.customTypes);
   const addQuestion = useApp((s) => s.addQuestion);
   const dismissQuestion = useApp((s) => s.dismissQuestion);
+  const openEntry = useApp((s) => s.openEntry);
   const resolveEntry = useApp((s) => s.resolveEntry);
   const reopenEntry = useApp((s) => s.reopenEntry);
   const [resolving, setResolving] = useState(false);
@@ -83,6 +84,10 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
 
   const items = actionItems.filter((a) => a.entryId === entry.id);
   const probes = invokedProbes(entry, resolveTypes(customTypes));
+  // Which child answered which question is not stored yet, so they pair in the
+  // order both were made. Right for the common case of one question, one answer.
+  const answeredIds = questions.filter((q) => q.answered).map((q) => q.id);
+  const answerFor = (qid: string): Entry | undefined => children[answeredIds.indexOf(qid)];
   const other = (edge: Edge) => entries.get(edge.entryA === entry.id ? edge.entryB : edge.entryA);
 
   return (
@@ -286,7 +291,7 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
                 {q.dismissed ? (
                   <span className={styles.dismissedTag}>dismissed</span>
                 ) : q.answered ? (
-                  <span className={styles.dismissedTag}>answered</span>
+                  <span className={styles.answeredTag}>answered</span>
                 ) : (
                   !q.answered && (
                     <button
@@ -299,6 +304,19 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
                   )
                 )}
               </div>
+              {q.answered && answerFor(q.id) && (
+                <button
+                  type="button"
+                  className={styles.answerLink}
+                  onClick={() => openEntry(answerFor(q.id)!.id)}
+                >
+                  <span className={styles.answerDate}>
+                    {dateFmt.format(new Date(answerFor(q.id)!.createdAt))}
+                  </span>
+                  <span className={styles.answerTitle}>{answerFor(q.id)!.title}</span>
+                </button>
+              )}
+
               {!q.answered && !q.dismissed && (
                 <p className={styles.answerHint}>
                   Press <kbd className={styles.kbd}>{hotkey}</kbd> to answer it out loud — it
