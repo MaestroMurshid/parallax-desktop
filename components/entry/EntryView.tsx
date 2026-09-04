@@ -323,6 +323,14 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
             <p className={styles.nothing}>{silenceReason(entry)}</p>
           )}
 
+          {/* Nothing is waiting, but this is the entry you came back to. */}
+          {questions.length > 0 && questions.every((q) => q.answered || q.dismissed) && (
+            <p className={styles.answerHint}>
+              Nothing open here. Press <kbd className={styles.kbd}>{hotkey}</kbd> to say something
+              else about it &mdash; it joins on as its own note.
+            </p>
+          )}
+
           {/* §11 rejected contention-as-a-button twice. Invocation lives on a
               selection instead: you ask about a sentence, which keeps the
               question specific and proves the span is yours before it fires. */}

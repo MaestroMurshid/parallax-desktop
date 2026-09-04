@@ -77,13 +77,10 @@ export default function Page() {
           return;
         }
         if (state.captureState !== 'idle') return;
-        // In the canvas, an open entry with an unanswered question makes the
-        // hotkey mean "answer this" (§6.2). The panel has no such context.
+        // In the canvas, an open entry makes the hotkey mean "respond to this".
+        // The panel has no such context.
         const target = state.selectedEntryId;
-        const answering =
-          !isPanel && state.overlay === 'entry' && target && state.hasUnansweredQuestion(target)
-            ? target
-            : null;
+        const answering = !isPanel && state.overlay === 'entry' && target ? target : null;
         void state.startRecording(answering);
       })();
     });
@@ -126,13 +123,12 @@ export default function Page() {
         e.preventDefault();
         if (state.captureState === 'recording') void state.stopRecording();
         else if (state.captureState === 'idle') {
-          // An open entry with an unanswered question makes the hotkey mean
-          // "answer this" — the answer becomes its own note, joined to it.
+          // An open entry makes the hotkey mean "respond to this" — the answer
+          // becomes its own note, joined to it. An unanswered question is what
+          // the response closes, not what permits it: an entry you have already
+          // answered is exactly the one you come back to months later.
           const target = state.selectedEntryId;
-          const answering =
-            state.overlay === 'entry' && target && state.hasUnansweredQuestion(target)
-              ? target
-              : null;
+          const answering = state.overlay === 'entry' && target ? target : null;
           void state.startRecording(answering);
         }
         return;
