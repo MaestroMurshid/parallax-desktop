@@ -83,7 +83,7 @@ export interface TypeDefinition {
 
 export const BUILT_IN_TYPES: TypeDefinition[] = [
   { id: 'position', label: 'position', builtIn: true, match: 'your own reasoning, asserted with grounds', prompt: null, tier: 'safe', role: 'position', mark: null, autoApproved: true },
-  { id: 'evidence', label: 'evidence', builtIn: true, match: 'a fact, a number, a thing you noticed', prompt: null, tier: 'silent', role: 'evidence', mark: null, autoApproved: true },
+  { id: 'evidence', label: 'evidence', builtIn: true, match: 'a fact, a number, a thing you noticed, or something you are learning', prompt: null, tier: 'silent', role: 'evidence', mark: null, autoApproved: true },
   { id: 'note', label: 'note', builtIn: true, match: 'admin, lists, intents, reminders', prompt: null, tier: 'silent', role: 'note', mark: null, autoApproved: true },
 ];
 

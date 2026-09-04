@@ -594,6 +594,27 @@
       "spanQuote": "That was decided at signing and nobody voted on it",
       "answered": false,
       "providerName": "Qwen3-4B-Q4"
+    },
+    {
+      "entryId": "limits-not-austerity",
+      "text": "The entry rests on the distribution under the ceiling still being open. Open in principle, or open in practice?",
+      "spanQuote": "the entire question of who gets what underneath that ceiling is still open",
+      "answered": false,
+      "providerName": "Qwen3-4B-Q4"
+    },
+    {
+      "entryId": "digital-degrowth-book",
+      "text": "The entry treats the softer version and the book's version as the same argument. What did the vocabulary let the book say that the softer one could not?",
+      "spanQuote": "I've been making a softer version of that argument for months without the vocabulary for it",
+      "answered": false,
+      "providerName": "Qwen3-4B-Q4"
+    },
+    {
+      "entryId": "sanctions-dont-land",
+      "text": "The entry says the case has to rest on something other than pressure. What would that other thing be?",
+      "spanQuote": "the case has to be made on something other than pressure",
+      "answered": false,
+      "providerName": "Qwen3-4B-Q4"
     }
   ]
 }
