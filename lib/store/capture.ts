@@ -35,9 +35,11 @@ export interface CaptureSlice {
   elapsedMs: number;
   /** Set while recording an answer: the entry this becomes a layer on (§6.2). */
   answeringEntryId: string | null;
+  /** Which question the recording is answering, when the user picked one. */
+  answeringQuestionId: string | null;
   discardedAt: number | null;
 
-  startRecording(answeringEntryId?: string | null): Promise<void>;
+  startRecording(answeringEntryId?: string | null, answeringQuestionId?: string | null): Promise<void>;
   stopRecording(): Promise<void>;
   discardRecording(): Promise<void>;
   undoDiscard(): Promise<void>;
@@ -74,9 +76,10 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
   startedAt: null,
   elapsedMs: 0,
   answeringEntryId: null,
+  answeringQuestionId: null,
   discardedAt: null,
 
-  async startRecording(answeringEntryId = null) {
+  async startRecording(answeringEntryId = null, answeringQuestionId = null) {
     if (get().captureState !== 'idle') return;
     await getBridge().startRecording();
     set({
@@ -84,6 +87,7 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
       startedAt: Date.now(),
       elapsedMs: 0,
       answeringEntryId,
+      answeringQuestionId,
     });
   },
 
@@ -93,7 +97,8 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
     set({ captureState: 'transcribing' });
 
     const answering = get().answeringEntryId;
-    const entry: Entry = await getBridge().stopRecording(answering);
+    const targeted = get().answeringQuestionId;
+    const entry: Entry = await getBridge().stopRecording(answering, targeted);
     get().upsertEntry(entry);
 
     // An answer closes the question it replies to, then goes on to be a note
@@ -101,16 +106,15 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
     // asked its own question. Speaking is how the thread continues, which is
     // the point at which one entry becomes two rather than a conversation.
     if (answering) {
-      // The oldest unanswered one is the one they just spoke to.
+      // The one they chose, or the oldest still open if they just hit the key.
       const questions = new Map(get().questions);
       const prior = questions.get(answering);
       if (prior) {
-        let done = false;
-        questions.set(answering, prior.map((q) => {
-          if (done || q.answered || q.dismissed) return q;
-          done = true;
-          return { ...q, answered: true };
-        }));
+        const target = targeted ?? prior.find((q) => !q.answered && !q.dismissed)?.id;
+        questions.set(
+          answering,
+          prior.map((q) => (q.id === target ? { ...q, answered: true } : q)),
+        );
       }
       const own = long ? null : await getBridge().getQuestion(entry.id);
       if (own) questions.set(entry.id, [own]);
@@ -119,6 +123,7 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
         edges: await getBridge().listEdges(),
         captureState: 'idle',
         answeringEntryId: null,
+        answeringQuestionId: null,
       });
       return;
     }

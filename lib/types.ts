@@ -116,8 +116,11 @@ export interface Entry {
   x: number;
   y: number;
 
-  /** Set => this entry is an answer; it thickens the parent's ring (§6.2). */
+  /** Set => this entry is an answer to the entry named here. */
   parentEdge: string | null;
+  /** Which question it answers. Without it, an answer can only be paired to a
+   *  question by order, which guesses as soon as an entry has two open. */
+  answersQuestionId: string | null;
 
   /** Facet 1 — what this entry does. Display and retrieval only. */
   role: Role;

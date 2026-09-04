@@ -49,7 +49,7 @@ export interface UiSlice {
 
 export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set) => ({
   overlay: 'none',
-  theme: 'system',
+  theme: 'light',
   setTheme: (theme) => set({ theme }),
   selectedEntryId: null,
   hoveredEntryId: null,

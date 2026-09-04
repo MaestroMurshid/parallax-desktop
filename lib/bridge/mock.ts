@@ -197,6 +197,7 @@ export class MockBridge implements Bridge {
       role: 'position',
       register: 'neutral',
       typeId: 'position',
+      answersQuestionId: null,
       resolved: false,
       resolutionText: null,
       title: deriveTitle(draft.transcript),
@@ -275,7 +276,10 @@ export class MockBridge implements Bridge {
     }, 33);
   }
 
-  async stopRecording(parentEdge: string | null = null): Promise<Entry> {
+  async stopRecording(
+    parentEdge: string | null = null,
+    questionId: string | null = null,
+  ): Promise<Entry> {
     const durationMs = Date.now() - this.recordingStartedAt;
     this.stopAmplitude();
     await sleep(1800); // §4 — transcription runs (~2s)
@@ -286,6 +290,8 @@ export class MockBridge implements Bridge {
     const fingerprint = Array.from({ length: 8 }, () => 0.15 + r() * 0.85);
 
     const entry = await this.createEntry({ transcript, durationMs, fingerprint, parentEdge });
+    entry.answersQuestionId = questionId;
+    this.entries.set(entry.id, entry);
 
     // An answer is a note in its own right, not a turn in a conversation. It
     // lands on the canvas, carries a drawn line back to what it answers, and

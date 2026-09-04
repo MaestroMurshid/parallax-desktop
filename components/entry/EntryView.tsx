@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getBridge } from '@/lib/bridge';
-import { hasOwnSpan, invokedProbes, resolveTypes, typeLabel } from '@/lib/scene/classification';
+import { hasOwnSpan, invokedProbes, resolveTypes, slotFor, typeLabel } from '@/lib/scene/classification';
 import { useApp } from '@/lib/store';
 import type { Edge, Entry, Question, Span } from '@/lib/types';
 import styles from './EntryView.module.css';
@@ -23,6 +23,18 @@ function segments(transcript: string, spans: Span[]) {
 }
 
 const EMPTY: Question[] = [];
+
+/** The target renders in the letterform the canvas gives it, so the panel
+ *  speaks the same vocabulary rather than flattening everything to one face. */
+function letterform(target: Entry): CSSProperties {
+  const slot = slotFor(target);
+  if (!slot) return {};
+  return {
+    fontFamily: slot.family === 'mono' ? 'var(--font-mono)' : 'var(--font-serif)',
+    fontWeight: slot.weight,
+    letterSpacing: `${slot.tracking}px`,
+  };
+}
 
 /**
  * §5.3's best decision is currently invisible: a felt entry and a broken one
@@ -62,12 +74,14 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   const addQuestion = useApp((s) => s.addQuestion);
   const dismissQuestion = useApp((s) => s.dismissQuestion);
   const openEntry = useApp((s) => s.openEntry);
+  const startRecording = useApp((s) => s.startRecording);
   const resolveEntry = useApp((s) => s.resolveEntry);
   const reopenEntry = useApp((s) => s.reopenEntry);
   const [resolving, setResolving] = useState(false);
   const [resolutionDraft, setResolutionDraft] = useState('');
   const [probing, setProbing] = useState<string | null>(null);
   const [selection, setSelection] = useState<Span | null>(null);
+  const [selectAt, setSelectAt] = useState<{ x: number; y: number } | null>(null);
   const [proposed, setProposed] = useState<Edge[]>([]);
   const [children, setChildren] = useState<Entry[]>([]);
 
@@ -142,10 +156,17 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
             pre.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
             const start = pre.toString().length;
             const end = start + sel.toString().length;
-            if (end - start < 12) return setSelection(null);
+            if (end - start < 12) {
+              setSelectAt(null);
+              return setSelection(null);
+            }
+            const rect = sel.getRangeAt(0).getBoundingClientRect();
+            setSelectAt({ x: rect.left + rect.width / 2, y: rect.top });
             // Facet 3, exactly rather than by inference: this span, not the entry.
             const borrowed = entry.spans.some((sp) => sp.attributed && start < sp.end && end > sp.start);
-            setSelection(borrowed || probes.length === 0 ? null : { start, end, attributed: false });
+            const ok = !borrowed && probes.length > 0;
+            if (!ok) setSelectAt(null);
+            setSelection(ok ? { start, end, attributed: false } : null);
           }}
         >
           {segments(entry.transcript, entry.spans).map((seg, i) => (
@@ -264,12 +285,37 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
         </section>
       )}
 
+      {selection && selectAt && (
+        <button
+          type="button"
+          className={styles.askFloating}
+          style={{ left: selectAt.x, top: selectAt.y }}
+          disabled={probing !== null}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={async () => {
+            setProbing('span');
+            try {
+              addQuestion(entry.id, await getBridge().askQuestion(entry.id, selection));
+              setSelection(null);
+              setSelectAt(null);
+              window.getSelection()?.removeAllRanges();
+            } finally {
+              setProbing(null);
+            }
+          }}
+        >
+          {probing ? 'thinking…' : 'ask me about this'}
+        </button>
+      )}
+
       <button type="button" className={styles.analysisToggle} onClick={toggleAnalysis}>
         {analysisOpen ? 'hide analysis' : 'analysis'}
       </button>
 
       {analysisOpen && (
         <section className={styles.analysis}>
+          {questions.length > 0 && <p className={styles.sectionLabel}>asked about this</p>}
+
           {questions.map((q) => (
             <div
               key={q.id}
@@ -319,13 +365,23 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
               )}
 
               {!q.answered && !q.dismissed && (
-                <p className={styles.answerHint}>
-                  Press <kbd className={styles.kbd}>{hotkey}</kbd> to answer it out loud — it
-                  becomes its own note, joined to this one, and gets a question of its own.
-                </p>
+                <button
+                  type="button"
+                  className={styles.answerThis}
+                  onClick={() => void startRecording(entry.id, q.id)}
+                >
+                  answer this
+                  <span className={styles.answerKey}>{hotkey}</span>
+                </button>
               )}
             </div>
           ))}
+
+          {proposed.length > 0 && (
+            <p className={styles.sectionLabel}>
+              {proposed.length === 1 ? 'one connection proposed' : `${proposed.length} connections proposed`}
+            </p>
+          )}
 
           {proposed.map((edge) => {
             const target = other(edge);
@@ -334,7 +390,9 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
               <div key={edge.id} className={styles.card}>
                 <div className={styles.cardHead}>
                   <span className={styles.relation}>{edge.relation}</span>
-                  <span className={styles.cardTitle}>{target.title}</span>
+                  <span className={styles.cardTitle} style={letterform(target)}>
+                    {target.title}
+                  </span>
                 </div>
                 {edge.question && <p className={styles.cardQuestion}>{edge.question}</p>}
                 <div className={styles.cardActions}>
@@ -362,34 +420,6 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
               else about it. It joins on as its own note.
             </p>
             )}
-
-          {/* §11 rejected contention-as-a-button twice. Invocation lives on a
-              selection instead: you ask about a sentence, which keeps the
-              question specific and proves the span is yours before it fires. */}
-          {selection && (
-            <div className={styles.probes}>
-              <button
-                type="button"
-                className={styles.ask}
-                disabled={probing !== null}
-                onClick={async () => {
-                  setProbing('span');
-                  try {
-                    addQuestion(entry.id, await getBridge().askQuestion(entry.id, selection));
-                    setSelection(null);
-                    window.getSelection()?.removeAllRanges();
-                  } finally {
-                    setProbing(null);
-                  }
-                }}
-              >
-                {probing ? 'thinking…' : 'ask about this'}
-              </button>
-              <span className={styles.askHint}>
-                {entry.transcript.slice(selection.start, selection.start + 34).trim()}…
-              </span>
-            </div>
-          )}
 
           <div className={styles.connectRow}>
             <button

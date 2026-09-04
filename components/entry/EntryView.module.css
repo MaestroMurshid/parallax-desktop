@@ -172,12 +172,28 @@
   gap: 18px;
 }
 
+/* The question is the one voice that isn't the user's (§8) and was reading at
+   the same weight as the metadata around it. It gets the size. */
 .questionText {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: var(--size-question);
-  line-height: 1.5;
+  font-size: clamp(16px, 2.4cqw, 19px);
+  line-height: 1.45;
   color: var(--title);
+}
+
+/* Two different things were running together: what it asked about this entry,
+   and what it wants to join it to. */
+.sectionLabel {
+  margin: 18px 0 8px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.08em;
+  color: var(--edge-label);
+}
+
+.sectionLabel:first-child {
+  margin-top: 2px;
 }
 
 /* Every analytical claim quotes a span (sec 3.4). The span now leads, so it
@@ -264,10 +280,12 @@
   height: max(calc(100% + 10px), 24px);
 }
 
+/* A rounded bordered box is generic UI; the canvas draws a relation as a named
+   line. The card follows it: a rule, the relation in the machine's mono, the
+   target in its own letterform. */
 .card {
-  padding: 12px 14px;
-  border: 1px solid var(--edge);
-  border-radius: 8px;
+  padding: 2px 0 14px 14px;
+  border-left: 1px solid var(--edge-control);
 }
 
 .cardHead {
@@ -282,6 +300,7 @@
 }
 
 .cardTitle {
+  color: var(--title);
   font-size: var(--size-meta);
   color: var(--title);
 }
@@ -340,10 +359,11 @@
 }
 
 .answerHint {
-  margin: 10px 0 0;
-  font-size: var(--size-meta);
-  line-height: 1.55;
-  color: var(--meta);
+  margin: 9px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.04em;
+  color: var(--edge-label);
 }
 
 .kbd {
@@ -619,4 +639,61 @@
   translate: 0 -50%;
   width: 100%;
   height: max(100%, 24px);
+}
+
+/* Each open question is answerable on its own. The hotkey still works and takes
+   the oldest, but nothing forces you through them in order any more. */
+.answerThis {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 4px 10px;
+  border: 1px solid var(--edge-control);
+  border-radius: 999px;
+  background: none;
+  font-family: var(--font-sans);
+  font-size: var(--size-meta);
+  color: var(--title);
+  cursor: pointer;
+}
+
+.answerThis:hover {
+  border-color: var(--meta);
+}
+
+.answerKey {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+/* At the selection rather than at the foot of the panel: you asked about that
+   sentence, so the offer belongs where the sentence is. */
+.askFloating {
+  position: fixed;
+  translate: -50% calc(-100% - 9px);
+  z-index: 40;
+  padding: 6px 12px;
+  border: 1px solid var(--edge-control);
+  border-radius: 999px;
+  background: var(--dimmed-bg);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  font-family: var(--font-sans);
+  font-size: var(--size-meta);
+  color: var(--title);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.askFloating:hover {
+  border-color: var(--meta);
+}
+
+/* Questions on one entry need telling apart. */
+.question,
+.questionAnswered,
+.questionDismissed {
+  padding: 14px 0 16px;
 }
