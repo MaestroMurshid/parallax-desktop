@@ -15,7 +15,7 @@ import type {
   Span,
 } from '@/lib/types';
 import { radiusForDuration } from '@/lib/scene/blob';
-import { invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
+import { automaticProbes, invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
 import { detectUnfinished } from '@/lib/scene/markers';
 import { placeEntry, type PlacedNode } from '@/lib/scene/placement';
 import { titleSizeForDuration, wrapTitle } from '@/lib/scene/lexicon';
@@ -335,11 +335,15 @@ export class MockBridge implements Bridge {
     if (!mayProbeAutomatically(entry)) return null;
     const existing = this.questions.get(entryId)?.[0];
     if (existing) return existing;
-    // Anything the gate lets through gets asked. Whether a question exists is
-    // decided here, not by whether one was written into the fixture — the seed
-    // corpus supplies better-written examples where it has them, and this fills
-    // the rest so the invariant holds for every eligible entry.
-    const probe = invokedProbes(entry)[0];
+    // Stands in for §7.2's background pass: a real backend generates and stores
+    // during enrichment and this call only reads. Generating lazily here keeps
+    // the invariant — anything the gate lets through has a question — without
+    // it depending on whether one was written into the fixture. The seed corpus
+    // still supplies the better-written examples where it has them.
+    //
+    // Restricted to the Safe tier. Reaching for invokedProbes here fires a
+    // steelman as the opening move, which §3.2 forbids.
+    const probe = automaticProbes(entry)[0];
     return probe ? this.runProbe(entryId, probe.id) : null;
   }
 

@@ -237,15 +237,35 @@ export interface Probe {
   id: 'steelman' | 'boundary' | 'disconfirming' | 'munchhausen' | 'feynman';
   label: string;
   hint: string;
+  /**
+   * §3.6's tier, declared rather than implied by position in the array. Safe
+   * may fire on its own; Heavy is invoked only. Reading this off array order
+   * is how a steelman ends up firing automatically.
+   */
+  tier: 'safe' | 'heavy';
 }
 
 const ALL_PROBES: Probe[] = [
-  { id: 'steelman', label: 'steelman it', hint: 'state it better than you did, then push' },
-  { id: 'boundary', label: 'find the edge', hint: 'where does this stop holding?' },
-  { id: 'disconfirming', label: 'what would break it', hint: 'what would make you drop this?' },
-  { id: 'munchhausen', label: 'ask why, four times', hint: 'follow the reasons until they bottom out' },
-  { id: 'feynman', label: 'explain it simply', hint: 'only useful where there is a concept to master' },
+  // §3.1 D — being understood before being challenged, but it states a position
+  // of its own, so it is never the app's opening move.
+  { id: 'steelman', label: 'steelman it', hint: 'state it better than you did, then push', tier: 'heavy' },
+  // §3.1 B and C — the two that may open, per §3.2's A/B/C-or-nothing.
+  { id: 'boundary', label: 'find the edge', hint: 'where does this stop holding?', tier: 'safe' },
+  { id: 'disconfirming', label: 'what would break it', hint: 'what would make you drop this?', tier: 'safe' },
+  // §3.1 E and F — §3.3 gates one, the other needs a concept being held.
+  { id: 'munchhausen', label: 'ask why, four times', hint: 'follow the reasons until they bottom out', tier: 'heavy' },
+  { id: 'feynman', label: 'explain it simply', hint: 'only useful where there is a concept to master', tier: 'heavy' },
 ];
+
+/**
+ * What the app may open with, unprompted. §3.2 restricts the automatic question
+ * to A, B, C or nothing — never D, never E, never F. The invoked set is a
+ * superset of this and lives in `invokedProbes`.
+ */
+export function automaticProbes(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): Probe[] {
+  if (!mayProbeAutomatically(entry, types)) return [];
+  return ALL_PROBES.filter((p) => p.tier === 'safe');
+}
 
 /**
  * Which probes an entry may be asked. Empty unless the entry is a position with
