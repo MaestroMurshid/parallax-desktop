@@ -110,6 +110,7 @@ export default function TypeEditor() {
             onChange={(e) => setDraft({ ...draft, label: e.target.value })}
             placeholder="self-improvement"
           />
+          <span className={styles.hint}>What it is called, on the canvas and in this list.</span>
         </div>
 
         <div className={styles.field}>
@@ -120,6 +121,7 @@ export default function TypeEditor() {
             onChange={(e) => setDraft({ ...draft, match: e.target.value })}
             placeholder="manual, or how the classifier should recognise it"
           />
+          <span className={styles.hint}>How an entry gets this type. Describe it in your own words &mdash; this sentence is what the model matches against. Write &ldquo;manual&rdquo; to tag entries yourself instead.</span>
         </div>
 
         <div className={styles.field}>
@@ -130,6 +132,7 @@ export default function TypeEditor() {
             onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
             placeholder="help me move toward the goal in this entry"
           />
+          <span className={styles.hint}>What it should ask when it fires. Left empty, it asks what it would have asked anyway.</span>
         </div>
 
         <div className={styles.field}>
@@ -146,6 +149,10 @@ export default function TypeEditor() {
               </option>
             ))}
           </select>
+          <span className={styles.hint}>
+            Which of the three the canvas should draw it like. It borrows the look, not the
+            behaviour &mdash; the tier below decides that.
+          </span>
         </div>
 
         <div className={styles.field}>
@@ -171,6 +178,10 @@ export default function TypeEditor() {
             />
             <span className={styles.fieldLabel}>or paste any character</span>
           </div>
+          <span className={styles.hint}>
+            The glyph on the rail, so you can pick this type out at a glance. Anything too heavy,
+            unavailable in the font, or shaped like the open-question dot is refused.
+          </span>
         </div>
 
         {markResult?.ok && (
@@ -208,10 +219,15 @@ export default function TypeEditor() {
           >
             {TIERS.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {t} &mdash; {TIER_TEXT[t]}
               </option>
             ))}
           </select>
+          <span className={styles.hint}>
+            How far it may go. Whatever you pick, it still cannot fire on its own until you approve
+            it below, and never on a note, on someone else&rsquo;s words, or on an entry that reads
+            as live.
+          </span>
         </div>
 
         <label className={styles.markRow}>

@@ -158,3 +158,12 @@
   border: none;
   cursor: pointer;
 }
+
+/* Every field here is jargon until it is glossed: match is the classifier
+   prompt, letterform is borrowed appearance, tier is the gate. */
+.hint {
+  font-size: var(--size-micro);
+  line-height: 1.5;
+  color: var(--meta);
+  max-width: 46em;
+}
