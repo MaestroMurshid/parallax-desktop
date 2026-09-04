@@ -246,48 +246,46 @@ export default function Onboarding({
             <p className={styles.lede}>It asks; you answer out loud. The thinking stays yours.</p>
 
             <div className={styles.beat}>
-              <span className={styles.beatLabel}>it puts two of your own notes together</span>
+              <span className={styles.beatLabel}>it pairs two of your own notes</span>
               <div className={styles.pair}>
                 <div className={styles.pairSide}>
-                  <span className={styles.pairDate}>4 Mar</span>
-                  <span className={styles.pairTitle}>the job isn&rsquo;t the problem</span>
+                  <span className={styles.pairDate}>12 Mar</span>
+                  <span className={styles.pairTitle}>collapse is bookkeeping</span>
                 </div>
                 <div className={styles.pairLink} aria-hidden="true">
                   <span className={styles.pairRule} />
                   <span className={styles.relation}>contradicts</span>
-                  <span className={styles.gapLabel}>199 days apart</span>
+                  <span className={styles.gapLabel}>200 days apart</span>
                 </div>
                 <div className={styles.pairSide}>
-                  <span className={styles.pairDate}>19 Sep</span>
-                  <span className={styles.pairTitle}>I turned down the other one</span>
+                  <span className={styles.pairDate}>28 Sep</span>
+                  <span className={styles.pairTitle}>the observer has to do something</span>
                 </div>
               </div>
               <blockquote className={styles.asked}>
-                March said the commute was the problem, not the job. September turned down a remote
-                role. Is it still the commute?
+                March treats collapse as bookkeeping, not an event. September needs the observer to
+                do something. Which one is the measurement?
               </blockquote>
             </div>
 
             <div className={styles.beat}>
-              <span className={styles.beatLabel}>it asks what a position rests on</span>
+              <span className={styles.beatLabel}>it asks what a claim rests on</span>
               <blockquote className={styles.asked}>
-                The entry treats starting late as the reason it won&rsquo;t work. Is that the reason,
-                or is it the hour a day you don&rsquo;t have?
+                This holds if the wavefunction is a thing rather than a description. Which are you
+                assuming?
               </blockquote>
             </div>
 
             <div className={styles.beat}>
-              <span className={styles.beatLabel}>it makes you explain what you learnt</span>
+              <span className={styles.beatLabel}>it makes you say it back</span>
               <blockquote className={styles.asked}>
-                You said the index fund thing finally clicked. Say it back without the article&rsquo;s
-                words &mdash; where does it stop being obvious?
+                You said decoherence finally made sense. Say it again without the word.
               </blockquote>
             </div>
 
             <p className={styles.howNote}>
-              It never answers. You do, out loud, and the answer becomes a layer on the note &mdash;
-              which is the difference between working something out and reading someone else&rsquo;s.
-              Add your own kind of note too: name it, say when it applies, write what it should ask.
+              It never answers &mdash; you do, and the answer becomes a layer on the note. Add your
+              own kind of note too: name it, say when it applies, write what it should ask.
             </p>
           </div>
         )}
