@@ -463,7 +463,7 @@
     {
       "a": "the-word-does-damage",
       "b": "targets-became-ritual",
-      "relation": "echoes",
+      "relation": "same move",
       "status": "proposed",
       "question": null
     },
@@ -512,7 +512,7 @@
     {
       "a": "a-datacentre-drinks",
       "b": "targets-became-ritual",
-      "relation": "echoes",
+      "relation": "same move",
       "status": "proposed",
       "question": null
     },
@@ -547,7 +547,7 @@
     {
       "a": "they-knew-for-years",
       "b": "a-datacentre-drinks",
-      "relation": "echoes",
+      "relation": "same move",
       "status": "proposed",
       "question": null
     },

@@ -301,7 +301,7 @@ export class MockBridge implements Bridge {
         id: `edge-answer-${entry.id}`,
         entryA: parentEdge,
         entryB: entry.id,
-        relation: 'extends',
+        relation: 'answers',
         question: null,
         status: 'accepted',
         createdAt: new Date().toISOString(),
