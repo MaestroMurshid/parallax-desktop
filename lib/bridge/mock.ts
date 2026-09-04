@@ -10,6 +10,7 @@ import type {
   Entry,
   ModelInfo,
   Question,
+  Role,
   Settings,
   SystemProfile,
   Span,
@@ -39,16 +40,62 @@ const SEARCH_SNIPPET_RADIUS = 40;
 const SEARCH_MAX_HITS = 50;
 const SEARCH_MAX_PER_ENTRY = 3;
 
-/**
- * Stand-in transcripts for live-recording, replaced by transcribe.cpp output.
- * Written as speech, not tidy prose — a clean paragraph would misrepresent
- * what the corpus actually looks like (§2: the digression is the content).
- */
-const PLACEHOLDER_TRANSCRIPTS = [
-  "Okay so the thing I keep coming back to is, I don't think the problem is the tooling at all. I've said that before and I think I was wrong about it. It's that I don't actually finish the thought before I move to the next one, and idk, maybe that's just what thinking is, but it doesn't feel like it.",
-  'Right, quick one. I need to go back over the retrieval thresholds because the last set was clearly too loose. Half of what came back was the same subject, not the same argument, and those are not the same thing.',
-  "I read something today that annoyed me and I can't work out whether it annoyed me because it's wrong or because it's right. Which is usually a sign of something.",
+/** Deliberative speech with its pauses — the rate the seed corpus is timed at. */
+const SPEECH_WORDS_PER_SEC = 1.15;
+
+interface PlaceholderNote {
+  /**
+   * Stand-in for transcribe.cpp output. Written as speech, not tidy prose — a
+   * clean paragraph would misrepresent what the corpus actually looks like
+   * (§2: the digression is the content).
+   */
+  transcript: string;
+  /** What the classifier would have decided (§3.6). The mock stands in for it. */
+  role: Role;
+  /**
+   * The question §7.2's background pass would have written, and the sentence it
+   * anchors to. Authored rather than left to the probe library so a live take
+   * shows the real thing, and so it lands on the corpus it was recorded into.
+   */
+  question: { text: string; quote: string };
+}
+
+const PLACEHOLDER_NOTES: PlaceholderNote[] = [
+  {
+    role: 'position',
+    transcript:
+      "Okay so I keep going back and forth on this. Every time a model tops another benchmark I catch myself updating, and then a week later it turns out the thing was in the training data somewhere. I don't think I actually know how to tell the difference between a system getting better and a system having seen the answer, and that seems like a problem for how I read any of these results.",
+    question: {
+      text: 'The update happens before you know which one it was. What would you have to see, at the moment you read a result, to tell a system that got better from one that had already seen the answer?',
+      quote:
+        'how to tell the difference between a system getting better and a system having seen the answer',
+    },
+  },
+  {
+    role: 'evidence',
+    transcript:
+      "Right, quick thing before I forget. Cache invalidation isn't hard because the code is hard, it's hard because the cache is a second copy of the truth and nobody agrees on who owns it. Same shape as the index thing — you buy speed with a copy, and then the copy is the problem.",
+    question: {
+      text: 'You have now called this the same shape as the index trade-off. Take a case where the second copy is not the problem — what is different about it?',
+      quote: 'you buy speed with a copy, and then the copy is the problem',
+    },
+  },
+  {
+    role: 'position',
+    transcript:
+      "I've noticed I only ever ask for a second opinion after I've already decided. Not before, which is when it would actually be worth something. And I'm not sure whether that's me looking for permission or me checking my work, and I think the honest answer is that it depends on the day.",
+    question: {
+      text: 'A second opinion that arrives after the decision can only confirm it or annoy you. What would have to be true for you to ask before?',
+      quote: "I only ever ask for a second opinion after I've already decided",
+    },
+  },
 ];
+
+/** Anchors an authored question to its sentence. Every claim quotes a span (§3.4). */
+function spanOf(transcript: string, quote: string): Span | null {
+  const start = transcript.indexOf(quote);
+  return start === -1 ? null : { start, end: start + quote.length, attributed: false };
+}
 
 /** A live entry has no title until transcription lands, so assume a typical one. */
 function liveBox(durationMs: number, title = 'four word placeholder title'): { halfW: number; halfH: number } {
@@ -75,6 +122,8 @@ export class MockBridge implements Bridge {
   private seq = 0;
   /** Manual placement overrides (§5.1), stands in for the persisted x/y column. */
   private overrides: Record<string, { x: number; y: number }> = readOverrides();
+  /** Which stand-in the next take gets. */
+  private liveTake = 0;
 
   private settings: Settings = {
     hotkey: 'Ctrl+Shift+Space',
@@ -231,29 +280,48 @@ export class MockBridge implements Bridge {
     const next: Entry = { ...entry, x, y };
     this.entries.set(id, next);
     this.overrides[id] = { x, y };
+    this.saveOverrides();
+    return next;
+  }
+
+  /** Frozen positions outlive the in-memory corpus, so every path that changes
+   *  them writes through here rather than remembering the key. */
+  private saveOverrides(): void {
     try {
       localStorage.setItem(POSITIONS_KEY, JSON.stringify(this.overrides));
     } catch {
       /* blocked storage — the move still applies for this session */
     }
-    return next;
   }
 
   // -- search ---------------------------------------------------------------
 
   async searchEntries(query: string): Promise<SearchHit[]> {
-    const q = query.trim().toLowerCase();
+    const raw = query.trim();
+    // A quoted query matches whole words only. Substring is the right default
+    // for a phrase you half-remember, and exactly wrong for a subject: bare
+    // `ai` finds maintain, explaining and failures before it finds an entry
+    // about AI. Quoting is the way to say you meant the word.
+    const quoted = raw.length > 2 && raw.startsWith('"') && raw.endsWith('"');
+    const q = (quoted ? raw.slice(1, -1) : raw).trim().toLowerCase();
     if (!q) return [];
     const hits: SearchHit[] = [];
     for (const entry of this.entries.values()) {
       if (hits.length >= SEARCH_MAX_HITS) break;
       const lower = entry.transcript.toLowerCase();
       let from = 0;
-      for (let n = 0; n < SEARCH_MAX_PER_ENTRY && hits.length < SEARCH_MAX_HITS; n++) {
+      let found = 0;
+      while (found < SEARCH_MAX_PER_ENTRY && hits.length < SEARCH_MAX_HITS) {
         const start = lower.indexOf(q, from);
         if (start === -1) break;
         const end = start + q.length;
+        if (quoted && !wordBounded(lower, start, end)) {
+          // Step past this occurrence only — the next one may stand alone.
+          from = start + 1;
+          continue;
+        }
         hits.push({ entryId: entry.id, start, end, ...buildSnippet(entry.transcript, start, end) });
+        found++;
         from = end;
       }
     }
@@ -280,18 +348,49 @@ export class MockBridge implements Bridge {
     parentEdge: string | null = null,
     questionId: string | null = null,
   ): Promise<Entry> {
-    const durationMs = Date.now() - this.recordingStartedAt;
+    const held = Date.now() - this.recordingStartedAt;
     this.stopAmplitude();
     await sleep(1800); // §4 — transcription runs (~2s)
 
-    const r = rng(hash32(String(durationMs)));
-    const idx = Math.floor(r() * PLACEHOLDER_TRANSCRIPTS.length);
-    const transcript = PLACEHOLDER_TRANSCRIPTS[idx] ?? PLACEHOLDER_TRANSCRIPTS[0]!;
+    // Cycle rather than sample, so recording twice in a demo gives two notes.
+    const note = PLACEHOLDER_NOTES[this.liveTake++ % PLACEHOLDER_NOTES.length]!;
+    const words = note.transcript.split(/\s+/).length;
+    // What the stand-in transcript would have taken to say. Holding the hotkey
+    // for four seconds and getting back seventy words is already a fiction; the
+    // wall clock also puts every take under §3.2's thirty-second line, so the
+    // one thing a live take is supposed to demonstrate never fires. A real hold
+    // longer than the text still keeps its own length.
+    const durationMs = Math.max(held, Math.round(words / SPEECH_WORDS_PER_SEC) * 1000);
+    const r = rng(hash32(String(held)));
     const fingerprint = Array.from({ length: 8 }, () => 0.15 + r() * 0.85);
 
-    const entry = await this.createEntry({ transcript, durationMs, fingerprint, parentEdge });
+    const entry = await this.createEntry({
+      transcript: note.transcript,
+      durationMs,
+      fingerprint,
+      parentEdge,
+    });
     entry.answersQuestionId = questionId;
+    // Stands in for the classifier (§3.6) — createEntry cannot know this, and
+    // the role is what decides which probe the entry is even eligible for.
+    entry.role = note.role;
+    entry.typeId = note.role;
     this.entries.set(entry.id, entry);
+
+    // The question §7.2 would have written during enrichment. getQuestion still
+    // applies the §3.2 gate over it, so this never bypasses suppression.
+    this.questions.set(entry.id, [
+      {
+        id: `question-live-${entry.id}`,
+        entryId: entry.id,
+        text: note.question.text,
+        span: spanOf(note.transcript, note.question.quote),
+        answered: false,
+        dismissed: false,
+        providerName: this.settings.providerName,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
 
     // An answer is a note in its own right, not a turn in a conversation. It
     // lands on the canvas, carries a drawn line back to what it answers, and
@@ -566,9 +665,18 @@ export class MockBridge implements Bridge {
       const o = this.overrides[e.id];
       this.entries.set(e.id, o ? { ...e, x: o.x, y: o.y } : e);
     }
-    this.edges = [...this.edges, ...seeded.edges];
+    // Idempotent: the sample is offered from the empty state and from settings,
+    // and seeded ids are stable, so a second load must not append a second copy
+    // of every edge and task. A repeated edge id is also a repeated React key,
+    // which strands label elements at the overlay origin.
+    const knownEdges = new Set(this.edges.map((e) => e.id));
+    this.edges = [...this.edges, ...seeded.edges.filter((e) => !knownEdges.has(e.id))];
     for (const q of seeded.questions) this.questions.set(q.entryId, [q]);
-    this.actionItems = [...this.actionItems, ...seeded.actionItems];
+    const knownItems = new Set(this.actionItems.map((a) => a.id));
+    this.actionItems = [
+      ...this.actionItems,
+      ...seeded.actionItems.filter((a) => !knownItems.has(a.id)),
+    ];
   }
 
   async importCorpus(data: CorpusImport, mode: ImportMode): Promise<void> {
@@ -577,6 +685,8 @@ export class MockBridge implements Bridge {
       this.edges = [];
       this.questions.clear();
       this.actionItems = [];
+      this.overrides = {};
+      this.saveOverrides();
     }
     for (const e of data.entries) {
       if (mode === 'merge' && this.entries.has(e.id)) continue;
@@ -597,10 +707,25 @@ export class MockBridge implements Bridge {
   }
 
   async clearSampleCorpus(): Promise<void> {
-    for (const [id, e] of this.entries) if (e.isSample) this.entries.delete(id);
+    for (const [id, e] of this.entries) {
+      if (!e.isSample) continue;
+      this.entries.delete(id);
+      // Or re-loading the sample restores it where you had dragged it in a
+      // corpus you have since cleared.
+      delete this.overrides[id];
+    }
+    // An answer to a sample entry is not itself a sample entry, so it survives
+    // the sweep above and is left pointing at a parent that is gone (sec 6.2).
+    for (const [id, e] of this.entries) {
+      if (e.parentEdge !== null && !this.entries.has(e.parentEdge)) {
+        this.entries.delete(id);
+        delete this.overrides[id];
+      }
+    }
     this.edges = this.edges.filter((e) => this.entries.has(e.entryA) && this.entries.has(e.entryB));
     for (const [id] of this.questions) if (!this.entries.has(id)) this.questions.delete(id);
     this.actionItems = this.actionItems.filter((a) => this.entries.has(a.entryId));
+    this.saveOverrides();
   }
 }
 
@@ -613,6 +738,15 @@ function readOverrides(): Record<string, { x: number; y: number }> {
 }
 
 /** ~40 chars either side of a match, trimmed to word boundaries, ellipsis when cut. */
+/** True when [start, end) is not sitting inside a longer word. Input is already
+ *  lower-cased, so letters are a-z; anything else counts as a boundary. */
+function wordBounded(text: string, start: number, end: number): boolean {
+  const wordish = /[a-z0-9]/;
+  const before = start > 0 ? text[start - 1]! : ' ';
+  const after = end < text.length ? text[end]! : ' ';
+  return !wordish.test(before) && !wordish.test(after);
+}
+
 function buildSnippet(
   text: string,
   matchStart: number,

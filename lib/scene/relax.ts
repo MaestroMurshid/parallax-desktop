@@ -31,12 +31,15 @@ export interface RelaxOptions {
   padY: number;
 }
 
+// Clearance matches DEFAULT_PLACEMENT's: this pass runs straight after
+// placement and takes up the slack it left, so a smaller pad here quietly
+// undoes a larger one there and the field settles into a knot again.
 export const DEFAULT_RELAX: RelaxOptions = {
   iterations: 300,
   pull: 0.1,
   push: 0.3,
-  padX: 30,
-  padY: 26,
+  padX: 64,
+  padY: 44,
 };
 
 function collides(a: RelaxNode, b: RelaxNode, padX: number, padY: number): boolean {

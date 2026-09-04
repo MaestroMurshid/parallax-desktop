@@ -173,6 +173,27 @@
   color: var(--title);
 }
 
+/* The model is a real choice, not a footnote, so the control that opens it
+   looks like a control. As a quiet underlined link it read as prose and the
+   whole screen looked like something you could only agree to. */
+.change {
+  background: none;
+  border: 1px solid var(--edge-control);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  letter-spacing: inherit;
+  color: var(--title);
+}
+
+.change:hover,
+.change:focus-visible {
+  border-color: var(--title);
+  background: var(--dimmed-bg);
+}
+
 /* The one saturated element, taught here before the canvas ever uses it. */
 .dot {
   width: 6px;
@@ -580,7 +601,7 @@
 .kinds {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 12px;
   padding: 2px 0;
 }
 
@@ -590,10 +611,14 @@
   gap: 4px;
 }
 
+/* Baseline, not centre: the gloss is half the size of the name beside it and
+   centring floated it off the name's baseline. The head keeps the block's left
+   edge so it reads as the heading for the rows under it. */
 .kindHead {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
+  margin-bottom: 2px;
 }
 
 .kindName {
@@ -614,17 +639,40 @@
 
 .kNote {
   font-family: var(--font-mono);
-  font-size: var(--size-meta);
-  letter-spacing: -0.2px;
-  opacity: 0.7;
 }
 
-/* The user's own words: sans, because the transcript is the record, not a voice. */
+/* Which line is yours and which is the app's, said rather than implied — as two
+   bare lines the exchange read as one paragraph in two typefaces. */
+.kindRow {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+
+/* Sans, not mono: mono is the app's voice for machine facts — sizes, ids, model
+   names — and these are ordinary words about the note beside them. */
+.rowLabel {
+  font-family: var(--font-sans);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+/* What the kind means, next to its name, so the word is not the only clue. */
+.kindGloss {
+  font-family: var(--font-sans);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+/* The user's own words: sans, because the transcript is the record, not a voice.
+   Same weight of colour as the app's reply — --meta is the label grey, and
+   dimming what you said below what the app said inverts the whole point. */
 .said {
   font-family: var(--font-sans);
   font-size: var(--size-meta);
   line-height: 1.5;
-  color: var(--meta);
+  color: var(--title);
   text-wrap: pretty;
 }
 
@@ -639,11 +687,13 @@
   text-wrap: pretty;
 }
 
+/* Not serif: nothing is asked here, so this is not the app's voice answering.
+   Not mono either — it is a sentence about the note, not a machine fact. */
 .backQuiet {
   padding-left: 12px;
   border-left: 1px solid var(--edge);
-  font-family: var(--font-mono);
-  font-size: var(--size-micro);
+  font-family: var(--font-sans);
+  font-size: var(--size-meta);
   line-height: 1.6;
   color: var(--edge-label);
 }
@@ -659,6 +709,10 @@
   font-size: var(--size-meta);
 }
 
+.rows .change {
+  font-size: var(--size-micro);
+}
+
 .rows .helper {
   font-size: var(--size-meta);
   line-height: 1.55;
@@ -668,6 +722,11 @@
   font-size: clamp(17px, 2.4cqw, 20px);
 }
 
+/* Optically level with the serif names rather than nominally equal to them. */
+.kinds .kNote {
+  font-size: clamp(14px, 2cqw, 17px);
+}
+
 .kinds .said {
   font-size: clamp(14px, 2cqw, 16px);
   line-height: 1.5;
@@ -675,5 +734,12 @@
 
 .kinds .back {
   font-size: clamp(15px, 2.15cqw, 17px);
+  line-height: 1.5;
+}
+
+/* Same size as the note above it: the content column carries one measure, and
+   what marks this line as not-the-app's-voice is the face and the colour. */
+.kinds .backQuiet {
+  font-size: clamp(14px, 2cqw, 16px);
   line-height: 1.5;
 }

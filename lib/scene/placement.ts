@@ -62,8 +62,12 @@ export interface PlacementOptions {
 export const DEFAULT_PLACEMENT: PlacementOptions = {
   strongThreshold: 0.55,
   neighbours: 3,
-  padX: 30,
-  padY: 26,
+  // Clearance is what the reader sees as density. At 30/26 a small corpus packs
+  // into a knot that fitToContent then wants to open past its 1.4 zoom cap, so
+  // it lands small, tight and surrounded by empty canvas. Wider gaps cost a
+  // larger field, which the fit simply zooms out to absorb.
+  padX: 64,
+  padY: 44,
   step: 13,
   isolatedGap: 66,
   linkWeight: 1.25,

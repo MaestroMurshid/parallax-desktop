@@ -11,6 +11,8 @@ import styles from './Canvas.module.css';
 
 /** Pointer travel past which a press is a pan, not a click. */
 const DRAG_THRESHOLD = 4;
+/** Breathing room between an entry brought into the clear and the sheet edge. */
+const EDGE_MARGIN = 72;
 
 function buildScene(state: ReturnType<typeof useApp.getState>): SceneInput {
   const entries: SceneEntry[] = [];
@@ -49,6 +51,20 @@ function visibleInset(host: HTMLElement): { top: number; right: number; bottom: 
     right: px('--legend-w', 172) + px('--pill-inset', 10),
     bottom: px('--chrome-bottom', 50),
   };
+}
+
+/**
+ * What the entry sheet covers while it is open (sec 6). The field keeps drawing
+ * underneath it, so an entry in this strip cannot be read, hovered or dragged —
+ * and placement does not know a sheet is about to open over what you just said.
+ */
+function sheetWidth(host: HTMLElement): number {
+  const css = getComputedStyle(host);
+  const px = (name: string, fallback: number) => {
+    const v = parseFloat(css.getPropertyValue(name));
+    return Number.isFinite(v) ? v : fallback;
+  };
+  return px('--entry-sheet-w', 560) + px('--pill-inset', 10) * 2;
 }
 
 /** Frame the whole corpus on first load; positions are frozen so this runs once. */
@@ -119,6 +135,22 @@ export default function Canvas() {
           host.style.cursor = id ? 'move' : 'grab';
         }),
         useApp.subscribe((s) => s.selectedEntryId, (id) => renderer.setSelected(id)),
+        // Slide the field out from under the sheet when what you opened is
+        // behind it. Only when it actually is: opening an entry you can already
+        // see should not move the map you are reading it against.
+        useApp.subscribe(
+          (s) => [s.overlay, s.selectedEntryId] as const,
+          ([overlay, id]) => {
+            if (overlay !== 'entry' || !id) return;
+            const entry = useApp.getState().entries.get(id);
+            if (!entry) return;
+            const rect = host.getBoundingClientRect();
+            const clear = rect.width - sheetWidth(host) - EDGE_MARGIN;
+            const p = renderer.worldToScreen(entry.x, entry.y);
+            if (p.x <= clear) return;
+            useApp.getState().panBy(clear - p.x, 0);
+          },
+        ),
         useApp.subscribe((s) => s.dragging, (d) => renderer.setDragging(d)),
         useApp.subscribe((s) => s.connecting, (c) => renderer.setConnecting(c)),
         useApp.subscribe(

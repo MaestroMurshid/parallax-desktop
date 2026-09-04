@@ -48,7 +48,7 @@ export default function LabelOverlay({
 
   const nodes = useMemo(
     () =>
-      order
+      Array.from(new Set(order))
         .map((id) => entries.get(id))
         .filter((e): e is Entry => !!e)
         .map((entry) => {
@@ -89,8 +89,11 @@ export default function LabelOverlay({
     const clear = (x: number, y: number) =>
       !boxes.some((n) => Math.abs(n.x - x) < n.halfW && Math.abs(n.y - y) < n.halfH);
 
-    return edges
-      .filter((e) => e.status !== 'dismissed')
+    // Keys have to be unique or React strands the element it cannot match, and
+    // a stranded label keeps the ref it never gets repositioned through — it
+    // sits at the overlay origin, in the top-left corner, for the session.
+    const byId = new Map(edges.filter((e) => e.status !== 'dismissed').map((e) => [e.id, e]));
+    return [...byId.values()]
       .map((edge) => {
         const a = entries.get(edge.entryA);
         const b = entries.get(edge.entryB);
@@ -170,6 +173,7 @@ export default function LabelOverlay({
 
   return (
     <div className={styles.overlay}>
+      <div className={styles.layer}>
       {nodes.map(({ entry, slot, box, mark, bars, sigWidth, isolated }) => (
         <div
           key={entry.id}
@@ -208,11 +212,16 @@ export default function LabelOverlay({
           </svg>
         </div>
       ))}
-      {edgeLabels.map(({ edge }) => (
-        <div key={edge.id} ref={setRef(`edge:${edge.id}`)} className={styles.edgeLabel}>
-          {edge.relation}
-        </div>
-      ))}
+      </div>
+      {/* Its own layer: titles and relation labels are reconciled as one child
+          list otherwise, and a bad key in either strands elements from both. */}
+      <div className={styles.layer}>
+        {edgeLabels.map(({ edge }) => (
+          <div key={edge.id} ref={setRef(`edge:${edge.id}`)} className={styles.edgeLabel}>
+            {edge.relation}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

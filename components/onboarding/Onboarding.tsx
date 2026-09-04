@@ -172,8 +172,7 @@ export default function Onboarding({
               <span className={styles.t}>Transcription</span>
               <span className={styles.m}>
                 {speech ? `transcribe.cpp ${speech.name} · ${size(speech)}` : 'detecting…'}
-                <span className={styles.sep}>·</span>
-                <button type="button" className={styles.link} onClick={() => setAdvanced((v) => !v)}>
+                <button type="button" className={styles.change} onClick={() => setAdvanced((v) => !v)}>
                   {advanced ? 'hide' : 'change'}
                 </button>
               </span>
@@ -186,8 +185,7 @@ export default function Onboarding({
               <span className={styles.t}>Reasoning</span>
               <span className={styles.m}>
                 {reasoning ? `${reasoning.name} ${reasoning.quantization} · ${size(reasoning)}` : 'detecting…'}
-                <span className={styles.sep}>·</span>
-                <button type="button" className={styles.link} onClick={() => setAdvanced((v) => !v)}>
+                <button type="button" className={styles.change} onClick={() => setAdvanced((v) => !v)}>
                   {advanced ? 'hide' : 'change'}
                 </button>
               </span>
@@ -252,45 +250,56 @@ export default function Onboarding({
                 <span className={styles.kindHead}>
                   <MarkGlyph mark={{ kind: 'glyph', id: 'position' }} size={11} />
                   <span className={`${styles.kindName} ${styles.kPosition}`}>position</span>
+                  <span className={styles.kindGloss}>something you hold</span>
                 </span>
-                <span className={styles.said}>
-                  &ldquo;Upbringing, genetics, circumstances. They shape what I want. But I still
-                  choose how I respond to it.&rdquo;
-                </span>
-                <span className={styles.back}>
-                  This rests on the responding being separate from what shaped you. Is it separate,
-                  or only later?
-                </span>
+                <div className={styles.kindRow}>
+                  <span className={styles.rowLabel}>your note</span>
+                  <span className={styles.said}>&ldquo;I think we have free will.&rdquo;</span>
+                </div>
+                <div className={styles.kindRow}>
+                  <span className={styles.rowLabel}>it asks</span>
+                  <span className={styles.back}>
+                    Isn&rsquo;t your choice shaped by your genetics and upbringing?
+                  </span>
+                </div>
               </div>
 
               <div className={styles.kind}>
                 <span className={styles.kindHead}>
                   <MarkGlyph mark={{ kind: 'glyph', id: 'evidence' }} size={11} />
                   <span className={`${styles.kindName} ${styles.kEvidence}`}>evidence</span>
+                  <span className={styles.kindGloss}>something you noticed</span>
                 </span>
-                <span className={styles.said}>
-                  &ldquo;The hard problem is why there is something it is like to be you at all,
-                  not how the brain processes information.&rdquo;
-                </span>
-                <span className={styles.back}>
-                  You wake up tomorrow unable to feel pain, emotion or pleasure, but you can still
-                  think, speak, remember your childhood and solve problems. Would you still call
-                  yourself conscious?
-                </span>
+                <div className={styles.kindRow}>
+                  <span className={styles.rowLabel}>your note</span>
+                  <span className={styles.said}>&ldquo;Database indexes speed up reads.&rdquo;</span>
+                </div>
+                <div className={styles.kindRow}>
+                  <span className={styles.rowLabel}>it asks</span>
+                  <span className={styles.back}>
+                    Why can adding an index make an INSERT slower?
+                  </span>
+                </div>
               </div>
 
               <div className={styles.kind}>
                 <span className={styles.kindHead}>
                   <MarkGlyph mark={{ kind: 'glyph', id: 'note' }} size={11} />
                   <span className={`${styles.kindName} ${styles.kNote}`}>note</span>
+                  <span className={styles.kindGloss}>something to do</span>
                 </span>
-                <span className={styles.said}>
-                  &ldquo;Cancel the storage tier, and move the climate feeds off that reader that
-                  got acquired.&rdquo;
-                </span>
-                <span className={styles.backQuiet}>
-                  both items &rarr; task list, nothing asked
-                </span>
+                <div className={styles.kindRow}>
+                  <span className={styles.rowLabel}>your note</span>
+                  <span className={styles.said}>
+                    &ldquo;Buy a new charger. Send the reimbursement form.&rdquo;
+                  </span>
+                </div>
+                <div className={styles.kindRow}>
+                  <span className={styles.rowLabel}>it does</span>
+                  <span className={styles.backQuiet}>
+                    both go to the task list. Nothing is asked.
+                  </span>
+                </div>
               </div>
             </div>
 

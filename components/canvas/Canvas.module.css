@@ -13,6 +13,14 @@
   pointer-events: none;
 }
 
+/* Titles and relation labels each get one, so neither reconciles against the
+   other's children. Inset on the overlay, so an absolute child lands on the
+   same point it would have without the wrapper. */
+.layer {
+  position: absolute;
+  inset: 0;
+}
+
 .node,
 .edgeLabel {
   position: absolute;
@@ -63,4 +71,8 @@
   color: var(--edge-label);
   background: var(--surface);
   padding: 0 4px;
+  /* A label is only ever shown by the positioning pass, on hover. Hidden until
+     then, so one that never gets positioned cannot sit untransformed at the
+     overlay origin — which reads as a stray word in the top-left corner. */
+  visibility: hidden;
 }

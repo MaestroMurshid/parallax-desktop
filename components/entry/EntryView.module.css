@@ -4,7 +4,7 @@
   right: var(--pill-inset);
   bottom: var(--chrome-bottom);
   z-index: 5;
-  width: 560px;
+  width: var(--entry-sheet-w);
   max-width: calc(100vw - var(--pill-inset) * 2);
   padding: 20px 24px 28px;
   overflow-y: auto;

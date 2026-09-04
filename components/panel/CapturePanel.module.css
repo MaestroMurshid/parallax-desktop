@@ -4,6 +4,11 @@
   position: absolute;
   left: 50%;
   bottom: 48px;
+  /* Above every overlay (entry 5, composer 6, pickers 7): the hotkey is global,
+     so a recording can start while any of them is open and the panel is the one
+     thing that must never be painted behind. Mirrors alwaysOnTop on the Tauri
+     panel window, so both shells behave the same. */
+  z-index: 30;
   transform: translateX(-50%);
   width: 420px;
   padding: 20px 22px 18px;

@@ -70,6 +70,24 @@
   color: var(--meta);
 }
 
+/* Sits under the count, above the snippets that show why it is worth knowing. */
+.hint {
+  margin: 0;
+  padding: 0 8px 7px;
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+.hintKey {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-right: 4px;
+  color: var(--meta);
+}
+
 .result {
   display: flex;
   flex-direction: column;

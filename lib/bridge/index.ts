@@ -59,7 +59,12 @@ export interface Bridge {
   deleteEntry(id: string): Promise<void>;
 
   // -- search ---------------------------------------------------------------
-  /** Case-insensitive substring search over transcripts. */
+  /**
+   * Case-insensitive search over transcripts. Substring by default, because
+   * most searches are for a phrase half-remembered. A query wrapped in double
+   * quotes matches whole words only — the way to ask for a subject rather than
+   * any word containing it (`ai` otherwise finds maintain and explaining).
+   */
   searchEntries(query: string): Promise<SearchHit[]>;
 
   // -- capture ------------------------------------------------------------

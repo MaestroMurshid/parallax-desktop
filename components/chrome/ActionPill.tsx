@@ -13,7 +13,7 @@ export default function ActionPill() {
   const entries = useApp((s) => s.entries);
   const edges = useApp((s) => s.edges);
   const questions = useApp((s) => s.questions);
-  const clearSample = useApp((s) => s.clearSample);
+  const clearAll = useApp((s) => s.clearAll);
   const setSampleLoaded = useApp((s) => s.setSampleLoaded);
   const importCorpus = useApp((s) => s.importCorpus);
   const composing = useApp((s) => s.composing);
@@ -50,7 +50,9 @@ export default function ActionPill() {
   const all = () => [...entries.values()];
 
   // Two presses rather than a dialog: the corpus is the whole record, and a
-  // modal here would be the first one in the app.
+  // modal here would be the first one in the app. It is also the whole record
+  // that goes — clearing only the sample here left everything you had recorded
+  // behind, under a button that just says `clear`.
   function onDelete() {
     if (!armed) {
       setArmed(true);
@@ -59,7 +61,7 @@ export default function ActionPill() {
     }
     if (timer.current) clearTimeout(timer.current);
     setArmed(false);
-    void clearSample().then(() => setSampleLoaded(false));
+    void clearAll().then(() => setSampleLoaded(false));
   }
 
   async function onFile(file: File) {

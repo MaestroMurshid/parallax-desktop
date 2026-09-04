@@ -48,6 +48,8 @@
     serif;
   /* machine specs line only — nothing else reads as a system readout */
   --legend-w: 172px;
+  /* The entry sheet, shared with the canvas so the field knows what covers it. */
+  --entry-sheet-w: 560px;
   --pill-inset: 10px;
   --pill-radius: 12px;
   --pill-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
