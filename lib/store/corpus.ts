@@ -10,14 +10,18 @@ export interface CorpusSlice {
   /** Insertion order = chronological. Placement depends on it (§5.1). */
   order: string[];
   edges: Edge[];
-  questions: Map<string, Question>;
+  /** Questions accumulate. Overwriting was the whole thing this app exists
+   *  to stop: the interrogation detaching from the note and going missing. */
+  questions: Map<string, Question[]>;
   actionItems: ActionItem[];
   loaded: boolean;
 
   loadCorpus(): Promise<void>;
   upsertEntry(entry: Entry): void;
-  /** A probe result lands where the automatic question lives (§3.6). */
-  setQuestion(entryId: string, question: Question): void;
+  /** Appends. A question asked of an entry stays on it (§3.4). */
+  addQuestion(entryId: string, question: Question): void;
+  /** Marks one question answered without disturbing the others. */
+  markAnswered(entryId: string, questionId: string): void;
   /** Commits a drag (§5.1). Called once on release, never during the drag. */
   moveEntry(id: string, x: number, y: number): Promise<void>;
   /**
@@ -71,11 +75,11 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .map((e) => e.id);
 
-    const questions = new Map<string, Question>();
+    const questions = new Map<string, Question[]>();
     await Promise.all(
       entries.map(async (e) => {
         const q = await bridge.getQuestion(e.id);
-        if (q) questions.set(e.id, q);
+        if (q) questions.set(e.id, [q]);
       }),
     );
 
@@ -89,9 +93,20 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
     set({ entries, order: isNew ? [...get().order, entry.id] : get().order });
   },
 
-  setQuestion(entryId, question) {
+  markAnswered(entryId: string, questionId: string) {
     const questions = new Map(get().questions);
-    questions.set(entryId, question);
+    const prior = questions.get(entryId);
+    if (!prior) return;
+    questions.set(entryId, prior.map((q) => (q.id === questionId ? { ...q, answered: true } : q)));
+    set({ questions });
+  },
+
+  addQuestion(entryId: string, question: Question) {
+    const questions = new Map(get().questions);
+    const prior = questions.get(entryId) ?? [];
+    // Append, never replace. §3.4 bans a regenerate button for the same reason:
+    // rerolling until the question is agreeable is the echo chamber by the back door.
+    questions.set(entryId, [...prior.filter((q) => q.id !== question.id), question]);
     set({ questions });
   },
 
@@ -194,8 +209,7 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
   },
 
   hasUnansweredQuestion(entryId) {
-    const q = get().questions.get(entryId);
-    return !!q && !q.answered;
+    return (get().questions.get(entryId) ?? []).some((q) => !q.answered);
   },
 
   isIsolated(entryId) {

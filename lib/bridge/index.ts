@@ -11,6 +11,7 @@ import type {
   ModelInfo,
   Question,
   Settings,
+  Span,
   SystemProfile,
 } from '@/lib/types';
 
@@ -90,10 +91,10 @@ export interface Bridge {
    * — §3.2 gives the invoked path to the user — but role and provenance do,
    * because a fact, a list and someone else's sentence offer nothing to push on.
    */
-  askQuestion(entryId: string): Promise<Question>;
+  askQuestion(entryId: string, span?: Span | null): Promise<Question>;
   /** The primitive askQuestion picks from. Kept for replay and evaluation;
    *  no UI path names a probe. */
-  runProbe(entryId: string, probeId: string): Promise<Question>;
+  runProbe(entryId: string, probeId: string, span?: Span | null): Promise<Question>;
   /** Proposed connections, shown as dismissible cards below the transcript (§6.1). */
   listProposedEdges(entryId: string): Promise<Edge[]>;
   /** Dismissals are training signal, not just UI (§6.1). */

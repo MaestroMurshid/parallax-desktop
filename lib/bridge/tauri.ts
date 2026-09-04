@@ -13,6 +13,7 @@ import type {
   ModelInfo,
   Question,
   Settings,
+  Span,
   SystemProfile,
 } from '@/lib/types';
 import type {
@@ -111,12 +112,12 @@ export class TauriBridge implements Bridge {
     return invoke('get_question', { entryId });
   }
 
-  askQuestion(entryId: string): Promise<Question> {
-    return invoke('ask_question', { entryId });
+  askQuestion(entryId: string, span?: Span | null): Promise<Question> {
+    return invoke('ask_question', { entryId, span: span ?? null });
   }
 
-  runProbe(entryId: string, probeId: string): Promise<Question> {
-    return invoke('run_probe', { entryId, probeId });
+  runProbe(entryId: string, probeId: string, span?: Span | null): Promise<Question> {
+    return invoke('run_probe', { entryId, probeId, span: span ?? null });
   }
 
   listProposedEdges(entryId: string): Promise<Edge[]> {

@@ -99,9 +99,17 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
     // An answer thickens its parent's rings and closes the open question; it
     // never gets probed itself, or one question becomes an interrogation (§3.4).
     if (answering) {
+      // The oldest unanswered one is the one they just spoke to.
       const questions = new Map(get().questions);
-      const q = questions.get(answering);
-      if (q) questions.set(answering, { ...q, answered: true });
+      const prior = questions.get(answering);
+      if (prior) {
+        let done = false;
+        questions.set(answering, prior.map((q) => {
+          if (done || q.answered) return q;
+          done = true;
+          return { ...q, answered: true };
+        }));
+      }
       // Answering always starts from an entry already open in this window, so
       // there is no window boundary to cross and nothing new to open.
       set({ questions, captureState: 'idle', answeringEntryId: null });
@@ -113,7 +121,7 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
     const question = long ? null : await getBridge().getQuestion(entry.id);
     if (question) {
       const questions = new Map(get().questions);
-      questions.set(entry.id, question);
+      questions.set(entry.id, [question]);
       set({ questions });
     }
 

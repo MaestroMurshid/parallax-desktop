@@ -12,6 +12,7 @@ import type {
   Question,
   Settings,
   SystemProfile,
+  Span,
 } from '@/lib/types';
 import { radiusForDuration } from '@/lib/scene/blob';
 import { invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
@@ -62,7 +63,8 @@ export class MockBridge implements Bridge {
 
   private entries = new Map<string, Entry>();
   private edges: Edge[] = [];
-  private questions = new Map<string, Question>();
+  /** Per entry, in the order they were asked. Nothing is ever replaced. */
+  private questions = new Map<string, Question[]>();
   private actionItems: ActionItem[] = [];
 
   private amplitudeListeners = new Set<(level: number) => void>();
@@ -315,7 +317,7 @@ export class MockBridge implements Bridge {
     if (!entry) return null;
     // §3.2 suppression re-enforced here rather than trusted upstream.
     if (!mayProbeAutomatically(entry)) return null;
-    return this.questions.get(entryId) ?? null;
+    return this.questions.get(entryId)?.[0] ?? null;
   }
 
   /**
@@ -323,18 +325,20 @@ export class MockBridge implements Bridge {
    * the §3.4 stance rules; these keep the shape — one question, span-anchored,
    * third person about the entry, never a verdict.
    */
-  async askQuestion(entryId: string): Promise<Question> {
+  async askQuestion(entryId: string, span?: Span | null): Promise<Question> {
     const entry = this.entries.get(entryId);
     if (!entry) throw new Error(`No entry ${entryId}`);
     // Stands in for the model's choice: the eligible set, then the first that
     // fits. Real inference would weigh the transcript, not the order.
     const eligible = invokedProbes(entry);
-    const chosen = eligible[0];
+    // Rotate rather than always returning the first: questions accumulate now,
+    // so asking twice about different sentences should not repeat itself.
+    const chosen = eligible[(this.questions.get(entryId)?.length ?? 0) % eligible.length];
     if (!chosen) throw new Error(`Nothing to ask of ${entryId}`);
-    return this.runProbe(entryId, chosen.id);
+    return this.runProbe(entryId, chosen.id, span);
   }
 
-  async runProbe(entryId: string, probeId: string): Promise<Question> {
+  async runProbe(entryId: string, probeId: string, span?: Span | null): Promise<Question> {
     const entry = this.entries.get(entryId);
     if (!entry) throw new Error(`No entry ${entryId}`);
     await sleep(900);
@@ -353,9 +357,12 @@ export class MockBridge implements Bridge {
       .map((text) => ({ text, start: entry.transcript.indexOf(text) }))
       .filter((c) => c.start >= 0 && !borrowed(c.start, c.start + c.text.length));
 
+    // A span the user selected wins: they already said what this is about.
     const chosen = candidates[Math.min(1, candidates.length - 1)];
-    const pick = chosen?.text ?? entry.transcript.slice(0, 90);
-    const start = chosen ? chosen.start : entry.transcript.indexOf(pick);
+    const pick = span
+      ? entry.transcript.slice(span.start, span.end)
+      : chosen?.text ?? entry.transcript.slice(0, 90);
+    const start = span ? span.start : chosen ? chosen.start : entry.transcript.indexOf(pick);
     const text: Record<string, string> = {
       steelman:
         'Put at its strongest, the entry says the constraint is structural rather than chosen. Does the argument still need the weaker version it actually makes?',
@@ -378,7 +385,7 @@ export class MockBridge implements Bridge {
       providerName: `${this.settings.providerName} · ${probeId}`,
       createdAt: new Date().toISOString(),
     };
-    this.questions.set(entryId, question);
+    this.questions.set(entryId, [...(this.questions.get(entryId) ?? []), question]);
     return question;
   }
 
@@ -514,7 +521,7 @@ export class MockBridge implements Bridge {
       this.entries.set(e.id, o ? { ...e, x: o.x, y: o.y } : e);
     }
     this.edges = [...this.edges, ...seeded.edges];
-    for (const q of seeded.questions) this.questions.set(q.entryId, q);
+    for (const q of seeded.questions) this.questions.set(q.entryId, [q]);
     this.actionItems = [...this.actionItems, ...seeded.actionItems];
   }
 
@@ -537,7 +544,7 @@ export class MockBridge implements Bridge {
     }
     for (const q of data.questions) {
       if (mode === 'merge' && this.questions.has(q.entryId)) continue;
-      if (this.entries.has(q.entryId)) this.questions.set(q.entryId, q);
+      if (this.entries.has(q.entryId)) this.questions.set(q.entryId, [q]);
     }
     // Action items live on the entry, so the flat list is rebuilt rather than merged.
     this.actionItems = [...this.entries.values()].flatMap((e) => e.actionItems ?? []);
