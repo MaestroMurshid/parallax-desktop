@@ -14,7 +14,9 @@ import { useApp } from '@/lib/store';
 import type { ProbeTier } from '@/lib/types';
 import styles from './TypeEditor.module.css';
 
-const TIERS: ProbeTier[] = ['silent', 'heavy', 'safe', 'retrieval'];
+/** What a user may pick. `retrieval` describes mode G, which is edge-driven
+ *  and not a property of a type, so it is not offered. */
+const TIERS: ProbeTier[] = ['silent', 'heavy', 'safe'];
 
 /** The tier word is the gate; on its own it tells the user nothing. */
 const TIER_TEXT: Record<ProbeTier, string> = {

@@ -98,14 +98,23 @@
   height: 100%;
 }
 
+/* These lines are the only thing showing the field is connected, so they take
+   the control token (§16) rather than the decorative hairline. --edge is
+   1.09:1 on the light ground and simply does not render there. */
 .threads line {
-  stroke: var(--edge);
+  stroke: var(--edge-control);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
+/* Same knockout §5.4 gives edge labels on the canvas: the thread passes behind
+   the words rather than through them. Background matches the frame exactly, so
+   it reads as clearance and not as a box. */
 .node {
   position: absolute;
+  background: var(--dimmed-bg);
+  padding: 3px 7px;
+  margin: -3px -7px;
   display: flex;
   flex-direction: column;
   gap: 4px;

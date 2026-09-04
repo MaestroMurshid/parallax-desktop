@@ -194,7 +194,9 @@ export function mayProbeAutomatically(entry: Entry, types: TypeDefinition[] = BU
   if (!hasOwnSpan(entry)) return false;
   if (roleOf(entry, types) !== 'position') return false;
   const def = definitionFor(entry, types);
-  return def ? def.tier !== 'silent' : true;
+  // Only these tiers initiate. `heavy` means invoked-only and must not slip
+  // through here; checking `!== 'silent'` let it fire like `safe`.
+  return def ? AUTO_FIRING.includes(def.tier) : true;
 }
 
 /**
@@ -207,7 +209,9 @@ export function mayProbeOnRequest(entry: Entry, types: TypeDefinition[] = BUILT_
   if (!hasOwnSpan(entry)) return false;
   if (roleOf(entry, types) !== 'position') return false;
   const def = definitionFor(entry, types);
-  return def ? def.tier !== 'silent' || !def.builtIn : true;
+  // Silent means silent on both paths. A user type set to silent used to stay
+  // askable, which made it indistinguishable from heavy.
+  return def ? def.tier !== 'silent' : true;
 }
 
 /**
