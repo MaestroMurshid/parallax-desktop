@@ -24,9 +24,19 @@ const TIER_TEXT: Record<ProbeTier, string> = {
   retrieval: 'pairs it up, never asks',
 };
 
+/**
+ * Tier alone stopped describing behaviour once Feynman was ungated from
+ * position: evidence and note are both silent, but evidence can still be asked
+ * on a selection and note reaches nothing. Read the role for built-ins.
+ */
 function tierGloss(t: TypeDefinition): string {
+  if (t.builtIn) {
+    if (t.role === 'position') return 'asks on its own';
+    if (t.role === 'evidence') return 'only when you ask';
+    return 'never asks';
+  }
   const base = TIER_TEXT[t.tier];
-  return t.builtIn || t.autoApproved ? base : `${base} · not approved to fire`;
+  return t.autoApproved ? base : `${base} · not approved to fire`;
 }
 const SLOT_IDS = Object.keys(SLOTS) as SlotId[];
 const slug = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
