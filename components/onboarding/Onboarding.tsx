@@ -183,7 +183,7 @@ export default function Onboarding({
             </div>
 
             <div className={styles.node}>
-              <span className={styles.t}>The question</span>
+              <span className={styles.t}>Reasoning</span>
               <span className={styles.m}>
                 {reasoning ? `${reasoning.name} ${reasoning.quantization} · ${size(reasoning)}` : 'detecting…'}
                 <span className={styles.sep}>·</span>
@@ -379,7 +379,7 @@ export default function Onboarding({
             </div>
 
             <div className={styles.node} style={{ left: '62%', top: '62%' }}>
-              <span className={styles.t}>The question</span>
+              <span className={styles.t}>Reasoning</span>
               <span className={styles.m}>{reasoningProgress.label || 'arriving'}</span>
             </div>
 
