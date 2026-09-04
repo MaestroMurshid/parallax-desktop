@@ -169,6 +169,14 @@ export interface Question {
   /** The span the question is anchored to. Unanchored output is not allowed. */
   span: Span | null;
   answered: boolean;
+  /**
+   * Struck out, not deleted. §3.4 bans a regenerate button — rerolling until
+   * the question is agreeable is the echo chamber by the back door — but a
+   * genuinely bad question still needs somewhere to go. Dismissing keeps it in
+   * the record and stops it counting as open; replacing it would let you
+   * escape the one that stung.
+   */
+  dismissed: boolean;
   /** Shown in the UI — the user always knows who answered (§9.4). */
   providerName: string;
   createdAt: string;

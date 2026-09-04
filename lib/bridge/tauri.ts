@@ -120,6 +120,10 @@ export class TauriBridge implements Bridge {
     return invoke('run_probe', { entryId, probeId, span: span ?? null });
   }
 
+  dismissQuestion(entryId: string, questionId: string): Promise<void> {
+    return invoke('dismiss_question', { entryId, questionId });
+  }
+
   listProposedEdges(entryId: string): Promise<Edge[]> {
     return invoke('list_proposed_edges', { entryId });
   }

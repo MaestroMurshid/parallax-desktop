@@ -59,6 +59,7 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const customTypes = useApp((s) => s.customTypes);
   const addQuestion = useApp((s) => s.addQuestion);
+  const dismissQuestion = useApp((s) => s.dismissQuestion);
   const resolveEntry = useApp((s) => s.resolveEntry);
   const reopenEntry = useApp((s) => s.reopenEntry);
   const [resolving, setResolving] = useState(false);
@@ -264,15 +265,30 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
       {analysisOpen && (
         <section className={styles.analysis}>
           {questions.map((q) => (
-            <div key={q.id} className={styles.question}>
+            <div key={q.id} className={q.dismissed ? styles.questionDismissed : styles.question}>
               <p className={styles.questionText}>{q.text}</p>
               {q.span && (
                 <blockquote className={styles.quoted}>
                   {entry.transcript.slice(q.span.start, q.span.end)}
                 </blockquote>
               )}
-              <div className={styles.provider}>{q.providerName}</div>
-              {!q.answered && (
+              <div className={styles.provider}>
+                <span>{q.providerName}</span>
+                {q.dismissed ? (
+                  <span className={styles.dismissedTag}>dismissed</span>
+                ) : (
+                  !q.answered && (
+                    <button
+                      type="button"
+                      className={styles.dismissQuestion}
+                      onClick={() => void dismissQuestion(entry.id, q.id)}
+                    >
+                      dismiss
+                    </button>
+                  )
+                )}
+              </div>
+              {!q.answered && !q.dismissed && (
                 <p className={styles.answerHint}>
                   Press <kbd className={styles.kbd}>{hotkey}</kbd> to answer it out loud — the
                   answer becomes a layer on this entry, not a new note.

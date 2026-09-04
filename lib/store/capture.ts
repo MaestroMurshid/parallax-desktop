@@ -105,7 +105,7 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
       if (prior) {
         let done = false;
         questions.set(answering, prior.map((q) => {
-          if (done || q.answered) return q;
+          if (done || q.answered || q.dismissed) return q;
           done = true;
           return { ...q, answered: true };
         }));

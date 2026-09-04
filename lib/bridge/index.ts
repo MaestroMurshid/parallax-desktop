@@ -95,6 +95,8 @@ export interface Bridge {
   /** The primitive askQuestion picks from. Kept for replay and evaluation;
    *  no UI path names a probe. */
   runProbe(entryId: string, probeId: string, span?: Span | null): Promise<Question>;
+  /** Strikes a question out. It stays on the entry; it stops being open. */
+  dismissQuestion(entryId: string, questionId: string): Promise<void>;
   /** Proposed connections, shown as dismissible cards below the transcript (§6.1). */
   listProposedEdges(entryId: string): Promise<Edge[]>;
   /** Dismissals are training signal, not just UI (§6.1). */

@@ -186,6 +186,7 @@ export function loadSeedCorpus(): LoadedCorpus {
         text: q.text,
         span: q.spanQuote ? findSpan(entry.transcript, q.spanQuote, false) : null,
         answered: q.answered,
+        dismissed: false,
         providerName: q.providerName,
         createdAt: entry.createdAt,
       };

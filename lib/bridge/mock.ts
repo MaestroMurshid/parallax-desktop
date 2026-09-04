@@ -382,11 +382,21 @@ export class MockBridge implements Bridge {
       text: text[probeId] ?? 'What is this resting on?',
       span: start >= 0 ? { start, end: start + pick.length, attributed: false } : null,
       answered: false,
+      dismissed: false,
       providerName: `${this.settings.providerName} · ${probeId}`,
       createdAt: new Date().toISOString(),
     };
     this.questions.set(entryId, [...(this.questions.get(entryId) ?? []), question]);
     return question;
+  }
+
+  async dismissQuestion(entryId: string, questionId: string): Promise<void> {
+    const prior = this.questions.get(entryId);
+    if (!prior) return;
+    this.questions.set(
+      entryId,
+      prior.map((q) => (q.id === questionId ? { ...q, dismissed: true } : q)),
+    );
   }
 
   async listProposedEdges(entryId: string): Promise<Edge[]> {

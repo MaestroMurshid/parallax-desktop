@@ -192,8 +192,57 @@
 
 .provider {
   margin-top: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   font-size: var(--size-meta);
   color: var(--edge-label);
+}
+
+/* Struck out, still on the record. Dismissing is allowed; escaping is not. */
+.questionDismissed {
+  opacity: 0.5;
+}
+
+.questionDismissed .questionText {
+  text-decoration: line-through;
+  text-decoration-color: var(--edge-control);
+  text-decoration-thickness: 1px;
+}
+
+.dismissedTag {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.04em;
+  color: var(--edge-label);
+}
+
+.dismissQuestion {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--edge-label);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--edge-control);
+  text-underline-offset: 3px;
+}
+
+.dismissQuestion:hover {
+  color: var(--meta);
+}
+
+/* WCAG 2.2 target size without disturbing the baseline row (sec 16). */
+.dismissQuestion::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  width: max(calc(100% + 8px), 24px);
+  height: max(calc(100% + 10px), 24px);
 }
 
 .card {

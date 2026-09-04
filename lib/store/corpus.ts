@@ -22,6 +22,8 @@ export interface CorpusSlice {
   addQuestion(entryId: string, question: Question): void;
   /** Marks one question answered without disturbing the others. */
   markAnswered(entryId: string, questionId: string): void;
+  /** Strikes one out. Kept in the record — the signal is worth more than the tidiness. */
+  dismissQuestion(entryId: string, questionId: string): Promise<void>;
   /** Commits a drag (§5.1). Called once on release, never during the drag. */
   moveEntry(id: string, x: number, y: number): Promise<void>;
   /**
@@ -91,6 +93,15 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
     const isNew = !entries.has(entry.id);
     entries.set(entry.id, entry);
     set({ entries, order: isNew ? [...get().order, entry.id] : get().order });
+  },
+
+  async dismissQuestion(entryId: string, questionId: string) {
+    await getBridge().dismissQuestion(entryId, questionId);
+    const questions = new Map(get().questions);
+    const prior = questions.get(entryId);
+    if (!prior) return;
+    questions.set(entryId, prior.map((q) => (q.id === questionId ? { ...q, dismissed: true } : q)));
+    set({ questions });
   },
 
   markAnswered(entryId: string, questionId: string) {
@@ -209,7 +220,7 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
   },
 
   hasUnansweredQuestion(entryId) {
-    return (get().questions.get(entryId) ?? []).some((q) => !q.answered);
+    return (get().questions.get(entryId) ?? []).some((q) => !q.answered && !q.dismissed);
   },
 
   isIsolated(entryId) {
