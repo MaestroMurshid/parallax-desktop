@@ -388,9 +388,14 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
               <div key={edge.id} className={styles.card}>
                 <div className={styles.cardHead}>
                   <span className={styles.relation}>{edge.relation}</span>
-                  <span className={styles.cardTitle} style={letterform(target)}>
+                  <button
+                    type="button"
+                    className={styles.cardTitle}
+                    style={letterform(target)}
+                    onClick={() => openEntry(target.id)}
+                  >
                     {target.title}
-                  </span>
+                  </button>
                 </div>
                 {edge.question && <p className={styles.cardQuestion}>{edge.question}</p>}
                 <div className={styles.cardActions}>

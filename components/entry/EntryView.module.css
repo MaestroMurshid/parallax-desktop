@@ -299,17 +299,43 @@
   color: var(--edge-label);
 }
 
+/* The other end of a proposed connection is a note; you should be able to go
+   and read it before deciding whether the link is real. */
 .cardTitle {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: clamp(14px, 2cqw, 16px);
+  line-height: 1.3;
   color: var(--title);
-  font-size: var(--size-meta);
-  color: var(--title);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 120ms;
+}
+
+.cardTitle:hover {
+  text-decoration-color: var(--edge-control);
+}
+
+/* WCAG 2.2 target size without disturbing the baseline row (§16). */
+.cardTitle::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 100%;
+  height: max(100%, 24px);
 }
 
 .cardQuestion {
   margin: 8px 0 0;
   font-family: var(--font-serif);
-  font-size: var(--size-meta);
-  line-height: 1.55;
+  font-size: clamp(14px, 2cqw, 16px);
+  line-height: 1.5;
   color: var(--meta);
 }
 
