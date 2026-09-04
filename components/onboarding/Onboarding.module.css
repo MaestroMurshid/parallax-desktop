@@ -639,3 +639,32 @@
   color: var(--edge-label);
 }
 
+
+/* Screen one and two carry no canvas to compete with, so they get real
+   reading sizes. The scattered field on the setup screen keeps its own. */
+.rows .t {
+  font-size: clamp(17px, 2.6cqw, 22px);
+}
+
+.rows .m {
+  font-size: var(--size-meta);
+}
+
+.rows .helper {
+  font-size: var(--size-meta);
+  line-height: 1.55;
+}
+
+.kinds .kindName {
+  font-size: clamp(17px, 2.4cqw, 20px);
+}
+
+.kinds .said {
+  font-size: clamp(14px, 2cqw, 16px);
+  line-height: 1.5;
+}
+
+.kinds .back {
+  font-size: clamp(15px, 2.15cqw, 17px);
+  line-height: 1.5;
+}

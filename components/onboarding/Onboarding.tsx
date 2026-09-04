@@ -161,7 +161,7 @@ export default function Onboarding({
           <div className={styles.masthead}>
             <h1 className={styles.wordmark}>{APP_NAME}</h1>
             <p className={styles.tagline}>
-              Talk. It files what you said, and later puts it next to something you said before.
+              Talk. It files what you said, reasons and connects with you.
             </p>
           </div>
         )}
@@ -294,10 +294,6 @@ export default function Onboarding({
               </div>
             </div>
 
-            <p className={styles.howNote}>
-              It stays quiet on anything you felt, and on words that aren&rsquo;t yours &mdash; until
-              you select a sentence and ask.
-            </p>
           </div>
         )}
 
@@ -326,21 +322,6 @@ export default function Onboarding({
               responsible for what those conditions eventually cause you to do?
             </blockquote>
 
-            <div className={styles.moves}>
-              <span className={styles.movesLabel}>it can only say</span>
-              <span className={styles.move}>contradicts</span>
-              <span className={styles.move}>same move</span>
-              <span className={styles.move}>returns to</span>
-              <span className={styles.move}>questions</span>
-              <span className={styles.move}>extends</span>
-              <span className={styles.move}>example of</span>
-              <span className={styles.move}>echoes</span>
-            </div>
-
-            <p className={styles.howNote}>
-              If it cannot name the relation, it draws no line. Proximity already says
-              &ldquo;related&rdquo;.
-            </p>
           </div>
         )}
 
