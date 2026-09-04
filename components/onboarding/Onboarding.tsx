@@ -249,37 +249,54 @@ export default function Onboarding({
 
             <div className={styles.kinds}>
               <div className={styles.kind}>
-                <MarkGlyph mark={{ kind: 'glyph', id: 'position' }} size={11} />
-                <span className={`${styles.kindName} ${styles.kPosition}`}>position</span>
-                <span className={styles.kindDoes}>
-                  your own reasoning &mdash; it pushes back: what this rests on, where it stops
-                  holding, what would change your mind
+                <span className={styles.kindHead}>
+                  <MarkGlyph mark={{ kind: 'glyph', id: 'position' }} size={11} />
+                  <span className={`${styles.kindName} ${styles.kPosition}`}>position</span>
+                </span>
+                <span className={styles.said}>
+                  &ldquo;Upbringing, genetics, circumstances &mdash; they shape what I want. But I
+                  still choose how I respond to it.&rdquo;
+                </span>
+                <span className={styles.back}>
+                  This rests on the responding being separate from what shaped you. Is it separate,
+                  or only later?
                 </span>
               </div>
-              <div className={styles.kind}>
-                <MarkGlyph mark={{ kind: 'glyph', id: 'evidence' }} size={11} />
-                <span className={`${styles.kindName} ${styles.kEvidence}`}>evidence</span>
-                <span className={styles.kindDoes}>
-                  a number, or something you are learning &mdash; it won&rsquo;t argue, it asks you
-                  to say it back without the word
-                </span>
-              </div>
-              <div className={styles.kind}>
-                <MarkGlyph mark={{ kind: 'glyph', id: 'note' }} size={11} />
-                <span className={`${styles.kindName} ${styles.kNote}`}>note</span>
-                <span className={styles.kindDoes}>admin, lists, intents &mdash; it stays out of the way</span>
-              </div>
-            </div>
 
-            <div className={styles.moves}>
-              <span className={styles.movesLabel}>it waits to be asked</span>
-              <span className={styles.move}>when a note is emotionally live</span>
-              <span className={styles.move}>when the words are someone else&rsquo;s</span>
+              <div className={styles.kind}>
+                <span className={styles.kindHead}>
+                  <MarkGlyph mark={{ kind: 'glyph', id: 'evidence' }} size={11} />
+                  <span className={`${styles.kindName} ${styles.kEvidence}`}>evidence</span>
+                </span>
+                <span className={styles.said}>
+                  &ldquo;The hard problem is why there is something it is like to be you at all
+                  &mdash; not how the brain processes information.&rdquo;
+                </span>
+                <span className={styles.back}>
+                  You wake up tomorrow unable to feel pain, emotion or pleasure, but you can still
+                  think, speak, remember your childhood and solve problems. Would you still call
+                  yourself conscious?
+                </span>
+              </div>
+
+              <div className={styles.kind}>
+                <span className={styles.kindHead}>
+                  <MarkGlyph mark={{ kind: 'glyph', id: 'note' }} size={11} />
+                  <span className={`${styles.kindName} ${styles.kNote}`}>note</span>
+                </span>
+                <span className={styles.said}>
+                  &ldquo;Cancel the storage tier, and move the climate feeds off that reader that
+                  got acquired.&rdquo;
+                </span>
+                <span className={styles.backQuiet}>
+                  both items &rarr; task list &mdash; nothing asked
+                </span>
+              </div>
             </div>
 
             <p className={styles.howNote}>
-              Select a sentence and it will go anyway. You mark a note resolved &mdash; never it.
-              Add your own kind too, and what it should ask.
+              It stays quiet on anything you felt, and on words that aren&rsquo;t yours &mdash; until
+              you select a sentence and ask.
             </p>
           </div>
         )}
@@ -291,7 +308,7 @@ export default function Onboarding({
             <div className={styles.pair}>
               <div className={styles.pairSide}>
                 <span className={styles.pairDate}>12 Mar</span>
-                <span className={styles.pairTitle}>free will is a story we tell after</span>
+                <span className={styles.pairTitle}>I still choose how I respond</span>
               </div>
               <div className={styles.pairLink} aria-hidden="true">
                 <span className={styles.pairRule} />
@@ -300,13 +317,13 @@ export default function Onboarding({
               </div>
               <div className={styles.pairSide}>
                 <span className={styles.pairDate}>28 Sep</span>
-                <span className={styles.pairTitle}>he should have known better</span>
+                <span className={styles.pairTitle}>the choosing is conditioned too</span>
               </div>
             </div>
 
             <blockquote className={styles.asked}>
-              March says the choice was never open. September blames him for it. Does blame need the
-              choice to have been open?
+              If you never had control over the conditions that shaped you, can you still be
+              responsible for what those conditions eventually cause you to do?
             </blockquote>
 
             <div className={styles.moves}>
