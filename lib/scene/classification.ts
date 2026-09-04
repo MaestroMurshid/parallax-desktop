@@ -237,7 +237,7 @@ const ALL_PROBES: Probe[] = [
   { id: 'disconfirming', label: 'what would break it', hint: 'what would make you drop this?', tier: 'safe' },
   // §3.1 E and F — §3.3 gates one, the other needs a concept being held.
   { id: 'munchhausen', label: 'ask why, four times', hint: 'follow the reasons until they bottom out', tier: 'heavy' },
-  { id: 'feynman', label: 'explain it simply', hint: 'only useful where there is a concept to master', tier: 'heavy' },
+  { id: 'feynman', label: 'show you have it', hint: 'apply it to a case you have not been given', tier: 'heavy' },
 ];
 
 /**
@@ -266,7 +266,9 @@ export function automaticProbes(entry: Entry, types: TypeDefinition[] = BUILT_IN
     const mayInitiate = !def || def.builtIn || AUTO_FIRING.includes(def.tier);
     return mayInitiate ? ALL_PROBES.filter((p) => p.tier === 'safe') : [];
   }
-  // A concept you are holding gets asked to be said back. Notes get nothing.
+  // A concept you are holding gets asked for, in whatever form the topic
+  // suits — a case to apply it to, a consequence to follow, a restatement.
+  // Notes get nothing.
   if (role === 'evidence') return ALL_PROBES.filter((p) => p.id === 'feynman');
   return [];
 }

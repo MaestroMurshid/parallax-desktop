@@ -399,8 +399,11 @@ export class MockBridge implements Bridge {
         'What would you have to see for the entry to be wrong about this?',
       munchhausen:
         'The entry rests on that being the case. What is that resting on?',
+      // A real model writes this against the transcript, so it lands on the
+      // subject: a case the concept has to cover, a consequence to follow. This
+      // stub cannot do that and should not be read as the shape of the mode.
       feynman:
-        'Stated to someone who has not read the source, which part of this stops being obvious?',
+        'Take a case this would have to cover that has not come up yet. Does it still hold?',
     };
 
     const question: Question = {
