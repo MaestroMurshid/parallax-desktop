@@ -314,8 +314,6 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
 
       {analysisOpen && (
         <section className={styles.analysis}>
-          {questions.length > 0 && <p className={styles.sectionLabel}>asked about this</p>}
-
           {questions.map((q) => (
             <div
               key={q.id}
