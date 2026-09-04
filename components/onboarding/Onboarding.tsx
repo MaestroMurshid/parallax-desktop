@@ -407,7 +407,7 @@ export default function Onboarding({
               <span className={styles.t}>Open questions</span>
               <span className={styles.m}>
                 <span className={styles.dot} />
-                one question, never a verdict
+                it pushed back &mdash; answer out loud
               </span>
             </div>
           </div>
