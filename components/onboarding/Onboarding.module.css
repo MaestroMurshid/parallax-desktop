@@ -11,7 +11,22 @@
   padding: 32px;
 }
 
+/* The field it is about to open, out of focus behind the card. Decorative and
+   inert: it never takes a pointer, and it sits under everything in the stage. */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(6px);
+  opacity: 0.62;
+}
+
 .frame {
+  position: relative;
+  z-index: 1;
   width: min(880px, 100%);
   height: min(520px, 100%);
   display: flex;
@@ -204,10 +219,12 @@
 }
 
 /* Docked bottom-right, the one quadrant the four nodes leave free. */
+/* Anchored to the rows, not the stage: bottom:0 on a static ancestor chain put
+   this in the corner of the screen, detached from the setting it belongs to. */
 .advanced {
   position: absolute;
   right: 0;
-  bottom: 0;
+  top: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -559,6 +576,7 @@
 /* The models beat is a list, not the field — the scatter belongs to the screen
    that is actually about the canvas. */
 .rows {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;

@@ -6,6 +6,7 @@ import { APP_NAME } from '@/lib/constants';
 import { useApp } from '@/lib/store';
 import type { ModelInfo, Residency, Settings, SystemProfile } from '@/lib/types';
 import MarkGlyph from '@/components/canvas/MarkGlyph';
+import Backdrop from './Backdrop';
 import styles from './Onboarding.module.css';
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)}GB`;
@@ -54,7 +55,9 @@ export default function Onboarding({
   const [modelId, setModelId] = useState<string | null>(null);
   const [transcriptionId, setTranscriptionId] = useState<string | null>(null);
   const [hotkey, setHotkey] = useState(settings.hotkey);
-  const [residency, setResidency] = useState<Residency>(settings.residency);
+  // Carried through to start() unchanged; residency is a settings decision,
+  // not a first-run one, and it has a control there.
+  const [residency] = useState<Residency>(settings.residency);
   const [advanced, setAdvanced] = useState(false);
   const [micGranted, setMicGranted] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -137,6 +140,7 @@ export default function Onboarding({
 
   return (
     <div className={styles.stage}>
+      <Backdrop />
       <div className={styles.frame}>
         <div className={styles.topRow}>
           <span className={styles.top}>{step === 'models' ? '' : APP_NAME}</span>
@@ -171,7 +175,7 @@ export default function Onboarding({
             <div className={styles.node}>
               <span className={styles.t}>Transcription</span>
               <span className={styles.m}>
-                {speech ? `transcribe.cpp ${speech.name} · ${size(speech)}` : 'detecting…'}
+                {speech ? `Whisper ${speech.name} ${speech.quantization} · ${size(speech)}` : 'detecting…'}
                 <button type="button" className={styles.change} onClick={() => setAdvanced((v) => !v)}>
                   {advanced ? 'hide' : 'change'}
                 </button>
@@ -220,19 +224,6 @@ export default function Onboarding({
                       onClick={() => setModelId(m.id)}
                     >
                       {m.name} · {size(m)}
-                    </button>
-                  ))}
-                </div>
-                <span className={styles.advLabel}>residency</span>
-                <div className={styles.options}>
-                  {(['warm', 'cold'] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      className={r === residency ? styles.optionOn : styles.option}
-                      onClick={() => setResidency(r)}
-                    >
-                      {r === 'warm' ? 'warm · ~2s' : 'cold · frees RAM'}
                     </button>
                   ))}
                 </div>
