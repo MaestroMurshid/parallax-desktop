@@ -36,6 +36,13 @@ export function isPanelWindow(): boolean {
  * Tauri event listeners register asynchronously, so the unsubscribe has to
  * survive being called before registration completes — same shape as the
  * bridge's subscribe, and for the same reason.
+ *
+ * Scoped to this webview, not the bare `listen` from the event module. That one
+ * takes everything regardless of who it was addressed to, so Rust's decision
+ * about which window owns the recording (lib.rs on_hotkey) arrived in both of
+ * them: the canvas started recording and drew its panel, and the floating
+ * window started recording and showed itself in the corner, for one keypress.
+ * A broadcast — the panel's hand-off — still reaches a scoped listener.
  */
 function subscribe<T>(event: string, cb: (payload: T) => void): Unsubscribe {
   if (!isTauri()) return () => {};
@@ -43,8 +50,10 @@ function subscribe<T>(event: string, cb: (payload: T) => void): Unsubscribe {
   let stop: (() => void) | null = null;
   let cancelled = false;
 
-  void import('@tauri-apps/api/event')
-    .then(({ listen }) => listen<T>(event, (e) => cb(e.payload)))
+  void import('@tauri-apps/api/webviewWindow')
+    .then(({ getCurrentWebviewWindow }) =>
+      getCurrentWebviewWindow().listen<T>(event, (e) => cb(e.payload)),
+    )
     .then((unlisten) => {
       if (cancelled) unlisten();
       else stop = unlisten;
