@@ -599,3 +599,85 @@ signal (`bridge/index.ts:108`).
 5. **Question quality at local GGUF sizes is unmeasured.** §13 says run the sweep *first*.
    If no local size clears the bar, §9.4 is explicit: report it as a finding rather than
    quietly demoing on a remote API.
+
+---
+
+## Day 0 — RESULT: both integrations work
+
+Run 8 Sep on the target machine (Ryzen 5 5600H, RTX 3050 Laptop 4GB, 13.9GB RAM).
+**Both risky integrations are green.** The week's plan holds.
+
+### transcribe.cpp
+
+Builds and transcribes. `transcribe-cpp` 0.2.3 compiled in 40s; total build 210MB.
+
+```
+load 82 ms | transcribe 315 ms for 11.0s audio (34.9x realtime)
+```
+
+- Model: `handy-computer/whisper-tiny-gguf` → `whisper-tiny-Q5_K_M.gguf`, **43MB**.
+  Repos are `whisper-{tiny,base,small}-gguf`, matching `mock.ts`'s catalogue.
+- **82ms load settles §9.3's question**: load-per-use is right, do not hold whisper resident.
+- 35x realtime means transcription is effectively free — a 2-minute note lands in ~3.5s.
+- Confirms `16 kHz mono f32 [-1,1]`, which is what cpal must be configured to emit.
+
+### Toolchain — three fixes, all required
+
+1. **CMake is not installed and Build Tools 2026 does not bundle it.** `winget install
+   Kitware.CMake` (got 4.4.3).
+2. **The Visual Studio generator is broken with Build Tools 2026.** CMake 4.4.3 emits a
+   project MSBuild then cannot find (`MSB1009`) during its compiler probe. Fix:
+   `winget install Ninja-build.Ninja` and set `CMAKE_GENERATOR=Ninja`.
+3. **CMake caches its generator**, so switching generators against a used build dir fails
+   regardless. Wipe `%LOCALAPPDATA%\tcs` (the short-path symlink transcribe-cpp-sys creates
+   to dodge MAX_PATH) before retrying.
+
+Build must run under `vcvars64.bat` so Ninja can find `cl.exe`. The spike lives at
+`D:\parallax-spike` — a short path on the drive with room.
+
+### llama-server + the §13 model sweep
+
+Prebuilt binaries: `ggml-org/llama.cpp` release **b10867**, `bin-win-cpu-x64` and
+`bin-win-cuda-12.4-x64` (+ cudart). Server answers `/health` in ~1s and honours
+OpenAI-style `response_format: json_schema`.
+
+Same prompt, same transcript (`free-will-own-reasoning`), against the fixture's authored values:
+
+| | fixture | Qwen3-1.7B | Qwen3-4B |
+|---|---|---|---|
+| `role` | position | position ✓ | position ✓ |
+| `register` | neutral | **live ✗** | neutral ✓ |
+| `summary` | accurate | **misstates the claim ✗** | accurate ✓ |
+| `movePhrase` | — | **copied the prompt's example ✗** | own phrasing ✓ |
+| `title` | "our own reasoning" | "free will" ✗ | "Free Will and Reasoning" ✗ |
+| latency (CPU) | — | 3.4s | 9.0s |
+| latency (GPU) | — | — | **1.8s** |
+
+**Findings that change the plan:**
+
+- **Constrained decoding is total.** Every response was valid against the schema, correct
+  enums, parseable first time. Shape is guaranteed by the grammar — but *correctness is not*.
+  That distinction is the thing to say out loud in the writeup.
+- **1.7B is not good enough.** Valid JSON, unreliable content. 4B is the floor.
+- **4B on the 3050 hits 1.8s**, inside §4's ~2s budget, so the synchronous post-recording
+  question is viable. On CPU it is 9s and is not. **GPU offload is not optional.**
+- **VRAM is the ceiling: 3114 / 4096 MiB at 4B Q4 with `-c 4096`.** 8B is impossible on this
+  machine, and a larger context risks OOM. §9.4's "small warm model + large cold model"
+  split is therefore *not available here* — there is room for exactly one resident model.
+- **Warm residency costs VRAM, not system RAM** — better than §9.3 assumed for a 14GB machine.
+- **`register` failed at 1.7B and is the first live evidence for §17's warning** that the
+  facet may not be callable. Worth reporting as a finding either way.
+- **Do not put concrete examples in the system prompt.** 1.7B copied the `movePhrase`
+  example verbatim. The move phrase is the differentiator, so this is the prompt most
+  worth iterating on.
+- **Neither model produced a §5.2 title.** Both reach for the topic ("Free Will and
+  Reasoning") instead of the speaker's own phrasing ("our own reasoning"). Title generation
+  needs its own prompt, probably its own call, and is a known-open item rather than a solved one.
+- **`movePhrase` at 4B restates content rather than abstracting the move** — subject-bound,
+  so it would not cluster microbes with AI-art. The differentiator is not yet working and is
+  the highest-value prompt to iterate on.
+
+### Disk
+
+`cargo clean` on `src-tauri/target` freed **7.1 GiB** (E: 3.4 → 8.7GB free). Built installers
+preserved to the scratchpad first. Keep model and build artefacts on D:; E: is too tight.
