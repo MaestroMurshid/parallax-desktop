@@ -9,14 +9,13 @@ pub struct Question {
     pub id: String,
     pub entry_id: String,
     pub text: String,
-    /// Every analytical claim quotes a span (§3.4). `None` only where the
-    /// anchor could not be resolved -- never as a default.
+    /// `None` only where the anchor could not be resolved, never as a default:
+    /// every analytical claim quotes a span (§3.4).
     pub span: Option<Span>,
     pub answered: bool,
-    /// Struck out, kept. §3.4 bans regeneration; dismissal is the exit instead,
-    /// and dismissals are training signal, so they must persist.
+    /// Struck out, kept. Dismissals are training signal, so they persist.
     pub dismissed: bool,
-    /// Shown verbatim in the UI -- the user always knows who answered.
+    /// Shown verbatim — the user always knows who answered.
     pub provider_name: String,
     pub created_at: String,
 }

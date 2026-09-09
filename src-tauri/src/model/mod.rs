@@ -1,7 +1,4 @@
 //! Wire types. These mirror `lib/types.ts`, which is the contract.
-//!
-//! `mod` + `pub use` is Rust's package/re-export: callers write
-//! `use crate::model::Entry`, not `crate::model::entry::Entry`.
 
 pub mod edge;
 pub mod entry;
@@ -17,9 +14,9 @@ pub use settings::{
 
 #[cfg(test)]
 mod contract_tests {
-    //! The frontend reads these fields by name. A rename here is not a compile
-    //! error on either side -- it is a silent `undefined` in the UI. So the
-    //! field names are asserted explicitly against `lib/types.ts`.
+    //! The frontend reads these fields by name, so a rename is not a compile
+    //! error on either side — it is a silent `undefined`. The key set is
+    //! asserted rather than assumed.
 
     use super::*;
     use serde_json::json;
@@ -51,7 +48,6 @@ mod contract_tests {
         }
     }
 
-    /// Every key `lib/types.ts` declares on Entry, in the shape it declares it.
     #[test]
     fn entry_serialises_to_the_wire_contract() {
         let v = serde_json::to_value(sample_entry()).unwrap();
@@ -67,8 +63,7 @@ mod contract_tests {
             assert!(obj.contains_key(key), "missing wire field: {key}");
         }
 
-        // `parentEdge` holds an entry id despite the name -- the trap is real,
-        // and renaming it inside Rust must not change the wire shape.
+        // Renaming it inside Rust must not change the wire shape.
         assert!(obj.contains_key("parentEdge"));
         assert!(!obj.contains_key("parentEntryId"));
 
@@ -87,8 +82,7 @@ mod contract_tests {
         assert_eq!(serde_json::to_value(&before).unwrap(), serde_json::to_value(&after).unwrap());
     }
 
-    /// Relations carry spaces on the wire. Getting this wrong silently breaks
-    /// every edge label on the canvas.
+    /// Spaces on the wire; getting this wrong breaks every edge label.
     #[test]
     fn relations_keep_their_spaces() {
         assert_eq!(serde_json::to_value(Relation::SameMove).unwrap(), json!("same move"));
@@ -96,8 +90,7 @@ mod contract_tests {
         assert_eq!(serde_json::to_value(Relation::ExampleOf).unwrap(), json!("example of"));
     }
 
-    /// §5.4 -- a classifier may propose six of the eight. `answers` is
-    /// system-generated, `related` is the human escape hatch.
+
     #[test]
     fn model_may_not_emit_answers_or_related() {
         assert!(!Relation::Answers.is_model_emittable());
@@ -106,7 +99,6 @@ mod contract_tests {
         assert_eq!(Relation::MODEL_RELATIONS.len(), 6);
     }
 
-    /// The one non-obvious shape: internally tagged on `kind`, kebab-case.
     #[test]
     fn model_state_is_internally_tagged() {
         assert_eq!(

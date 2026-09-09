@@ -1,10 +1,4 @@
 //! Edges and the relation vocabulary.
-//!
-//! Two sets, and the distinction has teeth: `Relation` is everything that can
-//! exist; `MODEL_RELATIONS` is the subset a classifier may propose. `Answers`
-//! is created by the system when an entry answers another; `Related` is the
-//! human escape hatch for "I know these belong together and cannot yet say
-//! why". A model that can only say "related" must draw nothing (§5.4).
 
 use serde::{Deserialize, Serialize};
 
@@ -29,8 +23,9 @@ pub enum Relation {
 }
 
 impl Relation {
-    /// The six a model may emit. `Answers` is system-generated and `Related`
-    /// is manual-only, so neither belongs to a classifier's vocabulary.
+    /// The six a model may propose. `Answers` is system-generated and
+    /// `Related` is the manual escape hatch, so neither is a classifier's
+    /// to emit — if the best it can say is "related", it draws nothing (§5.4).
     pub const MODEL_RELATIONS: [Relation; 6] = [
         Relation::Contradicts,
         Relation::SameMove,
@@ -40,7 +35,6 @@ impl Relation {
         Relation::ExampleOf,
     ];
 
-    /// Guard for the edge-proposal path: reject anything outside the six.
     pub fn is_model_emittable(&self) -> bool {
         Self::MODEL_RELATIONS.contains(self)
     }

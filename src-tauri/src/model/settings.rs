@@ -2,11 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// §9.4 -- the residency fork. Only the post-recording question is
-/// latency-sensitive; everything else batches and can run cold.
-///
-/// Day-0 measurement: 4B Q4 answers in 1.8s on the GPU and 9.0s on CPU, so
-/// `Warm` is only meaningful with GPU offload.
+/// §9.4. Only the post-recording question is latency-sensitive; everything
+/// else batches. Measured: 4B Q4 answers in 1.8s on GPU, 9.0s on CPU, so
+/// `Warm` is only meaningful with offload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Residency {
@@ -27,7 +25,7 @@ pub enum TranscriptionModel {
 pub struct Settings {
     pub hotkey: String,
     pub discard_hotkey: String,
-    /// `None` is the "not yet onboarded" sentinel the frontend keys off.
+    /// `None` is the "not yet onboarded" sentinel.
     pub model_id: Option<String>,
     pub residency: Residency,
     pub provider_name: String,
@@ -67,16 +65,8 @@ pub enum ModelKind {
     Reasoning,
 }
 
-/// The one non-obvious serde shape in the whole contract: an internally
-/// tagged union, discriminated on `kind`, with kebab-case tags.
-///
-/// TypeScript:
-///   | { kind: 'not-downloaded' }
-///   | { kind: 'downloading'; receivedBytes: number; totalBytes: number }
-///   | { kind: 'ready' }
-///   | { kind: 'failed'; error: string }
-///
-/// Java analogue: a sealed interface with @JsonTypeInfo(property = "kind").
+/// Internally tagged on `kind`, kebab-case — the one non-obvious
+/// serde shape in the contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum ModelState {
@@ -95,7 +85,7 @@ pub struct ModelInfo {
     pub params: String,
     pub quantization: String,
     pub size_bytes: u64,
-    /// Drives the onboarding default: the largest model this machine can hold.
+    /// Drives the onboarding default.
     pub recommended_ram_bytes: u64,
     pub state: ModelState,
 }
