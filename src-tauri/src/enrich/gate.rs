@@ -38,19 +38,56 @@ impl Probe {
 
 /// §7.3 -- false when the entry is wholly someone else's words. Attributed
 /// spans may be quoted and connected; they may not be pushed on.
-pub fn has_own_span(_entry: &Entry) -> bool {
-    todo!("has_own_span")
+pub fn has_own_span(entry: &Entry) -> bool {
+    let covered: u32 = entry
+        .spans
+        .iter()
+        .filter(|s| s.attributed)
+        .map(|s| s.end.saturating_sub(s.start))
+        .sum();
+    covered < entry.transcript.len() as u32
 }
 
 /// What may fire without being asked for.
-pub fn automatic_probes(_entry: &Entry) -> Vec<Probe> {
-    todo!("automatic_probes")
+///
+/// The three checks come first and fail closed. Only then does role decide,
+/// and role may only ever *narrow* what is offered -- classification suppresses
+/// and never selects, so a misclassification costs a missing question rather
+/// than an intrusive one.
+pub fn automatic_probes(entry: &Entry) -> Vec<Probe> {
+    if entry.register == Register::Live
+        || entry.duration_ms < MIN_AUTOMATIC_MS
+        || !has_own_span(entry)
+    {
+        return Vec::new();
+    }
+
+    match entry.role {
+        Role::Position => vec![Probe::Boundary, Probe::Disconfirming],
+        // Feynman takes no stance and cannot misfire the way a steelman can.
+        Role::Evidence => vec![Probe::Feynman],
+        Role::Note => Vec::new(),
+    }
 }
 
 /// What may fire when the user selects a passage and asks. Register does not
 /// gate here: §3.2 gives the invoked path to the user, so the risk is theirs.
-pub fn invoked_probes(_entry: &Entry) -> Vec<Probe> {
-    todo!("invoked_probes")
+pub fn invoked_probes(entry: &Entry) -> Vec<Probe> {
+    if !has_own_span(entry) {
+        return Vec::new();
+    }
+
+    match entry.role {
+        Role::Position => vec![
+            Probe::Boundary,
+            Probe::Disconfirming,
+            Probe::Steelman,
+            Probe::Munchhausen,
+            Probe::Feynman,
+        ],
+        Role::Evidence => vec![Probe::Feynman],
+        Role::Note => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -114,7 +151,11 @@ mod tests {
     #[test]
     fn a_note_quoting_someone_still_has_its_own_words() {
         let mut e = entry(Role::Position, Register::Neutral, 120_000);
-        e.spans = vec![Span { start: 0, end: 10, attributed: true }];
+        e.spans = vec![Span {
+            start: 0,
+            end: 10,
+            attributed: true,
+        }];
         assert!(has_own_span(&e), "only part of it is borrowed");
         assert!(!automatic_probes(&e).is_empty());
     }

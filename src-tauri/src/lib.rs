@@ -2,8 +2,8 @@ pub mod audio;
 pub mod commands;
 pub mod db;
 pub mod enrich;
-pub mod llm;
 pub mod error;
+pub mod llm;
 pub mod model;
 pub mod scene;
 pub mod state;
@@ -151,6 +151,11 @@ pub fn run() {
             show_capture,
             hide_capture,
             commands::corpus::list_entries,
+            commands::capture::start_recording,
+            commands::capture::stop_recording,
+            commands::capture::discard_recording,
+            commands::capture::undo_discard,
+            commands::capture::recording_level,
             commands::corpus::create_entry,
             commands::corpus::get_entry,
             commands::corpus::list_children,

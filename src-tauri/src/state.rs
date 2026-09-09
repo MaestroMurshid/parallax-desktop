@@ -1,10 +1,20 @@
 //! Process-wide state, and where the corpus lives on disk.
 
+use crate::audio::recorder::Recording;
 use crate::db;
 use crate::error::Result;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+/// A recording thrown away but not yet gone. §4 keeps it for a minute rather
+/// than asking "are you sure", because a confirmation dialog on every discard
+/// is worse than an undo nobody uses.
+pub struct Discarded {
+    pub pcm: Vec<f32>,
+    pub duration_ms: i64,
+    pub at: std::time::Instant,
+}
 
 pub struct AppState {
     /// One connection behind a lock. SQLite serialises writes anyway, and the
@@ -13,6 +23,10 @@ pub struct AppState {
     /// Kept so the app can say where its data is rather than making the user
     /// guess, and so the audio directory hangs off the same root.
     pub root: PathBuf,
+    /// At most one recording at a time -- there is one microphone and one
+    /// hotkey, and a second concurrent take has no meaning.
+    pub recording: Mutex<Option<Recording>>,
+    pub discarded: Mutex<Option<Discarded>>,
 }
 
 impl AppState {
@@ -22,6 +36,8 @@ impl AppState {
         Ok(Self {
             conn: Mutex::new(conn),
             root,
+            recording: Mutex::new(None),
+            discarded: Mutex::new(None),
         })
     }
 
@@ -37,6 +53,25 @@ impl AppState {
 
     pub fn audio_dir(&self) -> PathBuf {
         self.root.join("audio")
+    }
+
+    pub fn models_dir(&self) -> PathBuf {
+        self.root.join("models")
+    }
+
+    /// The transcription model, if one has been fetched. `None` is a normal
+    /// state rather than an error: capture works without it, and the audio is
+    /// the record the transcript is derived from, so it can be filled in later.
+    pub fn transcription_model(&self) -> Option<PathBuf> {
+        std::fs::read_dir(self.models_dir())
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| {
+                p.extension().is_some_and(|e| e == "gguf")
+                    && p.file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with("whisper"))
+            })
     }
 }
 

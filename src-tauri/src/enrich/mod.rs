@@ -69,9 +69,8 @@ pub fn classify(
     transcript: &str,
     type_ids: &[String],
 ) -> Result<Classification> {
-    let reply = provider.ask(
-        Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids)),
-    )?;
+    let reply = provider
+        .ask(Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids)))?;
 
     let mut parsed: Classification = serde_json::from_str(&reply)
         .map_err(|e| Error::Other(format!("classification was not readable: {e}")))?;
@@ -127,9 +126,11 @@ fn question_schema() -> Value {
 /// is given the stance rules and left to generate, rather than selecting from
 /// an enum, so adding a mode is noticing a shape in output worth having.
 pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, probe_hint: &str) -> Result<Asked> {
-    let user = format!("The note:\n\n{}\n\nWhat to ask: {}", entry.transcript, probe_hint);
-    let reply =
-        provider.ask(Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema()))?;
+    let user = format!(
+        "The note:\n\n{}\n\nWhat to ask: {}",
+        entry.transcript, probe_hint
+    );
+    let reply = provider.ask(Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema()))?;
 
     let asked: Asked = serde_json::from_str(&reply)
         .map_err(|e| Error::Other(format!("the question was not readable: {e}")))?;
@@ -179,7 +180,12 @@ mod tests {
                 "typeId":"position","summary":"Free will as your own reasoning.",
                 "movePhrase":"redefines a test so it no longer requires an alternative"}"#,
         );
-        let c = classify(&p, "I don't think free will requires...", &["position".into()]).unwrap();
+        let c = classify(
+            &p,
+            "I don't think free will requires...",
+            &["position".into()],
+        )
+        .unwrap();
 
         assert_eq!(c.role, Role::Position);
         assert_eq!(c.register, Register::Neutral);
@@ -199,7 +205,10 @@ mod tests {
         let c = classify(&p, "...", &["position".into()]).unwrap();
 
         assert_eq!(c.register, Register::Live);
-        assert!(c.summary.is_none(), "the model offered one and it was dropped");
+        assert!(
+            c.summary.is_none(),
+            "the model offered one and it was dropped"
+        );
     }
 
     #[test]
@@ -208,7 +217,10 @@ mod tests {
             r#"{"title":"a list","role":"note","register":"neutral","typeId":"note",
                 "summary":"","movePhrase":"records errands"}"#,
         );
-        assert!(classify(&p, "...", &["note".into()]).unwrap().summary.is_none());
+        assert!(classify(&p, "...", &["note".into()])
+            .unwrap()
+            .summary
+            .is_none());
     }
 
     /// A user-defined type has to be a value the model may return, or it can
