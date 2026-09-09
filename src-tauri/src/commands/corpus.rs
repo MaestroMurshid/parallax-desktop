@@ -2,6 +2,7 @@
 //! into `db`, and returns. The logic lives below this layer.
 
 use crate::db;
+use crate::db::create::NewEntry;
 use crate::error::Result;
 use crate::model::Entry;
 use crate::state::AppState;
@@ -27,6 +28,13 @@ pub fn get_entry(state: State<AppState>, id: String) -> Result<Option<Entry>> {
 pub fn list_children(state: State<AppState>, entry_id: String) -> Result<Vec<Entry>> {
     let conn = state.db();
     db::entries::children_of(&conn, &entry_id)
+}
+
+/// Places the entry against the existing field and freezes it there.
+#[tauri::command]
+pub fn create_entry(state: State<AppState>, draft: NewEntry) -> Result<Entry> {
+    let conn = state.db();
+    db::create::create(&conn, draft)
 }
 
 /// Overwrites the frozen position and never re-solves the field (§5.1).

@@ -30,23 +30,203 @@ pub struct NewEntry {
     pub typed: bool,
 }
 
-pub fn create(_conn: &Connection, _draft: NewEntry) -> Result<Entry> {
-    todo!("create")
+/// Words the speaker leans on getting into the sentence, which carry nothing
+/// about what it was. Cheap and imperfect: a real title is an enrichment call.
+const STOPWORDS: &[&str] = &[
+    "okay", "so", "the", "thing", "a", "and", "but", "is", "it", "that", "to", "of", "right",
+    "just", "about", "was", "not", "this", "all",
+];
+
+/// A handle drawn from the speaker's own words, so the canvas is readable
+/// before the model has looked at anything. Replaced by enrichment.
+fn derive_title(transcript: &str) -> String {
+    let cleaned: String = transcript
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '\'' {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+
+    let words: Vec<&str> = cleaned
+        .split_whitespace()
+        .filter(|w| w.chars().count() > 2 && !STOPWORDS.contains(w))
+        .take(4)
+        .collect();
+
+    if words.is_empty() {
+        "untitled".to_string()
+    } else {
+        words.join(" ")
+    }
 }
 
-/// Title size follows duration, so the box a new entry has to fit is known
-/// before it is placed. Mirrors `titleSizeForDuration` in lexicon.ts.
-pub fn title_box(_title: &str, _duration_ms: i64) -> (f64, f64) {
-    todo!("title_box")
+/// The user's own hedges, which are a reliable signal where a model would
+/// produce confident false positives (§5.3). Regex-equivalent, matched as
+/// substrings over lowercased text.
+const HEDGES: &[&str] = &[
+    "idk",
+    "i don't know",
+    "i dont know",
+    "i'm not sure",
+    "im not sure",
+    "not sure what",
+    "i don't wanna say",
+    "i don't want to say",
+    "can't quite",
+    "cant quite",
+    "something like that",
+    "or whatever",
+    "haven't worked out",
+    "still figuring",
+    "maybe?",
+];
+
+fn detect_unfinished(transcript: &str) -> bool {
+    let lower = transcript.to_lowercase();
+    HEDGES.iter().any(|h| lower.contains(h))
 }
 
-#[allow(dead_code)]
-fn field_from(_conn: &Connection) -> Result<(Vec<PlacedNode>, HashMap<String, Vec<f32>>)> {
-    todo!("field")
+const REF_SECONDS: f64 = 60.0;
+const REF_SIZE: f64 = 13.0;
+const MIN_SIZE: f64 = 10.5;
+const MAX_SIZE: f64 = 19.0;
+const WRAP_CHARS: usize = 14;
+const LINE_RATIO: f64 = 1.13;
+const CHAR_RATIO_SERIF: f64 = 0.46;
+
+fn title_size(duration_ms: i64) -> f64 {
+    let seconds = duration_ms.max(0) as f64 / 1000.0;
+    (REF_SIZE * (seconds / REF_SECONDS).sqrt()).clamp(MIN_SIZE, MAX_SIZE)
 }
 
-#[allow(dead_code)]
-fn unused(_: Role, _: Register, _: Candidate, _: Options) {}
+fn wrap(title: &str) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in title.split_whitespace() {
+        if line.is_empty() {
+            line = word.to_string();
+        } else if line.chars().count() + 1 + word.chars().count() <= WRAP_CHARS {
+            line.push(' ');
+            line.push_str(word);
+        } else {
+            lines.push(std::mem::take(&mut line));
+            line = word.to_string();
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    if lines.is_empty() {
+        vec![title.to_string()]
+    } else {
+        lines
+    }
+}
+
+/// Half-width and half-height of the box a title occupies, which is what
+/// placement collides against.
+pub fn title_box(title: &str, duration_ms: i64) -> (f64, f64) {
+    let size = title_size(duration_ms);
+    let lines = wrap(title);
+    let longest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f64;
+    (
+        longest * size * CHAR_RATIO_SERIF / 2.0,
+        lines.len() as f64 * size * LINE_RATIO / 2.0,
+    )
+}
+
+/// The placed field plus the vectors to score against it.
+type Field = (Vec<PlacedNode>, HashMap<String, Vec<f32>>);
+
+/// The field a new entry solves against. Vectors are absent until embeddings
+/// exist, so nothing clears the similarity threshold and every entry takes the
+/// isolated ring -- which is the honest answer rather than an invented one:
+/// §5.1 already says an entry with no strong neighbours lands in open ground.
+fn field_from(conn: &Connection) -> Result<Field> {
+    let placed = super::entries::list(conn)?
+        .into_iter()
+        .map(|e| {
+            let (half_w, half_h) = title_box(&e.title, e.duration_ms);
+            PlacedNode {
+                id: e.id,
+                x: e.x,
+                y: e.y,
+                half_w,
+                half_h,
+                isolated: false,
+            }
+        })
+        .collect();
+    Ok((placed, HashMap::new()))
+}
+
+pub fn create(conn: &Connection, draft: NewEntry) -> Result<Entry> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let title = derive_title(&draft.transcript);
+    let (half_w, half_h) = title_box(&title, draft.duration_ms);
+
+    let (field, vectors) = field_from(conn)?;
+    let spot = place(
+        &Candidate {
+            id: id.clone(),
+            vec: Vec::new(),
+            half_w,
+            half_h,
+            links: draft.parent_entry_id.iter().cloned().collect(),
+        },
+        &field,
+        &vectors,
+        Options::default(),
+    );
+
+    let local_only = match draft.local_only {
+        Some(explicit) => explicit,
+        None => super::settings::get(conn)?.default_local_only,
+    };
+
+    let entry = Entry {
+        id: id.clone(),
+        audio_path: if draft.typed {
+            None
+        } else {
+            Some(format!("audio/{id}.wav"))
+        },
+        transcript: draft.transcript.clone(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        x: spot.x,
+        y: spot.y,
+        parent_entry_id: draft.parent_entry_id,
+        answers_question_id: None,
+        // Classification is enrichment's job. Until it runs, register is live,
+        // which suppresses the automatic question -- the safe direction.
+        role: Role::Position,
+        register: Register::Live,
+        type_id: "position".to_string(),
+        resolved: false,
+        resolution_text: None,
+        title,
+        summary: None,
+        duration_ms: draft.duration_ms,
+        fingerprint: if draft.typed {
+            Vec::new()
+        } else {
+            draft.fingerprint
+        },
+        unfinished: detect_unfinished(&draft.transcript),
+        local_only,
+        spans: Vec::new(),
+        action_items: Vec::new(),
+        is_sample: None,
+    };
+
+    super::entries::insert(conn, &entry)?;
+    Ok(entry)
+}
 
 #[cfg(test)]
 mod tests {
@@ -165,7 +345,10 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let made = create(&conn, draft("Something just said.")).unwrap();
         assert_eq!(made.register, Register::Live);
-        assert!(made.summary.is_none(), "no summary is written for a live entry");
+        assert!(
+            made.summary.is_none(),
+            "no summary is written for a live entry"
+        );
     }
 
     /// Something has to be readable on the canvas before the model has looked
@@ -173,8 +356,11 @@ mod tests {
     #[test]
     fn an_unenriched_entry_still_has_a_readable_title() {
         let conn = open_in_memory().unwrap();
-        let made = create(&conn, draft("Database indexes trade write performance for reads."))
-            .unwrap();
+        let made = create(
+            &conn,
+            draft("Database indexes trade write performance for reads."),
+        )
+        .unwrap();
         assert!(!made.title.is_empty());
         assert!(made.title.len() <= 40, "a title is a handle, not a summary");
     }
@@ -200,8 +386,7 @@ mod tests {
     #[test]
     fn local_only_falls_back_to_the_setting() {
         let conn = open_in_memory().unwrap();
-        crate::db::settings::merge(&conn, serde_json::json!({ "defaultLocalOnly": true }))
-            .unwrap();
+        crate::db::settings::merge(&conn, serde_json::json!({ "defaultLocalOnly": true })).unwrap();
         let made = create(&conn, draft("Private.")).unwrap();
         assert!(made.local_only);
     }

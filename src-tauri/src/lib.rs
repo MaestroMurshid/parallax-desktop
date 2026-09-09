@@ -147,6 +147,7 @@ pub fn run() {
             show_capture,
             hide_capture,
             commands::corpus::list_entries,
+            commands::corpus::create_entry,
             commands::corpus::get_entry,
             commands::corpus::list_children,
             commands::corpus::move_entry,
