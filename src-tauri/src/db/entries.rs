@@ -43,7 +43,7 @@ fn register_str(r: Register) -> &'static str {
 /// The text a span covers, stored so it can be re-found after a correction.
 /// Byte offsets from the wire are clamped to char boundaries -- a transcript is
 /// UTF-8 and slicing mid-character would panic.
-fn quoted(transcript: &str, span: &Span) -> String {
+pub fn quoted(transcript: &str, span: &Span) -> String {
     let start = span.start as usize;
     let end = (span.end as usize).min(transcript.len());
     if start >= end || !transcript.is_char_boundary(start) || !transcript.is_char_boundary(end) {
@@ -126,24 +126,26 @@ pub fn insert(conn: &Connection, entry: &Entry) -> Result<()> {
     Ok(())
 }
 
+const ENTRY_COLUMNS: &str = "id, transcript, created_at, x, y, answers_entry_id,
+     answers_question_id, role, register, type_id, resolved, resolution_text, title,
+     summary, duration_ms, unfinished, local_only, is_sample";
+
 /// Chronological, because placement solved the field in this order and the
 /// positions it produced are frozen (§5.1).
 ///
-/// Four queries rather than one per entry: the children are fetched whole and
-/// bucketed in memory, so the cost does not grow with corpus size.
-pub fn list(conn: &Connection) -> Result<Vec<Entry>> {
-    let mut audio = audio_by_entry(conn)?;
-    let mut spans = spans_by_entry(conn)?;
-    let mut actions = actions_by_entry(conn)?;
+/// The predicate is pushed into SQL rather than applied after loading, and the
+/// three child tables are scoped by the same predicate, so fetching one entry
+/// reads one entry rather than the corpus.
+fn load(conn: &Connection, predicate: &str, param: &[&dyn rusqlite::ToSql]) -> Result<Vec<Entry>> {
+    let scope = format!("entry_id IN (SELECT id FROM entries WHERE {predicate})");
+    let mut audio = audio_by_entry(conn, &scope, param)?;
+    let mut spans = spans_by_entry(conn, &scope, param)?;
+    let mut actions = actions_by_entry(conn, &scope, param)?;
 
-    let mut stmt = conn.prepare(
-        "SELECT id, transcript, created_at, x, y, answers_entry_id, answers_question_id,
-                role, register, type_id, resolved, resolution_text, title, summary,
-                duration_ms, unfinished, local_only, is_sample
-         FROM entries ORDER BY created_at ASC",
-    )?;
-
-    let rows = stmt.query_map([], bare_entry)?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {ENTRY_COLUMNS} FROM entries WHERE {predicate} ORDER BY created_at ASC"
+    ))?;
+    let rows = stmt.query_map(param, bare_entry)?;
 
     let mut out = Vec::new();
     for row in rows {
@@ -157,6 +159,16 @@ pub fn list(conn: &Connection) -> Result<Vec<Entry>> {
         out.push(entry);
     }
     Ok(out)
+}
+
+pub fn list(conn: &Connection) -> Result<Vec<Entry>> {
+    load(conn, "1 = 1", &[])
+}
+
+/// Answers to this entry. A manual or proposed connection is an edge and has
+/// no parent, so nothing here is about edges despite the wire field's name.
+pub fn children_of(conn: &Connection, entry_id: &str) -> Result<Vec<Entry>> {
+    load(conn, "answers_entry_id = ?1", &[&entry_id])
 }
 
 /// Overwrites the frozen position. Never re-solves the field (§5.1).
@@ -201,8 +213,7 @@ pub fn correct_transcript(conn: &Connection, id: &str, transcript: &str) -> Resu
 }
 
 fn reanchor_spans(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
-    let mut stmt =
-        conn.prepare("SELECT id, quoted_text FROM spans WHERE entry_id = ?1")?;
+    let mut stmt = conn.prepare("SELECT id, quoted_text FROM spans WHERE entry_id = ?1")?;
     let rows: Vec<(i64, String)> = stmt
         .query_map(params![entry_id], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
@@ -252,8 +263,7 @@ fn reanchor_questions(conn: &Connection, entry_id: &str, transcript: &str) -> Re
 
 /// Same rule: the item survives, ticked or not. Only its anchor can go stale.
 fn reanchor_action_items(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
-    let mut stmt =
-        conn.prepare("SELECT id, span_quoted FROM action_items WHERE entry_id = ?1")?;
+    let mut stmt = conn.prepare("SELECT id, span_quoted FROM action_items WHERE entry_id = ?1")?;
     let rows: Vec<(String, String)> = stmt
         .query_map(params![entry_id], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
@@ -272,7 +282,7 @@ fn reanchor_action_items(conn: &Connection, entry_id: &str, transcript: &str) ->
 }
 
 pub fn get(conn: &Connection, id: &str) -> Result<Option<Entry>> {
-    Ok(list(conn)?.into_iter().find(|e| e.id == id))
+    Ok(load(conn, "id = ?1", &[&id])?.pop())
 }
 
 /// Everything the entries table itself holds. Audio, spans and action items
@@ -302,13 +312,23 @@ fn bare_entry(row: &Row) -> rusqlite::Result<Entry> {
         local_only: row.get(16)?,
         spans: Vec::new(),
         action_items: Vec::new(),
-        is_sample: if row.get::<_, bool>(17)? { Some(true) } else { None },
+        is_sample: if row.get::<_, bool>(17)? {
+            Some(true)
+        } else {
+            None
+        },
     })
 }
 
-fn audio_by_entry(conn: &Connection) -> Result<HashMap<String, (String, Vec<f32>)>> {
-    let mut stmt = conn.prepare("SELECT entry_id, path, fingerprint FROM audio")?;
-    let rows = stmt.query_map([], |row| {
+fn audio_by_entry(
+    conn: &Connection,
+    scope: &str,
+    param: &[&dyn rusqlite::ToSql],
+) -> Result<HashMap<String, (String, Vec<f32>)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT entry_id, path, fingerprint FROM audio WHERE {scope}"
+    ))?;
+    let rows = stmt.query_map(param, |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -324,11 +344,16 @@ fn audio_by_entry(conn: &Connection) -> Result<HashMap<String, (String, Vec<f32>
     Ok(out)
 }
 
-fn spans_by_entry(conn: &Connection) -> Result<HashMap<String, Vec<Span>>> {
-    let mut stmt = conn.prepare(
-        "SELECT entry_id, start_offset, end_offset, attributed FROM spans ORDER BY id",
-    )?;
-    let rows = stmt.query_map([], |row| {
+fn spans_by_entry(
+    conn: &Connection,
+    scope: &str,
+    param: &[&dyn rusqlite::ToSql],
+) -> Result<HashMap<String, Vec<Span>>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT entry_id, start_offset, end_offset, attributed FROM spans
+         WHERE {scope} ORDER BY id"
+    ))?;
+    let rows = stmt.query_map(param, |row| {
         Ok((
             row.get::<_, String>(0)?,
             Span {
@@ -347,12 +372,16 @@ fn spans_by_entry(conn: &Connection) -> Result<HashMap<String, Vec<Span>>> {
     Ok(out)
 }
 
-fn actions_by_entry(conn: &Connection) -> Result<HashMap<String, Vec<ActionItem>>> {
-    let mut stmt = conn.prepare(
+fn actions_by_entry(
+    conn: &Connection,
+    scope: &str,
+    param: &[&dyn rusqlite::ToSql],
+) -> Result<HashMap<String, Vec<ActionItem>>> {
+    let mut stmt = conn.prepare(&format!(
         "SELECT id, entry_id, span_start, span_end, span_attributed, text, done
-         FROM action_items ORDER BY rowid",
-    )?;
-    let rows = stmt.query_map([], |row| {
+         FROM action_items WHERE {scope} ORDER BY rowid"
+    ))?;
+    let rows = stmt.query_map(param, |row| {
         let entry_id: String = row.get(1)?;
         Ok((
             entry_id.clone(),
@@ -386,7 +415,11 @@ mod tests {
     fn entry(id: &str, created_at: &str, audio: bool) -> Entry {
         Entry {
             id: id.into(),
-            audio_path: if audio { Some(format!("audio/{id}.wav")) } else { None },
+            audio_path: if audio {
+                Some(format!("audio/{id}.wav"))
+            } else {
+                None
+            },
             transcript: "Indexes trade write performance for faster reads.".into(),
             created_at: created_at.into(),
             x: 10.5,
@@ -404,11 +437,19 @@ mod tests {
             fingerprint: if audio { vec![0.2, 0.9, 0.44] } else { vec![] },
             unfinished: false,
             local_only: false,
-            spans: vec![Span { start: 0, end: 7, attributed: true }],
+            spans: vec![Span {
+                start: 0,
+                end: 7,
+                attributed: true,
+            }],
             action_items: vec![ActionItem {
                 id: format!("{id}-task-0"),
                 entry_id: id.into(),
-                span: Span { start: 8, end: 13, attributed: false },
+                span: Span {
+                    start: 8,
+                    end: 13,
+                    attributed: false,
+                },
                 text: "Check the write path".into(),
                 done: false,
             }],
@@ -464,7 +505,8 @@ mod tests {
     fn deleting_an_entry_takes_its_children() {
         let conn = open_in_memory().unwrap();
         insert(&conn, &entry("e1", "2024-02-03T10:21:00.000Z", true)).unwrap();
-        conn.execute("DELETE FROM entries WHERE id = ?1", ["e1"]).unwrap();
+        conn.execute("DELETE FROM entries WHERE id = ?1", ["e1"])
+            .unwrap();
 
         for table in ["audio", "spans", "action_items"] {
             let n: i64 = conn
@@ -492,8 +534,12 @@ mod tests {
         )
         .unwrap();
 
-        correct_transcript(&conn, "e1", "Indexes trade write performance for faster reads.")
-            .unwrap();
+        correct_transcript(
+            &conn,
+            "e1",
+            "Indexes trade write performance for faster reads.",
+        )
+        .unwrap();
 
         let (answered, start): (bool, Option<i64>) = conn
             .query_row(
@@ -513,18 +559,28 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let mut e = entry("e1", "2024-02-03T10:21:00.000Z", false);
         e.transcript = "Indexes trade writes for reads.".into();
-        e.spans = vec![Span { start: 8, end: 13, attributed: true }];
+        e.spans = vec![Span {
+            start: 8,
+            end: 13,
+            attributed: true,
+        }];
         insert(&conn, &e).unwrap();
 
         correct_transcript(&conn, "e1", "Something else entirely.").unwrap();
 
         let stale: bool = conn
-            .query_row("SELECT stale FROM spans WHERE entry_id = 'e1'", [], |r| r.get(0))
+            .query_row("SELECT stale FROM spans WHERE entry_id = 'e1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert!(stale, "an attributed span must not drift onto other words");
 
         let kept: i64 = conn
-            .query_row("SELECT count(*) FROM spans WHERE entry_id = 'e1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM spans WHERE entry_id = 'e1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(kept, 1, "stale, not deleted");
     }
@@ -539,7 +595,43 @@ mod tests {
             .query_row("SELECT count(*) FROM entries", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 1);
-        assert_eq!(get(&conn, "e1").unwrap().unwrap().transcript, "Corrected text.");
+        assert_eq!(
+            get(&conn, "e1").unwrap().unwrap().transcript,
+            "Corrected text."
+        );
     }
 
+    /// The three loads share one query path, so scoping has to be proven and
+    /// not assumed: `get` must not read the corpus to return one row.
+    #[test]
+    fn get_returns_one_entry_with_its_own_children() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("e1", "2024-01-01T00:00:00Z", true)).unwrap();
+        insert(&conn, &entry("e2", "2024-01-02T00:00:00Z", true)).unwrap();
+
+        let got = get(&conn, "e1").unwrap().unwrap();
+        assert_eq!(got.id, "e1");
+        assert_eq!(got.spans.len(), 1);
+        assert_eq!(got.action_items.len(), 1);
+        assert_eq!(got.action_items[0].entry_id, "e1");
+        assert!(got.audio_path.is_some());
+
+        assert!(get(&conn, "nobody").unwrap().is_none());
+    }
+
+    #[test]
+    fn children_are_only_the_answers_to_that_entry() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("parent", "2024-01-01T00:00:00Z", false)).unwrap();
+        insert(&conn, &entry("unrelated", "2024-01-02T00:00:00Z", false)).unwrap();
+
+        let mut answer = entry("answer", "2024-01-03T00:00:00Z", false);
+        answer.parent_entry_id = Some("parent".into());
+        insert(&conn, &answer).unwrap();
+
+        let children = children_of(&conn, "parent").unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].id, "answer");
+        assert!(children_of(&conn, "unrelated").unwrap().is_empty());
+    }
 }

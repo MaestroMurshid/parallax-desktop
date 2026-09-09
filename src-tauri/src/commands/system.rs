@@ -8,7 +8,7 @@ use tauri::State;
 
 #[tauri::command]
 pub fn get_settings(state: State<AppState>) -> Result<Settings> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::settings::get(&conn)
 }
 
@@ -16,7 +16,7 @@ pub fn get_settings(state: State<AppState>) -> Result<Settings> {
 /// having to round-trip the whole document first.
 #[tauri::command]
 pub fn set_settings(state: State<AppState>, patch: serde_json::Value) -> Result<Settings> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::settings::merge(&conn, patch)
 }
 

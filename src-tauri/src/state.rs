@@ -25,6 +25,16 @@ impl AppState {
         })
     }
 
+    /// A panic inside one command poisons the mutex, and every later command
+    /// would then panic on a lock it could otherwise have used. The connection
+    /// itself is not left inconsistent -- SQLite rolls back an incomplete
+    /// statement -- so recovering is better than bricking the session.
+    pub fn db(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn audio_dir(&self) -> PathBuf {
         self.root.join("audio")
     }

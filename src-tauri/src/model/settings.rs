@@ -38,7 +38,6 @@ pub enum ComputeBackend {
     Rocm,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -94,12 +93,21 @@ pub enum ModelKind {
 /// Internally tagged on `kind`, kebab-case — the one non-obvious
 /// serde shape in the contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum ModelState {
     NotDownloaded,
-    Downloading { received_bytes: u64, total_bytes: u64 },
+    Downloading {
+        received_bytes: u64,
+        total_bytes: u64,
+    },
     Ready,
-    Failed { error: String },
+    Failed {
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

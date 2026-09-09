@@ -97,7 +97,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&open, &capture, &separator, &quit])?;
 
     TrayIconBuilder::with_id("tray")
-        .icon(app.default_window_icon().cloned().expect("bundled app icon"))
+        .icon(
+            app.default_window_icon()
+                .cloned()
+                .expect("bundled app icon"),
+        )
         .tooltip("Parallax — Ctrl+Shift+Space to capture")
         .menu(&menu)
         // Windows convention: left click opens the window, right click opens

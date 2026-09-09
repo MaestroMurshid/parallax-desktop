@@ -9,7 +9,8 @@ pub use edge::{Edge, EdgeStatus, Relation};
 pub use entry::{ActionItem, Entry, Register, Role, Span};
 pub use question::Question;
 pub use settings::{
-    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile, TranscriptionModel,
+    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile,
+    TranscriptionModel,
 };
 
 #[cfg(test)]
@@ -42,7 +43,11 @@ mod contract_tests {
             fingerprint: vec![0.2, 0.8, 0.5],
             unfinished: false,
             local_only: false,
-            spans: vec![Span { start: 0, end: 12, attributed: false }],
+            spans: vec![Span {
+                start: 0,
+                end: 12,
+                attributed: false,
+            }],
             action_items: vec![],
             is_sample: None,
         }
@@ -54,10 +59,27 @@ mod contract_tests {
         let obj = v.as_object().unwrap();
 
         let expected = [
-            "id", "audioPath", "transcript", "createdAt", "x", "y",
-            "parentEdge", "answersQuestionId", "role", "register", "typeId",
-            "resolved", "resolutionText", "title", "summary", "durationMs",
-            "fingerprint", "unfinished", "localOnly", "spans", "actionItems",
+            "id",
+            "audioPath",
+            "transcript",
+            "createdAt",
+            "x",
+            "y",
+            "parentEdge",
+            "answersQuestionId",
+            "role",
+            "register",
+            "typeId",
+            "resolved",
+            "resolutionText",
+            "title",
+            "summary",
+            "durationMs",
+            "fingerprint",
+            "unfinished",
+            "localOnly",
+            "spans",
+            "actionItems",
         ];
         for key in expected {
             assert!(obj.contains_key(key), "missing wire field: {key}");
@@ -79,17 +101,28 @@ mod contract_tests {
         let before = sample_entry();
         let json = serde_json::to_string(&before).unwrap();
         let after: Entry = serde_json::from_str(&json).unwrap();
-        assert_eq!(serde_json::to_value(&before).unwrap(), serde_json::to_value(&after).unwrap());
+        assert_eq!(
+            serde_json::to_value(&before).unwrap(),
+            serde_json::to_value(&after).unwrap()
+        );
     }
 
     /// Spaces on the wire; getting this wrong breaks every edge label.
     #[test]
     fn relations_keep_their_spaces() {
-        assert_eq!(serde_json::to_value(Relation::SameMove).unwrap(), json!("same move"));
-        assert_eq!(serde_json::to_value(Relation::ReturnsTo).unwrap(), json!("returns to"));
-        assert_eq!(serde_json::to_value(Relation::ExampleOf).unwrap(), json!("example of"));
+        assert_eq!(
+            serde_json::to_value(Relation::SameMove).unwrap(),
+            json!("same move")
+        );
+        assert_eq!(
+            serde_json::to_value(Relation::ReturnsTo).unwrap(),
+            json!("returns to")
+        );
+        assert_eq!(
+            serde_json::to_value(Relation::ExampleOf).unwrap(),
+            json!("example of")
+        );
     }
-
 
     #[test]
     fn model_may_not_emit_answers_or_related() {
@@ -106,11 +139,18 @@ mod contract_tests {
             json!({ "kind": "not-downloaded" })
         );
         assert_eq!(
-            serde_json::to_value(ModelState::Downloading { received_bytes: 5, total_bytes: 10 }).unwrap(),
+            serde_json::to_value(ModelState::Downloading {
+                received_bytes: 5,
+                total_bytes: 10
+            })
+            .unwrap(),
             json!({ "kind": "downloading", "receivedBytes": 5, "totalBytes": 10 })
         );
         assert_eq!(
-            serde_json::to_value(ModelState::Failed { error: "disk full".into() }).unwrap(),
+            serde_json::to_value(ModelState::Failed {
+                error: "disk full".into()
+            })
+            .unwrap(),
             json!({ "kind": "failed", "error": "disk full" })
         );
     }

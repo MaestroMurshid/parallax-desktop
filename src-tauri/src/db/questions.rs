@@ -34,8 +34,9 @@ const COLUMNS: &str = "id, entry_id, text, span_start, span_end, span_attributed
 
 /// Every question, so `loadCorpus` costs one query rather than one per entry.
 pub fn list(conn: &Connection) -> Result<Vec<Question>> {
-    let mut stmt =
-        conn.prepare(&format!("SELECT {COLUMNS} FROM questions ORDER BY created_at ASC"))?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLUMNS} FROM questions ORDER BY created_at ASC"
+    ))?;
     let rows = stmt.query_map([], row_to_question)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
@@ -49,15 +50,10 @@ pub fn list_for(conn: &Connection, entry_id: &str) -> Result<Vec<Question>> {
 }
 
 pub fn insert(conn: &Connection, question: &Question, transcript: &str) -> Result<()> {
-    let quoted = question.span.as_ref().map(|s| {
-        let start = s.start as usize;
-        let end = (s.end as usize).min(transcript.len());
-        if start < end && transcript.is_char_boundary(start) && transcript.is_char_boundary(end) {
-            transcript[start..end].to_string()
-        } else {
-            String::new()
-        }
-    });
+    let quoted = question
+        .span
+        .as_ref()
+        .map(|span| super::entries::quoted(transcript, span));
 
     conn.execute(
         "INSERT OR IGNORE INTO questions
@@ -84,13 +80,22 @@ pub fn insert(conn: &Connection, question: &Question, transcript: &str) -> Resul
 /// Struck out, not deleted. Section 3.4 bans regeneration, so dismissal is the
 /// only exit a bad question has -- and those dismissals are the negative
 /// examples a local prompt bank needs.
-pub fn dismiss(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("UPDATE questions SET dismissed = 1 WHERE id = ?1", params![id])?;
+pub fn dismiss(conn: &Connection, entry_id: &str, id: &str) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE questions SET dismissed = 1 WHERE id = ?1 AND entry_id = ?2",
+        params![id, entry_id],
+    )?;
+    if n == 0 {
+        return Err(crate::error::Error::NotFound(id.to_string()));
+    }
     Ok(())
 }
 
 pub fn mark_answered(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("UPDATE questions SET answered = 1 WHERE id = ?1", params![id])?;
+    conn.execute(
+        "UPDATE questions SET answered = 1 WHERE id = ?1",
+        params![id],
+    )?;
     Ok(())
 }
 
@@ -115,7 +120,11 @@ mod tests {
             id: id.into(),
             entry_id: "e1".into(),
             text: "What does that cost?".into(),
-            span: Some(Span { start: 8, end: 13, attributed: false }),
+            span: Some(Span {
+                start: 8,
+                end: 13,
+                attributed: false,
+            }),
             answered: false,
             dismissed: false,
             provider_name: "llama-server".into(),
@@ -138,7 +147,7 @@ mod tests {
         let conn = open_in_memory().unwrap();
         seed_entry(&conn);
         insert(&conn, &question("q1"), "Indexes trade writes for reads.").unwrap();
-        dismiss(&conn, "q1").unwrap();
+        dismiss(&conn, "e1", "q1").unwrap();
 
         let all = list_for(&conn, "e1").unwrap();
         assert_eq!(all.len(), 1);

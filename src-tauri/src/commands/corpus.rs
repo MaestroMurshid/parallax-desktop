@@ -9,7 +9,7 @@ use tauri::State;
 
 #[tauri::command]
 pub fn list_entries(state: State<AppState>) -> Result<Vec<Entry>> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::entries::list(&conn)
 }
 
@@ -17,7 +17,7 @@ pub fn list_entries(state: State<AppState>) -> Result<Vec<Entry>> {
 /// legitimate answer, not a failure.
 #[tauri::command]
 pub fn get_entry(state: State<AppState>, id: String) -> Result<Option<Entry>> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::entries::get(&conn, &id)
 }
 
@@ -25,17 +25,14 @@ pub fn get_entry(state: State<AppState>, id: String) -> Result<Option<Entry>> {
 /// so nothing here is about edges despite what the wire field is called.
 #[tauri::command]
 pub fn list_children(state: State<AppState>, entry_id: String) -> Result<Vec<Entry>> {
-    let conn = state.conn.lock().unwrap();
-    Ok(db::entries::list(&conn)?
-        .into_iter()
-        .filter(|e| e.parent_entry_id.as_deref() == Some(entry_id.as_str()))
-        .collect())
+    let conn = state.db();
+    db::entries::children_of(&conn, &entry_id)
 }
 
 /// Overwrites the frozen position and never re-solves the field (§5.1).
 #[tauri::command]
 pub fn move_entry(state: State<AppState>, id: String, x: f64, y: f64) -> Result<Entry> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::entries::move_to(&conn, &id, x, y)?;
     db::entries::get(&conn, &id)?.ok_or_else(|| crate::error::Error::NotFound(id))
 }
@@ -44,6 +41,6 @@ pub fn move_entry(state: State<AppState>, id: String, x: f64, y: f64) -> Result<
 /// said. Deleting a whole thread is a deliberate second act, not a side effect.
 #[tauri::command]
 pub fn delete_entry(state: State<AppState>, id: String) -> Result<()> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::entries::delete(&conn, &id)
 }

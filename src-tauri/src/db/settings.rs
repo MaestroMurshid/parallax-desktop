@@ -14,9 +14,11 @@ const KEY: &str = "settings";
 /// predates -- so adding a field cannot leave an old install unreadable.
 pub fn get(conn: &Connection) -> Result<Settings> {
     let raw: Option<String> = conn
-        .query_row("SELECT value FROM settings WHERE key = ?1", params![KEY], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![KEY],
+            |row| row.get(0),
+        )
         .optional()?;
 
     match raw {

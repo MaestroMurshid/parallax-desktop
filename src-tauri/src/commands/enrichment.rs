@@ -14,7 +14,7 @@ use tauri::State;
 /// most entries are not eligible for one at all.
 #[tauri::command]
 pub fn get_question(state: State<AppState>, entry_id: String) -> Result<Option<Question>> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     Ok(db::questions::list_for(&conn, &entry_id)?
         .into_iter()
         .find(|q| !q.answered && !q.dismissed))
@@ -24,7 +24,7 @@ pub fn get_question(state: State<AppState>, entry_id: String) -> Result<Option<Q
 /// entry, which is fine against an in-process mock and an N+1 across IPC.
 #[tauri::command]
 pub fn list_questions(state: State<AppState>) -> Result<Vec<Question>> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::questions::list(&conn)
 }
 
@@ -34,26 +34,25 @@ pub fn dismiss_question(
     entry_id: String,
     question_id: String,
 ) -> Result<()> {
-    let _ = entry_id;
-    let conn = state.conn.lock().unwrap();
-    db::questions::dismiss(&conn, &question_id)
+    let conn = state.db();
+    db::questions::dismiss(&conn, &entry_id, &question_id)
 }
 
 #[tauri::command]
 pub fn list_edges(state: State<AppState>) -> Result<Vec<Edge>> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::edges::list(&conn)
 }
 
 #[tauri::command]
 pub fn list_proposed_edges(state: State<AppState>, entry_id: String) -> Result<Vec<Edge>> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::edges::list_proposed_for(&conn, &entry_id)
 }
 
 #[tauri::command]
 pub fn accept_edge(state: State<AppState>, edge_id: String) -> Result<()> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::edges::set_status(&conn, &edge_id, EdgeStatus::Accepted)
 }
 
@@ -61,7 +60,7 @@ pub fn accept_edge(state: State<AppState>, edge_id: String) -> Result<()> {
 /// pair, which is the negative example a local prompt bank needs.
 #[tauri::command]
 pub fn dismiss_edge(state: State<AppState>, edge_id: String) -> Result<()> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::edges::set_status(&conn, &edge_id, EdgeStatus::Dismissed)
 }
 
@@ -75,7 +74,7 @@ pub fn create_manual_edge(
     entry_b: String,
     relation: Relation,
 ) -> Result<Edge> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     let edge = Edge {
         id: format!("edge-manual-{}", uuid::Uuid::new_v4()),
         entry_a,
@@ -91,12 +90,12 @@ pub fn create_manual_edge(
 
 #[tauri::command]
 pub fn list_action_items(state: State<AppState>) -> Result<Vec<ActionItem>> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::action_items::list(&conn)
 }
 
 #[tauri::command]
 pub fn set_action_item_done(state: State<AppState>, id: String, done: bool) -> Result<()> {
-    let conn = state.conn.lock().unwrap();
+    let conn = state.db();
     db::action_items::set_done(&conn, &id, done)
 }

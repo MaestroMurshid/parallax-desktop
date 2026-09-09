@@ -75,12 +75,14 @@ pub fn list(conn: &Connection) -> Result<Vec<Edge>> {
 }
 
 pub fn list_proposed_for(conn: &Connection, entry_id: &str) -> Result<Vec<Edge>> {
-    Ok(list(conn)?
-        .into_iter()
-        .filter(|e| {
-            e.status == EdgeStatus::Proposed && (e.entry_a == entry_id || e.entry_b == entry_id)
-        })
-        .collect())
+    let mut stmt = conn.prepare(
+        "SELECT id, entry_a, entry_b, relation, question, status, created_at
+         FROM edges
+         WHERE status = 'proposed' AND (entry_a = ?1 OR entry_b = ?1)
+         ORDER BY created_at ASC",
+    )?;
+    let rows = stmt.query_map(params![entry_id], row_to_edge)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 /// `INSERT OR IGNORE` leans on the unique constraint over
@@ -170,7 +172,8 @@ mod tests {
         let conn = open_in_memory().unwrap();
         seed_entries(&conn);
         insert(&conn, &edge()).unwrap();
-        conn.execute("DELETE FROM entries WHERE id = 'a'", []).unwrap();
+        conn.execute("DELETE FROM entries WHERE id = 'a'", [])
+            .unwrap();
         assert!(list(&conn).unwrap().is_empty());
     }
 }
