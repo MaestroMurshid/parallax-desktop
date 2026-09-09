@@ -3,6 +3,7 @@ pub mod create;
 pub mod edges;
 pub mod entries;
 pub mod questions;
+pub mod search;
 pub mod settings;
 
 use crate::error::Result;

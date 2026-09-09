@@ -3,6 +3,7 @@
 
 use crate::db;
 use crate::db::create::NewEntry;
+use crate::db::search::SearchHit;
 use crate::error::Result;
 use crate::model::Entry;
 use crate::state::AppState;
@@ -28,6 +29,13 @@ pub fn get_entry(state: State<AppState>, id: String) -> Result<Option<Entry>> {
 pub fn list_children(state: State<AppState>, entry_id: String) -> Result<Vec<Entry>> {
     let conn = state.db();
     db::entries::children_of(&conn, &entry_id)
+}
+
+/// Substring by default; a quoted query matches whole words only.
+#[tauri::command]
+pub fn search_entries(state: State<AppState>, query: String) -> Result<Vec<SearchHit>> {
+    let conn = state.db();
+    db::search::search(&conn, &query)
 }
 
 /// Places the entry against the existing field and freezes it there.
