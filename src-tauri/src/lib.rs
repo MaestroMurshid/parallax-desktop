@@ -2,6 +2,7 @@ pub mod commands;
 pub mod db;
 pub mod error;
 pub mod model;
+pub mod scene;
 pub mod state;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
