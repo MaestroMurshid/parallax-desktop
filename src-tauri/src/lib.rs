@@ -1,6 +1,8 @@
+pub mod commands;
 pub mod db;
 pub mod error;
 pub mod model;
+pub mod state;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -136,8 +138,24 @@ pub fn run() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![show_capture, hide_capture])
+        .invoke_handler(tauri::generate_handler![
+            show_capture,
+            hide_capture,
+            commands::corpus::list_entries,
+            commands::corpus::get_entry,
+            commands::corpus::list_children,
+            commands::corpus::move_entry,
+            commands::corpus::delete_entry,
+        ])
         .setup(move |app| {
+            // Resolved before anything else: every other subsystem hangs off
+            // this root, and a failure here has to stop the app rather than
+            // leave it running against nothing.
+            let app_data = app.path().app_data_dir()?;
+            let root = state::resolve_root(&app_data);
+            println!("corpus at {}", root.display());
+            app.manage(state::AppState::open(root)?);
+
             app.global_shortcut().register(shortcut)?;
             build_tray(app.handle())?;
             Ok(())

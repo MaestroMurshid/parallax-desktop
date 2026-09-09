@@ -29,8 +29,6 @@ export interface RendererOptions {
   container: HTMLElement;
 }
 
-const DASH_SEGMENTS = 14;
-const DASH_RATIO = 0.55;
 /** Alpha multiplier for blobs outside an active search filter. */
 const HIT_PAD = 4;
 /** The connect handle: a stub at the title's right edge, hover only (§5.4). */
@@ -350,20 +348,6 @@ export class CanvasRenderer {
         width: inSubgraph ? 1.4 : fact ? 1.15 : 0.8,
         color: inSubgraph || fact ? this.tokens.edgeFact : this.tokens.edge,
       });
-    }
-  }
-  /** Stroke weight ramps with how much has accreted on an entry (§8 has three). */
-  private strokeFor(s: SceneEntry): number {
-    if (s.returns >= 3) return this.tokens.strokeHub;
-    if (s.returns >= 1) return this.tokens.strokeWeighty;
-    return this.tokens.strokeOrdinary;
-  }
-  private dashedCircle(g: Graphics, cx: number, cy: number, r: number, color: number): void {
-    const arc = (Math.PI * 2) / DASH_SEGMENTS;
-    for (let i = 0; i < DASH_SEGMENTS; i++) {
-      const start = i * arc;
-      g.arc(cx, cy, r, start, start + arc * DASH_RATIO);
-      g.stroke({ width: 0.9, color, alpha: 0.85 });
     }
   }
   /** Hover and selection. Not a marker — transient state, so it stays subtle. */

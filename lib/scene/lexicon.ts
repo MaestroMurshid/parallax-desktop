@@ -70,14 +70,35 @@ export interface Bar {
  * The audio signature under a title. Deterministic per id — §5.1 freezes
  * appearance with position, so it can't reshape between sessions.
  */
-export function signatureBars(id: string, width: number): Bar[] {
-  const barW = 1.3;
-  const gap = 2.2;
-  const count = Math.max(5, Math.min(10, Math.round(width / (barW + gap))));
-  const r = rng(hash32(id));
+/** §5.2 — 7–9 samples, downsampled from real amplitude at capture. */
+export const FINGERPRINT_MIN_BARS = 7;
+export const FINGERPRINT_MAX_BARS = 9;
+
+const BAR_W = 1.3;
+const BAR_GAP = 2.2;
+const BAR_MIN_H = 1.3;
+const BAR_MAX_H = 4.3;
+
+/**
+ * The signature under a title, drawn from what was actually said. A typed
+ * entry has no fingerprint and so gets no bars, which is the distinction §4
+ * wanted and costs nothing to draw.
+ */
+export function signatureBars(fingerprint: readonly number[], width: number): Bar[] {
+  if (fingerprint.length === 0) return [];
+
+  const fit = Math.max(1, Math.floor(width / (BAR_W + BAR_GAP)));
+  const count = Math.min(fingerprint.length, fit);
   const out: Bar[] = [];
   for (let i = 0; i < count; i++) {
-    out.push({ x: i * (barW + gap), w: barW, h: 1.3 + r() * 3 });
+    // Sample across the whole fingerprint rather than truncating it, so a
+    // narrow node still shows the shape of the whole recording.
+    const v = fingerprint[Math.round((i * (fingerprint.length - 1)) / Math.max(1, count - 1))] ?? 0;
+    out.push({
+      x: i * (BAR_W + BAR_GAP),
+      w: BAR_W,
+      h: BAR_MIN_H + Math.max(0, Math.min(1, v)) * (BAR_MAX_H - BAR_MIN_H),
+    });
   }
   return out;
 }

@@ -5,7 +5,7 @@
  */
 
 import type { ActionItem, Edge, Entry, Question, Span } from '@/lib/types';
-import { FINGERPRINT_MIN_BARS, FINGERPRINT_MAX_BARS } from '@/lib/scene/blob';
+import { FINGERPRINT_MIN_BARS, FINGERPRINT_MAX_BARS } from '@/lib/scene/lexicon';
 import { titleSizeForDuration, wrapTitle } from '@/lib/scene/lexicon';
 import { placeCorpus, type PlacementCandidate } from '@/lib/scene/placement';
 import { relaxLayout } from '@/lib/scene/relax';

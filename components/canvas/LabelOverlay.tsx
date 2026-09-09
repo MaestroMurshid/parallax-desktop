@@ -63,7 +63,7 @@ export default function LabelOverlay({
             box,
             mark: markFor(entry, types),
             isolated: !connected.has(entry.id),
-            bars: signatureBars(entry.id, sigWidth).map((b) => ({
+            bars: signatureBars(entry.fingerprint, sigWidth).map((b) => ({
               x: b.x / size,
               w: b.w / size,
               h: b.h / size,

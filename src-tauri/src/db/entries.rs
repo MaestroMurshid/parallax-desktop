@@ -140,6 +140,26 @@ pub fn list(conn: &Connection) -> Result<Vec<Entry>> {
     Ok(out)
 }
 
+/// Overwrites the frozen position. Never re-solves the field (§5.1).
+pub fn move_to(conn: &Connection, id: &str, x: f64, y: f64) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE entries SET x = ?2, y = ?3 WHERE id = ?1",
+        params![id, x, y],
+    )?;
+    if n == 0 {
+        return Err(crate::error::Error::NotFound(id.to_string()));
+    }
+    Ok(())
+}
+
+/// Audio, spans, action items, questions and edges go with it -- the schema
+/// cascades those. Children are orphaned instead, by `ON DELETE SET NULL` on
+/// `answers_entry_id`: an answer is still something you said.
+pub fn delete(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM entries WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<Option<Entry>> {
     Ok(list(conn)?.into_iter().find(|e| e.id == id))
 }

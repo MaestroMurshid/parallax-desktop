@@ -37,16 +37,3 @@ export function clampZoom(z: number): number {
 }
 
 /** Viewport query in world space — the shape the SQLite query will take. */
-export interface Viewport {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  zoom: number;
-}
-
-export function visibleBounds(v: Viewport, margin = 120): { minX: number; minY: number; maxX: number; maxY: number } {
-  const halfW = v.width / (2 * v.zoom) + margin;
-  const halfH = v.height / (2 * v.zoom) + margin;
-  return { minX: v.x - halfW, minY: v.y - halfH, maxX: v.x + halfW, maxY: v.y + halfH };
-}
