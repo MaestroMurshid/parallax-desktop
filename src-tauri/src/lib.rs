@@ -146,6 +146,19 @@ pub fn run() {
             commands::corpus::list_children,
             commands::corpus::move_entry,
             commands::corpus::delete_entry,
+            commands::enrichment::get_question,
+            commands::enrichment::list_questions,
+            commands::enrichment::dismiss_question,
+            commands::enrichment::list_edges,
+            commands::enrichment::list_proposed_edges,
+            commands::enrichment::accept_edge,
+            commands::enrichment::dismiss_edge,
+            commands::enrichment::create_manual_edge,
+            commands::enrichment::list_action_items,
+            commands::enrichment::set_action_item_done,
+            commands::system::get_settings,
+            commands::system::set_settings,
+            commands::system::corpus_location,
         ])
         .setup(move |app| {
             // Resolved before anything else: every other subsystem hangs off

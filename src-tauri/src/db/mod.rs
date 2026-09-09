@@ -1,4 +1,8 @@
+pub mod action_items;
+pub mod edges;
 pub mod entries;
+pub mod questions;
+pub mod settings;
 
 use crate::error::Result;
 use rusqlite::Connection;
