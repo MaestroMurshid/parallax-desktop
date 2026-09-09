@@ -20,6 +20,25 @@ pub enum TranscriptionModel {
     Small,
 }
 
+/// What a model runs on.
+///
+/// `Auto` resolves against the machine; `Gpu` forces acceleration but leaves
+/// the backend to whatever is present. The named backends are an explicit
+/// override -- a broken driver, a second card, or isolating a backend bug --
+/// and fail rather than silently falling back, so a forced choice stays forced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ComputeBackend {
+    Auto,
+    Cpu,
+    Gpu,
+    Cuda,
+    Vulkan,
+    Metal,
+    Rocm,
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -31,6 +50,11 @@ pub struct Settings {
     pub provider_name: String,
     pub default_local_only: bool,
     pub transcription_model: TranscriptionModel,
+
+    /// Under `Auto` the reasoning model has first claim on VRAM: it is the one
+    /// a person is waiting on, while transcription runs at ~35x realtime on CPU.
+    pub transcription_backend: ComputeBackend,
+    pub reasoning_backend: ComputeBackend,
 }
 
 impl Default for Settings {
@@ -43,6 +67,8 @@ impl Default for Settings {
             provider_name: "llama-server".into(),
             default_local_only: false,
             transcription_model: TranscriptionModel::Base,
+            transcription_backend: ComputeBackend::Auto,
+            reasoning_backend: ComputeBackend::Auto,
         }
     }
 }

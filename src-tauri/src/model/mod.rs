@@ -9,7 +9,7 @@ pub use edge::{Edge, EdgeStatus, Relation};
 pub use entry::{ActionItem, Entry, Register, Role, Span};
 pub use question::Question;
 pub use settings::{
-    ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile, TranscriptionModel,
+    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile, TranscriptionModel,
 };
 
 #[cfg(test)]
@@ -126,5 +126,7 @@ mod contract_tests {
         assert_eq!(v["providerName"], json!("llama-server"));
         assert_eq!(v["defaultLocalOnly"], json!(false));
         assert_eq!(v["transcriptionModel"], json!("base"));
+        assert_eq!(v["transcriptionBackend"], json!("auto"));
+        assert_eq!(v["reasoningBackend"], json!("auto"));
     }
 }

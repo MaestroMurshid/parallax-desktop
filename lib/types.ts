@@ -243,6 +243,22 @@ export interface ModelInfo {
 /** §9.4 — the residency fork. Only the post-recording question is latency-sensitive. */
 export type Residency = 'warm' | 'cold';
 
+/**
+ * What a model runs on. `auto` resolves against the machine; `gpu` forces
+ * acceleration and leaves the backend open. The named backends are an explicit
+ * override — a broken driver, a second card — and fail rather than falling
+ * back, so a forced choice stays forced. Only backends the build and machine
+ * actually have are offered.
+ */
+export type ComputeBackend =
+  | 'auto'
+  | 'cpu'
+  | 'gpu'
+  | 'cuda'
+  | 'vulkan'
+  | 'metal'
+  | 'rocm';
+
 export interface Settings {
   hotkey: string;
   discardHotkey: string;
@@ -252,4 +268,10 @@ export interface Settings {
   /** Global default for the per-entry local-only flag (§9.4). */
   defaultLocalOnly: boolean;
   transcriptionModel: 'tiny' | 'base' | 'small';
+  /**
+   * Under `auto` the reasoning model has first claim on VRAM: it is the one a
+   * person is waiting on, while transcription runs at ~35x realtime on CPU.
+   */
+  transcriptionBackend: ComputeBackend;
+  reasoningBackend: ComputeBackend;
 }

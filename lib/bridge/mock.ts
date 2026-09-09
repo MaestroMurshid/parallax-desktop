@@ -133,6 +133,8 @@ export class MockBridge implements Bridge {
     providerName: 'llama-server',
     defaultLocalOnly: false,
     transcriptionModel: 'base',
+    transcriptionBackend: 'auto',
+    reasoningBackend: 'auto',
   };
 
   private models: ModelInfo[] = [
