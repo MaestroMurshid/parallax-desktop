@@ -29,9 +29,12 @@ pub fn list(conn: &Connection) -> Result<Vec<ActionItem>> {
 
 /// State on the span, never a mutation of the transcript.
 pub fn set_done(conn: &Connection, id: &str, done: bool) -> Result<()> {
-    conn.execute(
+    let n = conn.execute(
         "UPDATE action_items SET done = ?2 WHERE id = ?1",
         params![id, done],
     )?;
+    if n == 0 {
+        return Err(crate::error::Error::NotFound(id.to_string()));
+    }
     Ok(())
 }

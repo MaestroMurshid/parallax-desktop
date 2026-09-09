@@ -212,21 +212,41 @@ pub fn correct_transcript(conn: &Connection, id: &str, transcript: &str) -> Resu
     Ok(())
 }
 
+/// Where a quote went, given where it used to be.
+///
+/// A quote can occur more than once, and taking the first hit collapses every
+/// row that shares that text onto the same place -- which would move an
+/// attributed span onto the user's own words and let a probe push on someone
+/// else's sentence (§3.3). The occurrence nearest the old offset is the one
+/// that belongs to this row.
+fn nearest_occurrence(transcript: &str, quote: &str, was_at: i64) -> Option<usize> {
+    if quote.is_empty() {
+        return None;
+    }
+    transcript
+        .match_indices(quote)
+        .map(|(at, _)| at)
+        .min_by_key(|at| (*at as i64 - was_at).abs())
+}
+
 fn reanchor_spans(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT id, quoted_text FROM spans WHERE entry_id = ?1")?;
-    let rows: Vec<(i64, String)> = stmt
-        .query_map(params![entry_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+    let mut stmt =
+        conn.prepare("SELECT id, quoted_text, start_offset FROM spans WHERE entry_id = ?1")?;
+    let rows: Vec<(i64, String, i64)> = stmt
+        .query_map(params![entry_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
         .collect::<rusqlite::Result<_>>()?;
 
-    for (id, quote) in rows {
-        match (quote.is_empty(), transcript.find(&quote)) {
-            (false, Some(at)) => {
+    for (id, quote, was_at) in rows {
+        match nearest_occurrence(transcript, &quote, was_at) {
+            Some(at) => {
                 conn.execute(
                     "UPDATE spans SET start_offset = ?2, end_offset = ?3, stale = 0 WHERE id = ?1",
                     params![id, at as i64, (at + quote.len()) as i64],
                 )?;
             }
-            _ => {
+            None => {
                 conn.execute("UPDATE spans SET stale = 1 WHERE id = ?1", params![id])?;
             }
         }
@@ -240,19 +260,22 @@ fn reanchor_spans(conn: &Connection, entry_id: &str, transcript: &str) -> Result
 /// the question stays -- it loses a highlight, not its existence.
 fn reanchor_questions(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
     let mut stmt = conn.prepare(
-        "SELECT id, span_quoted FROM questions WHERE entry_id = ?1 AND span_quoted IS NOT NULL",
+        "SELECT id, span_quoted, COALESCE(span_start, 0) FROM questions
+         WHERE entry_id = ?1 AND span_quoted IS NOT NULL",
     )?;
-    let rows: Vec<(String, String)> = stmt
-        .query_map(params![entry_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+    let rows: Vec<(String, String, i64)> = stmt
+        .query_map(params![entry_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
         .collect::<rusqlite::Result<_>>()?;
 
-    for (id, quote) in rows {
-        match transcript.find(&quote) {
-            Some(at) if !quote.is_empty() => conn.execute(
+    for (id, quote, was_at) in rows {
+        match nearest_occurrence(transcript, &quote, was_at) {
+            Some(at) => conn.execute(
                 "UPDATE questions SET span_start = ?2, span_end = ?3 WHERE id = ?1",
                 params![id, at as i64, (at + quote.len()) as i64],
             )?,
-            _ => conn.execute(
+            None => conn.execute(
                 "UPDATE questions SET span_start = NULL, span_end = NULL WHERE id = ?1",
                 params![id],
             )?,
@@ -263,20 +286,25 @@ fn reanchor_questions(conn: &Connection, entry_id: &str, transcript: &str) -> Re
 
 /// Same rule: the item survives, ticked or not. Only its anchor can go stale.
 fn reanchor_action_items(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT id, span_quoted FROM action_items WHERE entry_id = ?1")?;
-    let rows: Vec<(String, String)> = stmt
-        .query_map(params![entry_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+    let mut stmt =
+        conn.prepare("SELECT id, span_quoted, span_start FROM action_items WHERE entry_id = ?1")?;
+    let rows: Vec<(String, String, i64)> = stmt
+        .query_map(params![entry_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
         .collect::<rusqlite::Result<_>>()?;
 
-    for (id, quote) in rows {
-        if !quote.is_empty() {
-            if let Some(at) = transcript.find(&quote) {
-                conn.execute(
-                    "UPDATE action_items SET span_start = ?2, span_end = ?3 WHERE id = ?1",
-                    params![id, at as i64, (at + quote.len()) as i64],
-                )?;
-            }
-        }
+    for (id, quote, was_at) in rows {
+        match nearest_occurrence(transcript, &quote, was_at) {
+            Some(at) => conn.execute(
+                "UPDATE action_items SET span_start = ?2, span_end = ?3, stale = 0 WHERE id = ?1",
+                params![id, at as i64, (at + quote.len()) as i64],
+            )?,
+            None => conn.execute(
+                "UPDATE action_items SET stale = 1 WHERE id = ?1",
+                params![id],
+            )?,
+        };
     }
     Ok(())
 }
@@ -502,7 +530,7 @@ mod tests {
 
     /// Cascades exist so a delete cannot leave spans or action items behind.
     #[test]
-    fn deleting_an_entry_takes_its_children() {
+    fn deleting_an_entry_takes_its_own_rows() {
         let conn = open_in_memory().unwrap();
         insert(&conn, &entry("e1", "2024-02-03T10:21:00.000Z", true)).unwrap();
         conn.execute("DELETE FROM entries WHERE id = ?1", ["e1"])
@@ -633,5 +661,120 @@ mod tests {
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].id, "answer");
         assert!(children_of(&conn, "unrelated").unwrap().is_empty());
+    }
+
+    /// The doc comment claims children are orphaned rather than deleted --
+    /// an answer is still something you said. Untested until now.
+    #[test]
+    fn deleting_a_parent_orphans_its_answers_rather_than_deleting_them() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("parent", "2024-01-01T00:00:00Z", false)).unwrap();
+
+        let mut answer = entry("answer", "2024-01-02T00:00:00Z", false);
+        answer.parent_entry_id = Some("parent".into());
+        insert(&conn, &answer).unwrap();
+
+        delete(&conn, "parent").unwrap();
+
+        let survivors = list(&conn).unwrap();
+        assert_eq!(survivors.len(), 1, "the answer must survive its parent");
+        assert_eq!(survivors[0].id, "answer");
+        assert!(
+            survivors[0].parent_entry_id.is_none(),
+            "and be orphaned, not dangling"
+        );
+    }
+
+    #[test]
+    fn deleting_an_entry_takes_its_questions() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("e1", "2024-01-01T00:00:00Z", false)).unwrap();
+        conn.execute(
+            "INSERT INTO questions (id, entry_id, text, answered, dismissed, provider_name, created_at)
+             VALUES ('q1','e1','why?',0,0,'llama-server','now')",
+            [],
+        )
+        .unwrap();
+
+        delete(&conn, "e1").unwrap();
+
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM questions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+
+    /// A quote that appears twice must not collapse onto the first occurrence.
+    /// An attributed span drifting onto the user's own words would let a probe
+    /// push on someone else's sentence -- the case §3.3 forbids.
+    #[test]
+    fn a_repeated_quote_reanchors_to_its_own_occurrence() {
+        let conn = open_in_memory().unwrap();
+        let said = "I think that is fine. Later on, he said I think that is fine.";
+        let mut e = entry("e1", "2024-01-01T00:00:00Z", false);
+        e.transcript = said.into();
+        let second = said.rfind("I think that is fine").unwrap() as u32;
+        e.spans = vec![
+            Span {
+                start: 0,
+                end: 20,
+                attributed: false,
+            },
+            Span {
+                start: second,
+                end: second + 20,
+                attributed: true,
+            },
+        ];
+        insert(&conn, &e).unwrap();
+
+        // A correction earlier in the text shifts everything after it.
+        let fixed = said.replace("Later on,", "Later,");
+        correct_transcript(&conn, "e1", &fixed).unwrap();
+
+        let spans = &get(&conn, "e1").unwrap().unwrap().spans;
+        let attributed: Vec<&Span> = spans.iter().filter(|s| s.attributed).collect();
+        assert_eq!(attributed.len(), 1);
+        let expected = fixed.rfind("I think that is fine").unwrap() as u32;
+        assert_eq!(
+            attributed[0].start, expected,
+            "the attributed span belongs to the second occurrence, not the first"
+        );
+    }
+
+    /// Same rule as spans: an action item whose anchor is gone must say so
+    /// rather than keep offsets that now index unrelated text.
+    #[test]
+    fn an_action_item_with_a_lost_anchor_goes_stale() {
+        let conn = open_in_memory().unwrap();
+        let mut e = entry("e1", "2024-01-01T00:00:00Z", false);
+        e.transcript = "Buy a cable and renew the token.".into();
+        e.action_items = vec![ActionItem {
+            id: "t1".into(),
+            entry_id: "e1".into(),
+            span: Span {
+                start: 0,
+                end: 11,
+                attributed: false,
+            },
+            text: "Buy a cable".into(),
+            done: false,
+        }];
+        insert(&conn, &e).unwrap();
+
+        correct_transcript(&conn, "e1", "Something else entirely.").unwrap();
+
+        let (stale, kept): (bool, i64) = conn
+            .query_row(
+                "SELECT stale, (SELECT count(*) FROM action_items) FROM action_items WHERE id = 't1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(
+            stale,
+            "a lost action-item anchor must not keep pointing somewhere"
+        );
+        assert_eq!(kept, 1, "stale, not deleted -- the tick is still yours");
     }
 }

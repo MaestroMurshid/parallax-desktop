@@ -14,7 +14,7 @@ const SCHEMA: &str = include_str!("schema.sql");
 /// Bumped whenever `schema.sql` changes shape. `user_version` is a SQLite
 /// integer stored in the file header, so the database says which migration it
 /// is on without a table of its own.
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -41,6 +41,17 @@ fn migrate(conn: &Connection) -> Result<()> {
     let current: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if current == 0 {
         conn.execute_batch(SCHEMA)?;
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        return Ok(());
+    }
+    // Steps run from wherever the file happens to be. An install that predates
+    // a column has to open, not be told to start again.
+    if current < 2 {
+        conn.execute_batch(
+            "ALTER TABLE action_items ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+    if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())

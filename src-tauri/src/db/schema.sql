@@ -77,6 +77,7 @@ CREATE TABLE action_items (
     span_end        INTEGER NOT NULL,
     span_attributed INTEGER NOT NULL DEFAULT 0,
     span_quoted     TEXT    NOT NULL DEFAULT '',
+    stale           INTEGER NOT NULL DEFAULT 0,
     text            TEXT    NOT NULL,
     done            INTEGER NOT NULL DEFAULT 0
 );

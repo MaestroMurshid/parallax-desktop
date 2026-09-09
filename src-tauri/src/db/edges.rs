@@ -85,11 +85,13 @@ pub fn list_proposed_for(conn: &Connection, entry_id: &str) -> Result<Vec<Edge>>
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// `INSERT OR IGNORE` leans on the unique constraint over
-/// (entry_a, entry_b, relation): loading the same corpus twice cannot produce
-/// a second copy of an edge, so idempotency is the schema's job.
-pub fn insert(conn: &Connection, edge: &Edge) -> Result<()> {
-    conn.execute(
+/// Returns the edge that exists afterwards, which is not always the one passed
+/// in: the unique constraint over (entry_a, entry_b, relation) means a pair
+/// already connected that way keeps the edge it has. Returning the argument
+/// regardless would hand back an id for a row that was never written, and every
+/// later accept or dismiss against it would silently do nothing.
+pub fn insert(conn: &Connection, edge: &Edge) -> Result<Edge> {
+    let written = conn.execute(
         "INSERT OR IGNORE INTO edges
          (id, entry_a, entry_b, relation, question, status, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -103,14 +105,30 @@ pub fn insert(conn: &Connection, edge: &Edge) -> Result<()> {
             edge.created_at,
         ],
     )?;
-    Ok(())
+
+    if written == 1 {
+        return Ok(edge.clone());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, entry_a, entry_b, relation, question, status, created_at
+         FROM edges WHERE entry_a = ?1 AND entry_b = ?2 AND relation = ?3",
+    )?;
+    let existing = stmt.query_row(
+        params![edge.entry_a, edge.entry_b, relation_str(edge.relation)],
+        row_to_edge,
+    )?;
+    Ok(existing)
 }
 
 pub fn set_status(conn: &Connection, id: &str, status: EdgeStatus) -> Result<()> {
-    conn.execute(
+    let n = conn.execute(
         "UPDATE edges SET status = ?2 WHERE id = ?1",
         params![id, status_str(status)],
     )?;
+    if n == 0 {
+        return Err(crate::error::Error::NotFound(id.to_string()));
+    }
     Ok(())
 }
 
@@ -175,5 +193,26 @@ mod tests {
         conn.execute("DELETE FROM entries WHERE id = 'a'", [])
             .unwrap();
         assert!(list(&conn).unwrap().is_empty());
+    }
+
+    /// Connecting two entries that are already connected must return the edge
+    /// that exists, not a freshly-minted id for a row that was never written.
+    #[test]
+    fn inserting_an_existing_pair_reports_it_rather_than_inventing_one() {
+        let conn = open_in_memory().unwrap();
+        seed_entries(&conn);
+        insert(&conn, &edge()).unwrap();
+
+        let mut again = edge();
+        again.id = "edge-99".into();
+        again.status = EdgeStatus::Manual;
+
+        let stored = insert(&conn, &again).unwrap();
+        assert_eq!(
+            stored.id, "edge-0",
+            "the existing edge is what actually exists"
+        );
+        assert_eq!(stored.status, EdgeStatus::Proposed);
+        assert_eq!(list(&conn).unwrap().len(), 1);
     }
 }
