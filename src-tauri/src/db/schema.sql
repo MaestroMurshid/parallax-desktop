@@ -34,7 +34,12 @@ CREATE TABLE entries (
 
     unfinished          INTEGER NOT NULL DEFAULT 0,
     local_only          INTEGER NOT NULL DEFAULT 0,
-    is_sample           INTEGER NOT NULL DEFAULT 0
+    is_sample           INTEGER NOT NULL DEFAULT 0,
+
+    -- The audio is the record; the transcript is a derivation of it and may be
+    -- corrected toward accuracy. Nothing is versioned -- the recording is
+    -- already the ground truth to check against.
+    corrected_at        TEXT
 );
 
 -- A typed entry has no row here at all, which is the distinction the design
@@ -50,11 +55,17 @@ CREATE TABLE audio (
     fingerprint TEXT    NOT NULL
 );
 
+-- `quoted_text` is the anchor, not the offsets. Correcting a transcript shifts
+-- every offset after the edit, and a drifted `attributed` span would silently
+-- put a probe on someone else's words, so a span is re-found by its text and
+-- marked stale when the text is genuinely gone.
 CREATE TABLE spans (
     id           INTEGER PRIMARY KEY,
     entry_id     TEXT    NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
     start_offset INTEGER NOT NULL,
     end_offset   INTEGER NOT NULL,
+    quoted_text  TEXT    NOT NULL DEFAULT '',
+    stale        INTEGER NOT NULL DEFAULT 0,
     -- true = someone else's words. Only an own span may be pushed on (§7.3).
     attributed   INTEGER NOT NULL DEFAULT 0
 );
@@ -65,6 +76,7 @@ CREATE TABLE action_items (
     span_start      INTEGER NOT NULL,
     span_end        INTEGER NOT NULL,
     span_attributed INTEGER NOT NULL DEFAULT 0,
+    span_quoted     TEXT    NOT NULL DEFAULT '',
     text            TEXT    NOT NULL,
     done            INTEGER NOT NULL DEFAULT 0
 );
@@ -78,6 +90,7 @@ CREATE TABLE questions (
     span_start      INTEGER,
     span_end        INTEGER,
     span_attributed INTEGER,
+    span_quoted     TEXT,
     answered        INTEGER NOT NULL DEFAULT 0,
     dismissed       INTEGER NOT NULL DEFAULT 0,
     provider_name   TEXT    NOT NULL,

@@ -40,6 +40,18 @@ fn register_str(r: Register) -> &'static str {
     }
 }
 
+/// The text a span covers, stored so it can be re-found after a correction.
+/// Byte offsets from the wire are clamped to char boundaries -- a transcript is
+/// UTF-8 and slicing mid-character would panic.
+fn quoted(transcript: &str, span: &Span) -> String {
+    let start = span.start as usize;
+    let end = (span.end as usize).min(transcript.len());
+    if start >= end || !transcript.is_char_boundary(start) || !transcript.is_char_boundary(end) {
+        return String::new();
+    }
+    transcript[start..end].to_string()
+}
+
 pub fn insert(conn: &Connection, entry: &Entry) -> Result<()> {
     conn.execute(
         "INSERT INTO entries (
@@ -81,23 +93,30 @@ pub fn insert(conn: &Connection, entry: &Entry) -> Result<()> {
 
     for span in &entry.spans {
         conn.execute(
-            "INSERT INTO spans (entry_id, start_offset, end_offset, attributed)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![entry.id, span.start, span.end, span.attributed],
+            "INSERT INTO spans (entry_id, start_offset, end_offset, attributed, quoted_text)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                entry.id,
+                span.start,
+                span.end,
+                span.attributed,
+                quoted(&entry.transcript, span)
+            ],
         )?;
     }
 
     for item in &entry.action_items {
         conn.execute(
             "INSERT INTO action_items
-             (id, entry_id, span_start, span_end, span_attributed, text, done)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (id, entry_id, span_start, span_end, span_attributed, span_quoted, text, done)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 item.id,
                 entry.id,
                 item.span.start,
                 item.span.end,
                 item.span.attributed,
+                quoted(&entry.transcript, &item.span),
                 item.text,
                 item.done
             ],
@@ -157,6 +176,98 @@ pub fn move_to(conn: &Connection, id: &str, x: f64, y: f64) -> Result<()> {
 /// `answers_entry_id`: an answer is still something you said.
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM entries WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Corrections overwrite. The audio is the record and the transcript is a
+/// derivation of it, so there is nothing to version -- the recording is already
+/// the thing to check against.
+///
+/// Offsets shift under an edit, so spans re-anchor by their stored text rather
+/// than being trusted. A span whose text is gone is marked stale instead of
+/// silently pointing at whatever now occupies those offsets.
+pub fn correct_transcript(conn: &Connection, id: &str, transcript: &str) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE entries SET transcript = ?2, corrected_at = ?3 WHERE id = ?1",
+        params![id, transcript, chrono::Utc::now().to_rfc3339()],
+    )?;
+    if n == 0 {
+        return Err(crate::error::Error::NotFound(id.to_string()));
+    }
+    reanchor_spans(conn, id, transcript)?;
+    reanchor_questions(conn, id, transcript)?;
+    reanchor_action_items(conn, id, transcript)?;
+    Ok(())
+}
+
+fn reanchor_spans(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
+    let mut stmt =
+        conn.prepare("SELECT id, quoted_text FROM spans WHERE entry_id = ?1")?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map(params![entry_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+
+    for (id, quote) in rows {
+        match (quote.is_empty(), transcript.find(&quote)) {
+            (false, Some(at)) => {
+                conn.execute(
+                    "UPDATE spans SET start_offset = ?2, end_offset = ?3, stale = 0 WHERE id = ?1",
+                    params![id, at as i64, (at + quote.len()) as i64],
+                )?;
+            }
+            _ => {
+                conn.execute("UPDATE spans SET stale = 1 WHERE id = ?1", params![id])?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A question is never dropped by a correction, answered or not: it is the
+/// record of something the app actually asked and, often, of something you
+/// actually said back. When its anchor cannot be found the offsets go null and
+/// the question stays -- it loses a highlight, not its existence.
+fn reanchor_questions(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
+    let mut stmt = conn.prepare(
+        "SELECT id, span_quoted FROM questions WHERE entry_id = ?1 AND span_quoted IS NOT NULL",
+    )?;
+    let rows: Vec<(String, String)> = stmt
+        .query_map(params![entry_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+
+    for (id, quote) in rows {
+        match transcript.find(&quote) {
+            Some(at) if !quote.is_empty() => conn.execute(
+                "UPDATE questions SET span_start = ?2, span_end = ?3 WHERE id = ?1",
+                params![id, at as i64, (at + quote.len()) as i64],
+            )?,
+            _ => conn.execute(
+                "UPDATE questions SET span_start = NULL, span_end = NULL WHERE id = ?1",
+                params![id],
+            )?,
+        };
+    }
+    Ok(())
+}
+
+/// Same rule: the item survives, ticked or not. Only its anchor can go stale.
+fn reanchor_action_items(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
+    let mut stmt =
+        conn.prepare("SELECT id, span_quoted FROM action_items WHERE entry_id = ?1")?;
+    let rows: Vec<(String, String)> = stmt
+        .query_map(params![entry_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+
+    for (id, quote) in rows {
+        if !quote.is_empty() {
+            if let Some(at) = transcript.find(&quote) {
+                conn.execute(
+                    "UPDATE action_items SET span_start = ?2, span_end = ?3 WHERE id = ?1",
+                    params![id, at as i64, (at + quote.len()) as i64],
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -362,4 +473,73 @@ mod tests {
             assert_eq!(n, 0, "{table} kept a row after its entry was deleted");
         }
     }
+
+    /// The whole point of the rule: a correction must never cost you an
+    /// exchange that actually happened.
+    #[test]
+    fn a_correction_keeps_an_answered_question() {
+        let conn = open_in_memory().unwrap();
+        let mut e = entry("e1", "2024-02-03T10:21:00.000Z", true);
+        e.transcript = "Indexes trade write perfrmance for faster reads.".into();
+        insert(&conn, &e).unwrap();
+
+        conn.execute(
+            "INSERT INTO questions
+             (id, entry_id, text, span_start, span_end, span_quoted, answered,
+              dismissed, provider_name, created_at)
+             VALUES ('q1','e1','What does that cost?',8,13,'trade',1,0,'llama-server','now')",
+            [],
+        )
+        .unwrap();
+
+        correct_transcript(&conn, "e1", "Indexes trade write performance for faster reads.")
+            .unwrap();
+
+        let (answered, start): (bool, Option<i64>) = conn
+            .query_row(
+                "SELECT answered, span_start FROM questions WHERE id = 'q1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(answered, "an answered question must survive a correction");
+        assert_eq!(start, Some(8), "its anchor should re-find itself");
+    }
+
+    /// An anchor that genuinely no longer exists loses its offsets and keeps
+    /// everything else, rather than pointing at whatever moved into its place.
+    #[test]
+    fn a_lost_anchor_goes_stale_rather_than_drifting() {
+        let conn = open_in_memory().unwrap();
+        let mut e = entry("e1", "2024-02-03T10:21:00.000Z", false);
+        e.transcript = "Indexes trade writes for reads.".into();
+        e.spans = vec![Span { start: 8, end: 13, attributed: true }];
+        insert(&conn, &e).unwrap();
+
+        correct_transcript(&conn, "e1", "Something else entirely.").unwrap();
+
+        let stale: bool = conn
+            .query_row("SELECT stale FROM spans WHERE entry_id = 'e1'", [], |r| r.get(0))
+            .unwrap();
+        assert!(stale, "an attributed span must not drift onto other words");
+
+        let kept: i64 = conn
+            .query_row("SELECT count(*) FROM spans WHERE entry_id = 'e1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 1, "stale, not deleted");
+    }
+
+    #[test]
+    fn a_correction_is_not_a_new_version() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("e1", "2024-02-03T10:21:00.000Z", false)).unwrap();
+        correct_transcript(&conn, "e1", "Corrected text.").unwrap();
+
+        let rows: i64 = conn
+            .query_row("SELECT count(*) FROM entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
+        assert_eq!(get(&conn, "e1").unwrap().unwrap().transcript, "Corrected text.");
+    }
+
 }
