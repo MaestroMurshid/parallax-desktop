@@ -10,8 +10,29 @@ pub const MAX_BARS: usize = 9;
 /// Peak rather than mean: speech is mostly gaps, and averaging flattens every
 /// recording toward the same low line, which is the failure a fingerprint
 /// exists to avoid.
-pub fn downsample(_pcm: &[f32]) -> Vec<f32> {
-    todo!("downsample")
+pub fn downsample(pcm: &[f32]) -> Vec<f32> {
+    if pcm.is_empty() {
+        return Vec::new();
+    }
+
+    // Bar count varies with length inside the 7-9 band, so two recordings of
+    // different lengths do not draw the same shape at the same width.
+    let bars = MIN_BARS + (pcm.len() / 16_000).min(MAX_BARS - MIN_BARS);
+    let per_bar = (pcm.len() as f64 / bars as f64).ceil().max(1.0) as usize;
+
+    let peaks: Vec<f32> = pcm
+        .chunks(per_bar)
+        .map(|chunk| chunk.iter().fold(0.0_f32, |peak, s| peak.max(s.abs())))
+        .collect();
+
+    let loudest = peaks.iter().fold(0.0_f32, |m, p| m.max(*p));
+    if loudest == 0.0 {
+        return vec![0.0; peaks.len()];
+    }
+    peaks
+        .iter()
+        .map(|p| (p / loudest).clamp(0.0, 1.0))
+        .collect()
 }
 
 #[cfg(test)]
@@ -52,7 +73,10 @@ mod tests {
     fn a_quiet_recording_still_has_shape() {
         let bars = downsample(&tone(16_000, 0.02));
         let loudest = bars.iter().cloned().fold(0.0_f32, f32::max);
-        assert!(loudest > 0.9, "quiet audio should still normalise, got {loudest}");
+        assert!(
+            loudest > 0.9,
+            "quiet audio should still normalise, got {loudest}"
+        );
     }
 
     /// Peak, not mean: a burst of speech surrounded by silence has to show as
@@ -64,7 +88,10 @@ mod tests {
             *sample = 0.8;
         }
         let bars = downsample(&pcm);
-        assert!(bars[0] > *bars.last().unwrap(), "the burst should dominate its bucket");
+        assert!(
+            bars[0] > *bars.last().unwrap(),
+            "the burst should dominate its bucket"
+        );
     }
 
     /// A two-second note and a two-minute one both get a signature.
@@ -84,6 +111,9 @@ mod tests {
     #[test]
     fn negative_samples_count_as_loud() {
         let bars = downsample(&vec![-0.9_f32; 16_000]);
-        assert!(bars.iter().all(|b| *b > 0.9), "sign should not change loudness");
+        assert!(
+            bars.iter().all(|b| *b > 0.9),
+            "sign should not change loudness"
+        );
     }
 }

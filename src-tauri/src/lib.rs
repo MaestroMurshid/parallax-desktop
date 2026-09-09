@@ -5,6 +5,7 @@ pub mod error;
 pub mod model;
 pub mod scene;
 pub mod state;
+pub mod stt;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};

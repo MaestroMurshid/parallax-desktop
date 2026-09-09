@@ -13,13 +13,47 @@ pub const SAMPLE_RATE: u32 = 16_000;
 /// opus would cut a year of daily use from about 7GB to 650MB and is the
 /// obvious next step, but it adds a C encoder and the swap is one function.
 pub fn write(pcm: &[f32], path: &Path) -> Result<u64> {
-    let _ = (pcm, path);
-    todo!("write")
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let mut writer = hound::WavWriter::create(path, spec)
+        .map_err(|e| crate::error::Error::Other(e.to_string()))?;
+
+    for sample in pcm {
+        // Clamp before scaling: a clipped microphone hands back values outside
+        // the range, and letting them wrap turns a loud moment into noise.
+        let clamped = sample.clamp(-1.0, 1.0);
+        let scaled = (clamped * i16::MAX as f32).round() as i16;
+        writer
+            .write_sample(scaled)
+            .map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    }
+    writer
+        .finalize()
+        .map_err(|e| crate::error::Error::Other(e.to_string()))?;
+
+    Ok(std::fs::metadata(path)?.len())
 }
 
 pub fn read(path: &Path) -> Result<Vec<f32>> {
-    let _ = path;
-    todo!("read")
+    let mut reader =
+        hound::WavReader::open(path).map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    let scale = i16::MAX as f32;
+    reader
+        .samples::<i16>()
+        .map(|s| {
+            s.map(|v| v as f32 / scale)
+                .map_err(|e| crate::error::Error::Other(e.to_string()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -68,8 +102,16 @@ mod tests {
         write(&[2.0, -2.0, 0.0], &path).unwrap();
 
         let back = read(&path).unwrap();
-        assert!(back[0] > 0.99, "positive clipping stays positive: {}", back[0]);
-        assert!(back[1] < -0.99, "negative clipping stays negative: {}", back[1]);
+        assert!(
+            back[0] > 0.99,
+            "positive clipping stays positive: {}",
+            back[0]
+        );
+        assert!(
+            back[1] < -0.99,
+            "negative clipping stays negative: {}",
+            back[1]
+        );
         let _ = std::fs::remove_file(path);
     }
 
