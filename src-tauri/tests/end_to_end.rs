@@ -4,7 +4,7 @@
 //! open a corpus, load the sample, record something, correct it, search for
 //! it, and reopen everything from disk to prove it was actually written.
 
-use parallax_lib::{db, state::AppState};
+use parallax_lib::{commands::capture, db, state::AppState};
 
 fn corpus() -> (AppState, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!("parallax-e2e-{}", uuid::Uuid::new_v4()));
@@ -209,4 +209,184 @@ fn settings_round_trip_through_a_restart() {
     }
     drop(reopened);
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// The schema cascades the audio metadata; the recording is a file on disk and
+/// nothing was removing it.
+#[test]
+fn deleting_an_entry_removes_its_recording() {
+    let (state, root) = corpus();
+
+    let made = {
+        let conn = state.db();
+        db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: "Something said out loud.".into(),
+                duration_ms: 4_000,
+                fingerprint: vec![0.1, 0.2, 0.3],
+                parent_entry_id: None,
+                local_only: None,
+                typed: false,
+            },
+        )
+        .unwrap()
+    };
+
+    // `create` records the path; the capture command is what writes the bytes.
+    let wav = root.join(made.audio_path.clone().unwrap());
+    std::fs::create_dir_all(wav.parent().unwrap()).unwrap();
+    std::fs::write(&wav, b"pretend wav").unwrap();
+
+    state.delete_entry(&made.id).unwrap();
+
+    let conn = state.db();
+    assert!(db::entries::list(&conn).unwrap().is_empty());
+    assert!(!wav.exists(), "the recording outlived its entry");
+}
+
+#[test]
+fn deleting_a_typed_entry_is_not_an_error() {
+    let (state, _root) = corpus();
+
+    let made = {
+        let conn = state.db();
+        db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: "Typed, so there is no audio at all.".into(),
+                duration_ms: 0,
+                fingerprint: vec![],
+                parent_entry_id: None,
+                local_only: None,
+                typed: true,
+            },
+        )
+        .unwrap()
+    };
+    assert!(made.audio_path.is_none());
+
+    state.delete_entry(&made.id).unwrap();
+    let conn = state.db();
+    assert!(db::entries::list(&conn).unwrap().is_empty());
+}
+
+/// Children are orphaned rather than deleted, so their recordings have to stay.
+#[test]
+fn deleting_a_parent_keeps_its_children_and_their_recordings() {
+    let (state, root) = corpus();
+
+    let (parent, child) = {
+        let conn = state.db();
+        let parent = db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: "The question that started it.".into(),
+                duration_ms: 5_000,
+                fingerprint: vec![0.2, 0.4],
+                parent_entry_id: None,
+                local_only: None,
+                typed: false,
+            },
+        )
+        .unwrap();
+        let child = db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: "The answer, which is still something I said.".into(),
+                duration_ms: 6_000,
+                fingerprint: vec![0.5, 0.6],
+                parent_entry_id: Some(parent.id.clone()),
+                local_only: None,
+                typed: false,
+            },
+        )
+        .unwrap();
+        (parent, child)
+    };
+
+    let mut written = Vec::new();
+    for entry in [&parent, &child] {
+        let wav = root.join(entry.audio_path.clone().unwrap());
+        std::fs::create_dir_all(wav.parent().unwrap()).unwrap();
+        std::fs::write(&wav, b"pretend wav").unwrap();
+        written.push(wav);
+    }
+
+    state.delete_entry(&parent.id).unwrap();
+
+    let conn = state.db();
+    let left = db::entries::list(&conn).unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].id, child.id);
+    assert!(
+        !written[0].exists(),
+        "the parent's recording should be gone"
+    );
+    assert!(written[1].exists(), "the child's recording should survive");
+}
+
+fn wavs_in(state: &AppState) -> Vec<std::path::PathBuf> {
+    std::fs::read_dir(state.audio_dir())
+        .map(|rd| {
+            rd.filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().is_some_and(|x| x == "wav"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The recording is the record. A model that cannot load costs the transcript,
+/// never the audio.
+#[test]
+fn a_failing_transcription_keeps_the_recording() {
+    let (state, _root) = corpus();
+
+    // Present, so it is selected, and invalid, so loading it fails.
+    std::fs::create_dir_all(state.models_dir()).unwrap();
+    for name in ["whisper-tiny", "whisper-base", "whisper-small"] {
+        std::fs::write(
+            state.models_dir().join(format!("{name}.gguf")),
+            b"not a model",
+        )
+        .unwrap();
+    }
+
+    let pcm = vec![0.1f32; 16_000];
+    let failed = capture::finish(&state, pcm, 1_000, None, None);
+    assert!(failed.is_err(), "an invalid model should fail the capture");
+
+    assert_eq!(wavs_in(&state).len(), 1, "the recording was not written");
+    assert!(
+        state
+            .discarded
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some(),
+        "the staged copy was consumed by a failure"
+    );
+    let conn = state.db();
+    assert!(db::entries::list(&conn).unwrap().is_empty());
+}
+
+/// Settings are read after staging, so an unreadable settings table cannot cost
+/// the samples.
+#[test]
+fn a_settings_failure_keeps_the_staged_samples() {
+    let (state, _root) = corpus();
+    {
+        let conn = state.db();
+        conn.execute("DROP TABLE settings", []).unwrap();
+    }
+
+    let failed = capture::finish(&state, vec![0.2f32; 8_000], 500, None, None);
+    assert!(failed.is_err());
+    assert!(
+        state
+            .discarded
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some(),
+        "the samples were dropped before anything could fail"
+    );
 }

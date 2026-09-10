@@ -70,6 +70,5 @@ pub fn move_entry(state: State<AppState>, id: String, x: f64, y: f64) -> Result<
 /// said. Deleting a whole thread is a deliberate second act, not a side effect.
 #[tauri::command]
 pub fn delete_entry(state: State<AppState>, id: String) -> Result<()> {
-    let conn = state.db();
-    db::entries::delete(&conn, &id)
+    state.delete_entry(&id)
 }

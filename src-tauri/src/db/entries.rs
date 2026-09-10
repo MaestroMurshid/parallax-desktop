@@ -3,7 +3,7 @@
 
 use crate::error::Result;
 use crate::model::{ActionItem, Entry, Register, Role, Span};
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::HashMap;
 
 /// Enums cross the SQL boundary as the same strings they use on the wire, so a
@@ -52,7 +52,19 @@ pub fn quoted(transcript: &str, span: &Span) -> String {
     transcript[start..end].to_string()
 }
 
+/// Four tables make one entry, so they commit together. The sample loader
+/// already holds a transaction and SQLite will not nest one.
 pub fn insert(conn: &Connection, entry: &Entry) -> Result<()> {
+    if !conn.is_autocommit() {
+        return insert_rows(conn, entry);
+    }
+    let tx = conn.unchecked_transaction()?;
+    insert_rows(&tx, entry)?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn insert_rows(conn: &Connection, entry: &Entry) -> Result<()> {
     conn.execute(
         "INSERT INTO entries (
             id, transcript, created_at, x, y, answers_entry_id, answers_question_id,
@@ -186,6 +198,17 @@ pub fn move_to(conn: &Connection, id: &str, x: f64, y: f64) -> Result<()> {
 /// Audio, spans, action items, questions and edges go with it -- the schema
 /// cascades those. Children are orphaned instead, by `ON DELETE SET NULL` on
 /// `answers_entry_id`: an answer is still something you said.
+/// Read before deleting: the cascade takes the audio row, not the file.
+pub fn audio_path(conn: &Connection, id: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT path FROM audio WHERE entry_id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM entries WHERE id = ?1", params![id])?;
     Ok(())
@@ -776,5 +799,44 @@ mod tests {
             "a lost action-item anchor must not keep pointing somewhere"
         );
         assert_eq!(kept, 1, "stale, not deleted -- the tick is still yours");
+    }
+
+    /// Four tables make one entry, so a failure writing the fourth must not
+    /// leave the first three behind.
+    #[test]
+    fn a_failed_insert_leaves_no_partial_entry() {
+        let conn = open_in_memory().unwrap();
+        let mut e = entry("e1", "2024-01-01T00:00:00Z", true);
+        e.spans = vec![Span {
+            start: 0,
+            end: 7,
+            attributed: false,
+        }];
+        let item = ActionItem {
+            id: "same".into(),
+            entry_id: e.id.clone(),
+            span: Span {
+                start: 0,
+                end: 7,
+                attributed: false,
+            },
+            text: "Check the index".into(),
+            done: false,
+        };
+        // The duplicate key fails only after entry, audio and span rows land.
+        e.action_items = vec![item.clone(), item];
+
+        assert!(insert(&conn, &e).is_err());
+
+        assert!(
+            list(&conn).unwrap().is_empty(),
+            "the entry outlived its own failed insert"
+        );
+        for table in ["audio", "spans", "action_items"] {
+            let n: i64 = conn
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table} kept a row");
+        }
     }
 }
