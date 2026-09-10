@@ -64,7 +64,7 @@ pub fn stop_recording(
         db::settings::get(&conn)?
     };
 
-    let transcript = match state.transcription_model() {
+    let transcript = match state.transcription_model(settings.transcription_model) {
         Some(model) => crate::stt::transcribe(&model, &pcm, settings.transcription_backend)?.text,
         // No model yet is not a lost recording: the audio is on disk and the
         // transcript is a derivation of it, so it can be filled in later.
@@ -145,7 +145,7 @@ pub fn undo_discard(state: State<AppState>) -> Result<Option<Entry>> {
         let conn = state.db();
         db::settings::get(&conn)?
     };
-    let transcript = match state.transcription_model() {
+    let transcript = match state.transcription_model(settings.transcription_model) {
         Some(model) => {
             crate::stt::transcribe(&model, &discarded.pcm, settings.transcription_backend)?.text
         }

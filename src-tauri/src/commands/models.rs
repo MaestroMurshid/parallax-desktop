@@ -13,7 +13,9 @@ use tauri::State;
 pub fn get_system_profile() -> SystemProfile {
     use sysinfo::System;
 
-    let mut system = System::new_all();
+    // Not new_all: that enumerates every process on the machine, and this
+    // runs on the onboarding screen.
+    let mut system = System::new();
     system.refresh_memory();
     system.refresh_cpu_all();
 

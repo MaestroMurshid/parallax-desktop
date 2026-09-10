@@ -3,6 +3,7 @@
 use crate::audio::recorder::Recording;
 use crate::db;
 use crate::error::Result;
+use crate::model::TranscriptionModel;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -59,19 +60,20 @@ impl AppState {
         self.root.join("models")
     }
 
-    /// The transcription model, if one has been fetched. `None` is a normal
-    /// state rather than an error: capture works without it, and the audio is
-    /// the record the transcript is derived from, so it can be filled in later.
-    pub fn transcription_model(&self) -> Option<PathBuf> {
-        std::fs::read_dir(self.models_dir())
-            .ok()?
-            .flatten()
-            .map(|e| e.path())
-            .find(|p| {
-                p.extension().is_some_and(|e| e == "gguf")
-                    && p.file_name()
-                        .is_some_and(|n| n.to_string_lossy().starts_with("whisper"))
-            })
+    /// The transcription model the user chose, if it is actually there.
+    ///
+    /// Named rather than enumerated: with tiny and base both present, taking
+    /// whichever the filesystem yields first would silently ignore the setting.
+    /// `None` is a normal state, not an error -- capture works without it, and
+    /// the audio is the record the transcript is derived from.
+    pub fn transcription_model(&self, chosen: TranscriptionModel) -> Option<PathBuf> {
+        let name = match chosen {
+            TranscriptionModel::Tiny => "whisper-tiny",
+            TranscriptionModel::Base => "whisper-base",
+            TranscriptionModel::Small => "whisper-small",
+        };
+        let path = self.models_dir().join(format!("{name}.gguf"));
+        path.is_file().then_some(path)
     }
 }
 
