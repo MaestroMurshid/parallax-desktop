@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getBridge } from '@/lib/bridge';
+import { getBridge, initBridge } from '@/lib/bridge';
 import { useApp } from '@/lib/store';
 import Equalizer from './Equalizer';
 import styles from './CapturePanel.module.css';
@@ -44,6 +44,7 @@ export default function CapturePanel() {
 
     const poll = async () => {
       try {
+        await initBridge();
         const text = await getBridge().partialTranscript();
         if (!stopped && text) setPartial(text);
       } catch {

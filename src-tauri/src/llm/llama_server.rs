@@ -149,6 +149,12 @@ impl LlmProvider for LlamaServer {
             ],
             "temperature": ask.temperature,
             "max_tokens": ask.max_tokens,
+            // Qwen3 thinks by default, and measured it spent all 400 tokens
+            // doing it: finish_reason was length, reasoning_content held 2kB,
+            // and content -- the only thing the grammar applies to -- was empty.
+            // Off, the same call answers in 94 tokens and 3.5s rather than 8.5s.
+            // Templates without the flag ignore it.
+            "chat_template_kwargs": { "enable_thinking": false },
         });
 
         if let Some(schema) = ask.schema {

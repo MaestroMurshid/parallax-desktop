@@ -360,6 +360,20 @@ pub async fn download_model(
         .ok_or_else(|| Error::NotFound(format!("no model called {model_id}")))?;
     let dest = state.models_dir().join(format!("{}.gguf", info.id));
 
+    // Already here: announce it and stop. Re-onboarding, or asking twice, must
+    // not spend 2.5GB of someone's connection on a file they already have.
+    if let Ok(on_disk) = std::fs::metadata(&dest) {
+        if matches!(
+            state_for(info.size_bytes, Some(on_disk.len()), None),
+            ModelState::Ready
+        ) {
+            let mut ready = info.clone();
+            ready.state = ModelState::Ready;
+            let _ = app.emit("model://progress", ready);
+            return Ok(());
+        }
+    }
+
     // Off the runtime thread: this runs for minutes and `fetch` is blocking.
     tauri::async_runtime::spawn_blocking(move || run_download(app, info, dest))
         .await

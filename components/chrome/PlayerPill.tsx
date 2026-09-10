@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { getBridge } from '@/lib/bridge';
+import { getBridge, initBridge } from '@/lib/bridge';
 import { useApp } from '@/lib/store';
 import styles from './PlayerPill.module.css';
 
@@ -35,6 +35,7 @@ export default function PlayerPill() {
     let cancelled = false;
 
     void (async () => {
+      await initBridge();
       const bytes = await getBridge().readAudio(id);
       if (cancelled) return;
       if (!bytes || !audio.current) return setReal(false);
