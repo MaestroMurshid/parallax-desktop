@@ -612,8 +612,7 @@ mod tests {
     #[test]
     fn a_short_recording_still_draws_a_full_height_bar() {
         let tallest = (0..200)
-            .map(|i| synthetic_fingerprint(&format!("entry-{i}"), 20_000))
-            .flatten()
+            .flat_map(|i| synthetic_fingerprint(&format!("entry-{i}"), 20_000))
             .fold(0.0_f32, f32::max);
         assert!(tallest > 0.9, "tallest bar across the corpus was {tallest}");
     }
