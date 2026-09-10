@@ -177,6 +177,7 @@ pub fn run() {
             commands::corpus::clear_sample_corpus,
             commands::models::get_system_profile,
             commands::models::list_models,
+            commands::models::download_model,
             commands::models::models_location,
             commands::system::get_settings,
             commands::system::set_settings,

@@ -122,4 +122,7 @@ pub struct ModelInfo {
     /// Drives the onboarding default.
     pub recommended_ram_bytes: u64,
     pub state: ModelState,
+    /// Where the file comes from. Served to the frontend so the user can see
+    /// what the app is about to fetch before it fetches it.
+    pub url: String,
 }

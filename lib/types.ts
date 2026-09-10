@@ -238,6 +238,8 @@ export interface ModelInfo {
   /** Minimum RAM we'd recommend this at — drives the onboarding default. */
   recommendedRamBytes: number;
   state: ModelState;
+  /** Shown before downloading, so nothing is fetched the user cannot see. */
+  url: string;
 }
 
 /** §9.4 — the residency fork. Only the post-recording question is latency-sensitive. */

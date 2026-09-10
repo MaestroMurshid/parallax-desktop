@@ -407,3 +407,56 @@ fn the_bundled_llama_server_reports_its_devices() {
     eprintln!("devices: {found:?}\nchose: {} ({})", best.id, best.name);
     assert!(best.free_mib > 0);
 }
+
+/// The real URL, the real file, the real loader. Ignored because it pulls ~44MB:
+/// run with `cargo test --test end_to_end -- --ignored --nocapture`.
+#[test]
+#[ignore = "downloads a model over the network"]
+fn a_real_whisper_model_downloads_and_transcribes() {
+    use parallax_lib::model::download;
+
+    let (state, _root) = corpus();
+    let url = "https://huggingface.co/handy-computer/whisper-tiny-gguf/resolve/main/whisper-tiny-Q4_K_M.gguf";
+    let dest = state.models_dir().join("whisper-tiny.gguf");
+
+    let started = std::time::Instant::now();
+    let mut last = 0u64;
+    download::fetch(url, &dest, &mut |got, total| {
+        if got == total {
+            last = total;
+        }
+    })
+    .unwrap();
+    let bytes = std::fs::metadata(&dest).unwrap().len();
+    eprintln!("downloaded {bytes} bytes in {:?}", started.elapsed());
+    assert_eq!(
+        bytes, last,
+        "progress total disagreed with the file on disk"
+    );
+
+    // The catalogue says 43.6MB; the 90% rule in list_models depends on it.
+    assert!(
+        (41_000_000..46_000_000).contains(&bytes),
+        "unexpected size {bytes}"
+    );
+
+    // Found by the same lookup the capture path uses.
+    let found = state
+        .transcription_model(parallax_lib::model::TranscriptionModel::Tiny)
+        .expect("the downloaded model should be discoverable");
+    assert_eq!(found, dest);
+
+    // A second of quiet: proves the loader accepts the file, not that it hears.
+    let loaded = std::time::Instant::now();
+    let out = parallax_lib::stt::transcribe(
+        &found,
+        &vec![0.0f32; 16_000],
+        parallax_lib::model::ComputeBackend::Cpu,
+    )
+    .unwrap();
+    eprintln!(
+        "loaded and ran in {:?}, text: {:?}",
+        loaded.elapsed(),
+        out.text
+    );
+}
