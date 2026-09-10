@@ -6,11 +6,12 @@
 //! finds maintain and explaining.
 
 use crate::error::Result;
+use crate::text::byte_to_utf16;
 use rusqlite::Connection;
 use serde::Serialize;
 
-/// Offsets are into the transcript; the snippet ones are the same match
-/// re-based into `snippet`, so the caller highlights without re-searching.
+/// UTF-16 code units, the unit the frontend slices with. The snippet offsets
+/// are the same match re-based into `snippet`, so it highlights without re-searching.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
@@ -29,8 +30,8 @@ const MAX_PER_ENTRY: usize = 3;
 /// True when a match sits on word boundaries. Alphanumeric either side means
 /// the needle is part of a longer word, which is what quoting excludes.
 fn on_word_boundaries(haystack: &str, start: usize, end: usize) -> bool {
-    let before = haystack[..start].chars().next_back();
-    let after = haystack[end..].chars().next();
+    let before = haystack.get(..start).and_then(|s| s.chars().next_back());
+    let after = haystack.get(end..).and_then(|s| s.chars().next());
     let boundary = |c: Option<char>| !matches!(c, Some(ch) if ch.is_alphanumeric());
     boundary(before) && boundary(after)
 }
@@ -58,9 +59,9 @@ fn snippet_around(transcript: &str, start: usize, end: usize) -> (String, u32, u
         snippet.push_str(" …");
     }
 
-    let snippet_start = offset + (start - from);
-    let snippet_end = snippet_start + (end - start);
-    (snippet, snippet_start as u32, snippet_end as u32)
+    let start_units = byte_to_utf16(&snippet, offset + (start - from));
+    let end_units = byte_to_utf16(&snippet, offset + (end - from));
+    (snippet, start_units, end_units)
 }
 
 pub fn search(conn: &Connection, query: &str) -> Result<Vec<SearchHit>> {
@@ -101,10 +102,9 @@ pub fn search(conn: &Connection, query: &str) -> Result<Vec<SearchHit>> {
         let mut from = 0usize;
         while found < MAX_PER_ENTRY && hits.len() < MAX_HITS {
             let hay: &str = if aligned { &searchable } else { &transcript };
-            let Some(offset) = find_from(hay, &needle_lower, needle, aligned, from) else {
+            let Some((offset, end)) = find_from(hay, &needle_lower, needle, aligned, from) else {
                 break;
             };
-            let end = offset + needle.len();
             from = offset + 1;
 
             if whole_words && !on_word_boundaries(&transcript, offset, end) {
@@ -114,8 +114,8 @@ pub fn search(conn: &Connection, query: &str) -> Result<Vec<SearchHit>> {
             let (snippet, snippet_start, snippet_end) = snippet_around(&transcript, offset, end);
             hits.push(SearchHit {
                 entry_id: entry_id.clone(),
-                start: offset as u32,
-                end: end as u32,
+                start: byte_to_utf16(&transcript, offset),
+                end: byte_to_utf16(&transcript, end),
                 snippet,
                 snippet_start,
                 snippet_end,
@@ -136,7 +136,7 @@ fn find_from(
     needle: &str,
     aligned: bool,
     from: usize,
-) -> Option<usize> {
+) -> Option<(usize, usize)> {
     if from > hay.len() {
         return None;
     }
@@ -145,7 +145,9 @@ fn find_from(
         at += 1;
     }
     if aligned {
-        hay[at..].find(needle_lower).map(|i| i + at)
+        hay[at..]
+            .find(needle_lower)
+            .map(|i| (i + at, i + at + needle_lower.len()))
     } else {
         // Fold both sides per candidate so offsets stay in the original.
         hay[at..]
@@ -155,7 +157,7 @@ fn find_from(
                 hay.get(start..start + needle.len())
                     .is_some_and(|slice| slice.to_lowercase() == needle_lower)
             })
-            .map(|(i, _)| at + i)
+            .map(|(i, _)| (at + i, at + i + needle.len()))
     }
 }
 
@@ -234,7 +236,7 @@ mod tests {
         let hits = search(&corpus(), "index").unwrap();
         let hit = &hits[0];
         let transcript = "You have to maintain the index, explaining the cost.";
-        assert_eq!(&transcript[hit.start as usize..hit.end as usize], "index");
+        assert_eq!(js_slice(transcript, hit.start, hit.end), "index");
     }
 
     /// The snippet offsets are what the UI highlights with, so they have to
@@ -244,7 +246,7 @@ mod tests {
         let hits = search(&corpus(), "index").unwrap();
         let hit = &hits[0];
         assert_eq!(
-            &hit.snippet[hit.snippet_start as usize..hit.snippet_end as usize],
+            js_slice(&hit.snippet, hit.snippet_start, hit.snippet_end),
             "index"
         );
     }
@@ -319,5 +321,52 @@ mod tests {
         let hits = search(&conn, "needle").unwrap();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].snippet.contains("needle"));
+    }
+
+    /// Mirrors `String.prototype.slice`, so assertions read in the frontend's units.
+    fn js_slice(s: &str, start: u32, end: u32) -> String {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        let lo = (start as usize).min(units.len());
+        let hi = (end as usize).min(units.len()).max(lo);
+        String::from_utf16_lossy(&units[lo..hi])
+    }
+
+    /// Lowercasing grows the needle, so the end offset landed inside the mark.
+    #[test]
+    fn a_quoted_case_expanding_query_does_not_panic() {
+        let conn = open_in_memory().unwrap();
+        seed(&conn, "x", "2024-01-01T00:00:00Z", "the i\u{0307} mark");
+        search(&conn, "\"\u{0130}\"").unwrap();
+    }
+
+    /// Pure ASCII either side: the prefix alone is what skewed the highlight.
+    #[test]
+    fn snippet_offsets_survive_the_ellipsis_prefix() {
+        let conn = open_in_memory().unwrap();
+        let long = format!("{}target{}", "a".repeat(60), "b".repeat(60));
+        seed(&conn, "x", "2024-01-01T00:00:00Z", &long);
+
+        let hits = search(&conn, "target").unwrap();
+        let hit = &hits[0];
+        assert!(
+            hit.snippet.starts_with("\u{2026} "),
+            "the prefix is the case under test"
+        );
+        assert_eq!(
+            js_slice(&hit.snippet, hit.snippet_start, hit.snippet_end),
+            "target"
+        );
+    }
+
+    /// Astral text skews the other way: one char, two units.
+    #[test]
+    fn transcript_offsets_are_utf16_for_astral_text() {
+        let transcript = "\u{1F3A7} listening for needle now";
+        let conn = open_in_memory().unwrap();
+        seed(&conn, "x", "2024-01-01T00:00:00Z", transcript);
+
+        let hits = search(&conn, "needle").unwrap();
+        let hit = &hits[0];
+        assert_eq!(js_slice(transcript, hit.start, hit.end), "needle");
     }
 }
