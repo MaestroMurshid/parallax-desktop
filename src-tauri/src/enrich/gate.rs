@@ -39,6 +39,13 @@ impl Probe {
 /// §7.3 -- false when the entry is wholly someone else's words. Attributed
 /// spans may be quoted and connected; they may not be pushed on.
 pub fn has_own_span(entry: &Entry) -> bool {
+    // Nothing borrowed means nothing borrowed, whatever the transcript is.
+    // Without this an empty transcript reads as wholly attributed, and an
+    // entry recorded before a transcription model was installed is empty.
+    if !entry.spans.iter().any(|s| s.attributed) {
+        return true;
+    }
+
     let covered: u32 = entry
         .spans
         .iter()
@@ -237,5 +244,28 @@ mod tests {
             attributed: true,
         }];
         assert!(invoked_probes(&e).is_empty());
+    }
+
+    /// Reachable: an entry recorded before a transcription model is installed
+    /// has an empty transcript. Nothing borrowed means nothing borrowed, and
+    /// treating it as wholly someone else's words silenced it for good.
+    #[test]
+    fn an_empty_transcript_with_no_borrowed_spans_is_still_your_own() {
+        let mut e = entry(Role::Position, Register::Neutral, 120_000);
+        e.transcript = String::new();
+        assert!(has_own_span(&e));
+    }
+
+    /// An attributed span longer than the transcript must not underflow into
+    /// a huge number and read as fully covered by accident.
+    #[test]
+    fn a_span_beyond_the_transcript_does_not_underflow() {
+        let mut e = entry(Role::Position, Register::Neutral, 120_000);
+        e.spans = vec![Span {
+            start: 900,
+            end: 5,
+            attributed: true,
+        }];
+        assert!(has_own_span(&e), "an impossible span covers nothing");
     }
 }

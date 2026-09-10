@@ -101,8 +101,12 @@ impl LlamaServer {
     }
 }
 
-/// The server outlives the struct otherwise, and a tray app that leaves a
-/// multi-gigabyte process behind on quit is a memory leak with a UI.
+/// A backstop, not the mechanism. Tauri exits through `std::process::exit`,
+/// which runs no destructors, so anything held in managed state is never
+/// dropped on quit -- the tray's Quit item included. The child is killed
+/// explicitly from the exit handler in `lib.rs`; this only covers a
+/// `LlamaServer` that goes out of scope some other way, such as the early
+/// return when it never became ready.
 impl Drop for LlamaServer {
     fn drop(&mut self) {
         self.stop();
@@ -189,5 +193,52 @@ mod tests {
         };
         assert!(!server.ready());
         assert!(server.ask(Ask::new("s", "u")).is_err());
+    }
+
+    /// Both other tests use `child: None`, so nothing proved a live process is
+    /// actually killed -- which is the whole purpose of the file. A real child
+    /// stands in for llama-server here.
+    #[test]
+    fn stopping_kills_a_real_child() {
+        // Something that would otherwise outlive the test.
+        let child = Command::new("cmd")
+            .args(["/C", "ping -n 60 127.0.0.1 > nul"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("could not spawn a stand-in child");
+        let pid = child.id();
+
+        let server = LlamaServer {
+            port: free_port().unwrap(),
+            model_name: "test".into(),
+            child: Mutex::new(Some(child)),
+            client: reqwest::blocking::Client::new(),
+        };
+        server.stop();
+
+        assert!(
+            server.child.lock().unwrap().is_none(),
+            "the handle is released so a second stop is a no-op"
+        );
+        // Reaped, not merely killed: a zombie still holds a process slot.
+        let still_running = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}")])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false);
+        assert!(!still_running, "process {pid} outlived stop()");
+    }
+
+    #[test]
+    fn stopping_twice_is_harmless() {
+        let server = LlamaServer {
+            port: free_port().unwrap(),
+            model_name: "test".into(),
+            child: Mutex::new(None),
+            client: reqwest::blocking::Client::new(),
+        };
+        server.stop();
+        server.stop();
     }
 }

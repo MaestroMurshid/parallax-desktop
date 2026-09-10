@@ -56,6 +56,17 @@ impl AppState {
         self.root.join("audio")
     }
 
+    /// Everything that outlives a destructor. Called from the exit handler
+    /// rather than `Drop`, because Tauri exits through `std::process::exit`.
+    pub fn shutdown(&self) {
+        // A recording in flight is dropped, which stops the stream. Nothing is
+        // written: an app being quit mid-sentence did not ask for a note.
+        self.recording
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+    }
+
     pub fn models_dir(&self) -> PathBuf {
         self.root.join("models")
     }

@@ -40,12 +40,16 @@ pub fn recording_level(state: State<AppState>) -> f32 {
 
 /// Stops, writes the audio, transcribes, and lands an entry.
 ///
+/// Async so the transcription does not run on the thread pumping the window.
+/// A long recording takes seconds even at 35x realtime, and doing that inline
+/// freezes the UI and the hotkey with it.
+///
 /// Enrichment does not happen here. What this owes the caller is a row that
 /// exists and a place on the canvas; classification and the question arrive
 /// after, so a slow or absent model cannot cost someone their recording.
 #[tauri::command]
-pub fn stop_recording(
-    state: State<AppState>,
+pub async fn stop_recording(
+    state: State<'_, AppState>,
     parent_edge: Option<String>,
     question_id: Option<String>,
 ) -> Result<Entry> {
@@ -64,16 +68,64 @@ pub fn stop_recording(
         db::settings::get(&conn)?
     };
 
+    // The recording is the one thing here that cannot be recreated, so it is
+    // staged before anything that can fail. If transcription throws, the
+    // samples are still recoverable rather than dropped on the floor.
+    stage(&state, &pcm, duration_ms);
+
     let transcript = match state.transcription_model(settings.transcription_model) {
         Some(model) => crate::stt::transcribe(&model, &pcm, settings.transcription_backend)?.text,
-        // No model yet is not a lost recording: the audio is on disk and the
-        // transcript is a derivation of it, so it can be filled in later.
+        // No model yet is not a lost recording: the audio is the record and
+        // the transcript is derived from it, so it can be filled in later.
         None => String::new(),
     };
 
+    let entry = land(&state, pcm, transcript, duration_ms, parent_edge)?;
+
     let conn = state.db();
-    let entry = db::create::create(
+    if let Some(question_id) = question_id {
+        db::questions::mark_answered(&conn, &question_id)?;
+    }
+
+    // Only now is there another copy.
+    state
+        .discarded
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take();
+    Ok(entry)
+}
+
+fn stage(state: &AppState, pcm: &[f32], duration_ms: i64) {
+    *state.discarded.lock().unwrap_or_else(|p| p.into_inner()) = Some(crate::state::Discarded {
+        pcm: pcm.to_vec(),
+        duration_ms,
+        at: std::time::Instant::now(),
+    });
+}
+
+/// Writes the audio, then the row that points at it.
+///
+/// That order matters. The row used to be committed first and the file written
+/// after, so a full disk left an entry on the canvas referring to audio that
+/// did not exist -- and nothing rolled it back, because each statement had
+/// already autocommitted.
+fn land(
+    state: &AppState,
+    pcm: Vec<f32>,
+    transcript: String,
+    duration_ms: i64,
+    parent_edge: Option<String>,
+) -> Result<Entry> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let relative = format!("audio/{id}.wav");
+    let full = state.root.join(&relative);
+    let bytes = wav::write(&pcm, &full)?;
+
+    let conn = state.db();
+    let entry = db::create::create_with_id(
         &conn,
+        id,
         db::create::NewEntry {
             transcript,
             duration_ms,
@@ -82,24 +134,23 @@ pub fn stop_recording(
             local_only: None,
             typed: false,
         },
-    )?;
+    );
 
-    // The path is derived from the id, so it cannot be known until the entry
-    // exists. Written after, and the row already points at it.
-    if let Some(relative) = &entry.audio_path {
-        let full = state.root.join(relative);
-        let bytes = wav::write(&pcm, &full)?;
-        conn.execute(
-            "UPDATE audio SET byte_size = ?2 WHERE entry_id = ?1",
-            rusqlite::params![entry.id, bytes as i64],
-        )?;
+    match entry {
+        Ok(entry) => {
+            conn.execute(
+                "UPDATE audio SET byte_size = ?2 WHERE entry_id = ?1",
+                rusqlite::params![entry.id, bytes as i64],
+            )?;
+            Ok(entry)
+        }
+        Err(e) => {
+            // No row, so the file is an orphan. Leaving it would accumulate
+            // silently in the audio directory.
+            let _ = std::fs::remove_file(&full);
+            Err(e)
+        }
     }
-
-    if let Some(question_id) = question_id {
-        db::questions::mark_answered(&conn, &question_id)?;
-    }
-
-    Ok(entry)
 }
 
 /// §4 -- discard belongs in the recording state, not after it. You know it is
@@ -126,47 +177,39 @@ pub fn discard_recording(state: State<AppState>) -> Result<()> {
     Ok(())
 }
 
+/// Async for the same reason as stop_recording: this transcribes too.
 #[tauri::command]
-pub fn undo_discard(state: State<AppState>) -> Result<Option<Entry>> {
-    let discarded = state
-        .discarded
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .take();
-
-    let Some(discarded) = discarded else {
+pub async fn undo_discard(state: State<'_, AppState>) -> Result<Option<Entry>> {
+    // Read, do not take. The staged samples are the only copy, and consuming
+    // them before the replacement is written would let a failure downstream
+    // destroy exactly the recording the undo window exists to protect.
+    let staged = {
+        let slot = state.discarded.lock().unwrap_or_else(|p| p.into_inner());
+        match slot.as_ref() {
+            Some(d) if d.at.elapsed().as_millis() as u64 <= UNDO_WINDOW_MS => {
+                Some((d.pcm.clone(), d.duration_ms))
+            }
+            _ => None,
+        }
+    };
+    let Some((pcm, duration_ms)) = staged else {
         return Ok(None);
     };
-    if discarded.at.elapsed().as_millis() as u64 > UNDO_WINDOW_MS {
-        return Ok(None);
-    }
 
     let settings = {
         let conn = state.db();
         db::settings::get(&conn)?
     };
     let transcript = match state.transcription_model(settings.transcription_model) {
-        Some(model) => {
-            crate::stt::transcribe(&model, &discarded.pcm, settings.transcription_backend)?.text
-        }
+        Some(model) => crate::stt::transcribe(&model, &pcm, settings.transcription_backend)?.text,
         None => String::new(),
     };
 
-    let conn = state.db();
-    let entry = db::create::create(
-        &conn,
-        db::create::NewEntry {
-            transcript,
-            duration_ms: discarded.duration_ms,
-            fingerprint: fingerprint::downsample(&discarded.pcm),
-            parent_entry_id: None,
-            local_only: None,
-            typed: false,
-        },
-    )?;
-
-    if let Some(relative) = &entry.audio_path {
-        wav::write(&discarded.pcm, &state.root.join(relative))?;
-    }
+    let entry = land(&state, pcm, transcript, duration_ms, None)?;
+    state
+        .discarded
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take();
     Ok(Some(entry))
 }

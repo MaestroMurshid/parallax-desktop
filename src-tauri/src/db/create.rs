@@ -166,7 +166,13 @@ fn field_from(conn: &Connection) -> Result<Field> {
 }
 
 pub fn create(conn: &Connection, draft: NewEntry) -> Result<Entry> {
-    let id = uuid::Uuid::new_v4().to_string();
+    create_with_id(conn, uuid::Uuid::new_v4().to_string(), draft)
+}
+
+/// Takes the id rather than minting one, so a caller that has to write a file
+/// named after the entry can do that *before* the row exists -- a row pointing
+/// at audio that was never written is worse than no row at all.
+pub fn create_with_id(conn: &Connection, id: String, draft: NewEntry) -> Result<Entry> {
     let title = derive_title(&draft.transcript);
     let (half_w, half_h) = title_box(&title, draft.duration_ms);
 

@@ -205,6 +205,16 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running application");
+        .build(tauri::generate_context!())
+        .expect("error while building application")
+        .run(|app, event| {
+            // Tauri exits with std::process::exit, which runs no destructors,
+            // so nothing in managed state is ever dropped -- a llama-server
+            // child would be orphaned on every quit, holding gigabytes.
+            if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<state::AppState>() {
+                    state.shutdown();
+                }
+            }
+        });
 }

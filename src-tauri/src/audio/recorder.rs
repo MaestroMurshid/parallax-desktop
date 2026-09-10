@@ -97,7 +97,16 @@ pub fn start() -> Result<Recording> {
     let buffer = Arc::new(Mutex::new(Vec::<f32>::new()));
     let sink = Arc::clone(&buffer);
 
-    let ratio = (device_rate as f64 / SAMPLE_RATE as f64).max(1.0);
+    // Below the rate we need there is nothing to decimate, and clamping the
+    // ratio would keep every frame and transcribe the result as though it were
+    // 16kHz -- the wrong tempo, and confidently wrong words rather than an
+    // obvious failure.
+    if device_rate < SAMPLE_RATE {
+        return Err(Error::Other(format!(
+            "the microphone runs at {device_rate}Hz; transcription needs at least {SAMPLE_RATE}Hz"
+        )));
+    }
+    let ratio = device_rate as f64 / SAMPLE_RATE as f64;
     let mut carry = 0.0_f64;
 
     let stream = device
