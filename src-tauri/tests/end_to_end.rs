@@ -390,3 +390,20 @@ fn a_settings_failure_keeps_the_staged_samples() {
         "the samples were dropped before anything could fail"
     );
 }
+
+/// Against the binary the installer ships, when it has been fetched. Skipped
+/// rather than failed when absent: scripts/fetch-llama.ps1 is not a build step.
+#[test]
+fn the_bundled_llama_server_reports_its_devices() {
+    let bundled = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries/llama");
+    let Some(binary) = parallax_lib::llm::binary::resolve(None, Some(&bundled)) else {
+        eprintln!("skipped: no bundled llama-server");
+        return;
+    };
+
+    let found = parallax_lib::llm::binary::devices(&binary);
+    assert!(!found.is_empty(), "a Vulkan build should report something");
+    let best = parallax_lib::llm::binary::best_device(&found).unwrap();
+    eprintln!("devices: {found:?}\nchose: {} ({})", best.id, best.name);
+    assert!(best.free_mib > 0);
+}

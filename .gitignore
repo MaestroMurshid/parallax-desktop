@@ -59,3 +59,7 @@ $RECYCLE.BIN/
 # pick this up cold, plus the design doc. Local, not part of the repo.
 docs/*
 !docs/ui-fixes.html
+
+# Bundled llama.cpp runtime. ~89MB of third-party binaries: fetched by
+# scripts/fetch-llama.ps1 at a pinned build, not carried in the repo.
+src-tauri/binaries/

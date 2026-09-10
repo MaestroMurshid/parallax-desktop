@@ -4,6 +4,7 @@
 //! Audio and embeddings are not here on purpose. They are local
 //! unconditionally, so there is nothing for them to be abstracted over.
 
+pub mod binary;
 pub mod llama_server;
 
 use crate::error::Result;

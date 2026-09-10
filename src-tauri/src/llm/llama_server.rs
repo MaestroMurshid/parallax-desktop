@@ -31,6 +31,7 @@ impl LlamaServer {
         binary: &PathBuf,
         model: &PathBuf,
         backend: ComputeBackend,
+        device: Option<&str>,
         context: u32,
     ) -> Result<Self> {
         let port = free_port()?;
@@ -56,6 +57,11 @@ impl LlamaServer {
             }
             _ => {
                 command.arg("-ngl").arg("99");
+                // Without a device, offload lands on the first one, which on a
+                // laptop is the integrated GPU and its shared system RAM.
+                if let Some(id) = device {
+                    command.arg("--device").arg(id);
+                }
             }
         }
 
