@@ -8,7 +8,7 @@ use crate::db;
 use crate::error::{Error, Result};
 use crate::model::Entry;
 use crate::state::AppState;
-use tauri::State;
+use tauri::{Emitter, Manager, State};
 
 /// §4 -- a discard is undoable for a minute, because escape meaning "throw it
 /// away" while recording and "leave it" once stopped is a muscle-memory trap.
@@ -49,6 +49,7 @@ pub fn recording_level(state: State<AppState>) -> f32 {
 /// after, so a slow or absent model cannot cost someone their recording.
 #[tauri::command]
 pub async fn stop_recording(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     parent_edge: Option<String>,
     question_id: Option<String>,
@@ -62,7 +63,31 @@ pub async fn stop_recording(
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();
-    finish(&state, pcm, duration_ms, parent_edge, question_id)
+    let entry = finish(&state, pcm, duration_ms, parent_edge, question_id)?;
+    enrich_later(&app, entry.id.clone());
+    Ok(entry)
+}
+
+/// Enrichment runs after the entry is safe on disk, never before. It is allowed
+/// to be slow, absent or wrong, and none of that may cost a recording (§9.4).
+fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let done = state
+            .with_reasoning(|provider| crate::enrich::run::run(&state.db(), provider, &entry_id));
+        match done {
+            // No binary or no model yet: the question arrives when one lands.
+            Ok(None) => {}
+            Ok(Some(enriched)) => {
+                let _ = app.emit("entry://enriched", &entry_id);
+                if enriched.question_id.is_none() {
+                    println!("classified {entry_id}, no question");
+                }
+            }
+            Err(e) => eprintln!("enrichment failed for {entry_id}: {e}"),
+        }
+    });
 }
 
 /// Everything after the microphone stops, separated so the order in which a

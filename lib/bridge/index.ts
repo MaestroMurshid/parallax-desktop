@@ -129,6 +129,10 @@ export interface Bridge {
    *  work without it, and the question surfaces when the model lands (§9.4). */
   downloadModel(modelId: string): Promise<void>;
   onModelProgress(cb: (m: ModelInfo) => void): Unsubscribe;
+  /** Fires when classification and the question have landed on an entry.
+   *  Enrichment runs after capture returns, so without this the canvas keeps
+   *  showing the placeholder title and the question never appears. */
+  onEntryEnriched(cb: (entryId: string) => void): Unsubscribe;
 
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;

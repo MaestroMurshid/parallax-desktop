@@ -190,7 +190,26 @@ pub fn run() {
             let app_data = app.path().app_data_dir()?;
             let root = state::resolve_root(&app_data);
             println!("corpus at {}", root.display());
-            app.manage(state::AppState::open(root)?);
+            let app_state = state::AppState::open(root)?;
+            // Bundled beside the installed app; in a dev build it is still in
+            // the source tree, which is why both are tried.
+            for candidate in [
+                app.path()
+                    .resource_dir()
+                    .ok()
+                    .map(|d| d.join("binaries/llama")),
+                Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/llama")),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if candidate.is_dir() {
+                    println!("llama runtime at {}", candidate.display());
+                    *app_state.llama_dir.lock().unwrap() = Some(candidate);
+                    break;
+                }
+            }
+            app.manage(app_state);
 
             app.global_shortcut().register(shortcut)?;
             build_tray(app.handle())?;

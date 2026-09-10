@@ -178,6 +178,10 @@ export class TauriBridge implements Bridge {
     return subscribe<ModelInfo>('model://progress', cb);
   }
 
+  onEntryEnriched(cb: (entryId: string) => void): Unsubscribe {
+    return subscribe<string>('entry://enriched', cb);
+  }
+
   getSettings(): Promise<Settings> {
     return invoke('get_settings');
   }

@@ -332,6 +332,52 @@ fn reanchor_action_items(conn: &Connection, entry_id: &str, transcript: &str) ->
     Ok(())
 }
 
+/// Type ids the classifier may choose between. Falls back to the built-in set
+/// when the table is empty, because an empty enum would constrain the reply to
+/// nothing at all.
+pub fn type_ids(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT id FROM types ORDER BY built_in DESC, created_at ASC")?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    let found: Vec<String> = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    if found.is_empty() {
+        return Ok(vec![
+            "position".to_string(),
+            "evidence".to_string(),
+            "note".to_string(),
+        ]);
+    }
+    Ok(found)
+}
+
+/// Enrichment's only write to an entry. The move phrase has no column yet, so
+/// the caller drops it; it belongs with embeddings, which do not exist.
+pub fn set_classification(
+    conn: &Connection,
+    id: &str,
+    title: &str,
+    role: Role,
+    register: Register,
+    type_id: &str,
+    summary: Option<&str>,
+) -> Result<()> {
+    let changed = conn.execute(
+        "UPDATE entries SET title = ?2, role = ?3, register = ?4, type_id = ?5, summary = ?6
+         WHERE id = ?1",
+        params![
+            id,
+            title,
+            role_str(role),
+            register_str(register),
+            type_id,
+            summary
+        ],
+    )?;
+    if changed == 0 {
+        return Err(crate::error::Error::NotFound(format!("no entry {id}")));
+    }
+    Ok(())
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<Option<Entry>> {
     Ok(load(conn, "id = ?1", &[&id])?.pop())
 }

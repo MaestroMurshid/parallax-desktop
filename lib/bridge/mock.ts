@@ -627,6 +627,11 @@ export class MockBridge implements Bridge {
     }, 220);
   }
 
+  /** The mock enriches inline before returning, so nothing lands later. */
+  onEntryEnriched(_cb: (entryId: string) => void): Unsubscribe {
+    return () => {};
+  }
+
   onModelProgress(cb: (m: ModelInfo) => void): Unsubscribe {
     this.modelListeners.add(cb);
     return () => {

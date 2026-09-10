@@ -4,6 +4,7 @@
 //! called on demand from the UI.
 
 pub mod gate;
+pub mod run;
 
 use crate::error::{Error, Result};
 use crate::llm::{Ask, LlmProvider};
