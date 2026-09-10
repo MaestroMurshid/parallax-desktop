@@ -1,3 +1,14 @@
+pub mod audio;
+pub mod commands;
+pub mod db;
+pub mod enrich;
+pub mod error;
+pub mod llm;
+pub mod model;
+pub mod scene;
+pub mod state;
+pub mod stt;
+
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WindowEvent};
@@ -91,7 +102,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&open, &capture, &separator, &quit])?;
 
     TrayIconBuilder::with_id("tray")
-        .icon(app.default_window_icon().cloned().expect("bundled app icon"))
+        .icon(
+            app.default_window_icon()
+                .cloned()
+                .expect("bundled app icon"),
+        )
         .tooltip("Parallax — Ctrl+Shift+Space to capture")
         .menu(&menu)
         // Windows convention: left click opens the window, right click opens
@@ -132,8 +147,49 @@ pub fn run() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![show_capture, hide_capture])
+        .invoke_handler(tauri::generate_handler![
+            show_capture,
+            hide_capture,
+            commands::corpus::list_entries,
+            commands::capture::start_recording,
+            commands::capture::stop_recording,
+            commands::capture::discard_recording,
+            commands::capture::undo_discard,
+            commands::capture::recording_level,
+            commands::corpus::create_entry,
+            commands::corpus::get_entry,
+            commands::corpus::list_children,
+            commands::corpus::move_entry,
+            commands::corpus::delete_entry,
+            commands::enrichment::get_question,
+            commands::enrichment::list_questions,
+            commands::enrichment::dismiss_question,
+            commands::enrichment::list_edges,
+            commands::enrichment::list_proposed_edges,
+            commands::enrichment::accept_edge,
+            commands::enrichment::dismiss_edge,
+            commands::enrichment::create_manual_edge,
+            commands::enrichment::list_action_items,
+            commands::enrichment::set_action_item_done,
+            commands::corpus::search_entries,
+            commands::corpus::load_sample_corpus,
+            commands::corpus::clear_sample_corpus,
+            commands::models::get_system_profile,
+            commands::models::list_models,
+            commands::models::models_location,
+            commands::system::get_settings,
+            commands::system::set_settings,
+            commands::system::corpus_location,
+        ])
         .setup(move |app| {
+            // Resolved before anything else: every other subsystem hangs off
+            // this root, and a failure here has to stop the app rather than
+            // leave it running against nothing.
+            let app_data = app.path().app_data_dir()?;
+            let root = state::resolve_root(&app_data);
+            println!("corpus at {}", root.display());
+            app.manage(state::AppState::open(root)?);
+
             app.global_shortcut().register(shortcut)?;
             build_tray(app.handle())?;
             Ok(())
@@ -149,6 +205,16 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running application");
+        .build(tauri::generate_context!())
+        .expect("error while building application")
+        .run(|app, event| {
+            // Tauri exits with std::process::exit, which runs no destructors,
+            // so nothing in managed state is ever dropped -- a llama-server
+            // child would be orphaned on every quit, holding gigabytes.
+            if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<state::AppState>() {
+                    state.shutdown();
+                }
+            }
+        });
 }

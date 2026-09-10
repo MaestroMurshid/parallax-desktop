@@ -1,29 +1,10 @@
 /**
- * Markers (§5.3). Allocation principle: type is a guess, so it stays quiet;
- * an unanswered question is certain and actionable, so it gets the app's one
- * saturated element.
- */
-
-import { edgeTreatmentFor } from '@/lib/scene/classification';
-import type { Entry } from '@/lib/types';
-
-export interface EntryMarkers {
-  /** Left unfinished — dashed stroke. From the user's own hedges. */
-  unfinished: boolean;
-  /** Concentric rings; one per return. */
-  returns: number;
-  /** Single solid outer ring. User-declared only (§6.3). */
-  resolved: boolean;
-  /** Orange dot — THE one colour. */
-  unansweredQuestion: boolean;
-  /** Dimmed fill, no edges. */
-  isolated: boolean;
-}
-
-/**
  * §5.3: unfinished is detected by **regex, not a model**. The user's own hedges
  * are a reliable signal and a model here would produce confident false
  * positives on exactly the entries where being wrong is least recoverable.
+ *
+ * The visual treatment is open: the dashed stroke it drove belonged to the
+ * blob canvas, and the typographic one has no replacement yet.
  */
 const HEDGES = [
   /\bidk\b/i,
@@ -42,35 +23,4 @@ const HEDGES = [
 
 export function detectUnfinished(transcript: string): boolean {
   return HEDGES.some((re) => re.test(transcript));
-}
-
-export interface MarkerContext {
-  returns: number;
-  hasUnansweredQuestion: boolean;
-  hasEdges: boolean;
-}
-
-export function markersFor(entry: Entry, ctx: MarkerContext): EntryMarkers {
-  return {
-    unfinished: entry.unfinished,
-    returns: ctx.returns,
-    resolved: entry.resolved,
-    unansweredQuestion: ctx.hasUnansweredQuestion,
-    isolated: !ctx.hasEdges,
-  };
-}
-
-/**
- * Edge treatment by type (§5.2) — reads as texture at canvas scale, not text.
- * §5.3 known issue: the soft treatment a `live` entry takes gets a faint
- * stroke below the fingerprint threshold so it doesn't vanish at low zoom.
- */
-export type EdgeTreatment = 'crisp' | 'irregular' | 'soft' | 'plain';
-
-/**
- * Role sets the base treatment; `live` softens it. Re-exported from the
- * registry so there is one definition of what a role looks like.
- */
-export function edgeTreatment(entry: Entry): EdgeTreatment {
-  return edgeTreatmentFor(entry);
 }

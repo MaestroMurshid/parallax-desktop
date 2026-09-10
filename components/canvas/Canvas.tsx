@@ -106,6 +106,10 @@ export default function Canvas() {
   const rendererRef = useRef<CanvasRenderer | null>(null);
   const [ready, setReady] = useState(false);
   const hasEntries = useApp((s) => s.order.length > 0);
+  // The legend is pinned to the right edge, which is the edge the sheets
+  // slide out from. It stands down while one is open rather than showing
+  // through it and colliding with the summary column.
+  const panelOpen = useApp((s) => s.overlay !== 'none');
 
   useEffect(() => {
     const host = hostRef.current;
@@ -357,7 +361,7 @@ export default function Canvas() {
       <div className={styles.host} ref={hostRef}>
         {ready && <LabelOverlay renderer={rendererRef} />}
       </div>
-      {ready && hasEntries && <Legend />}
+      {ready && hasEntries && !panelOpen && <Legend />}
     </>
   );
 }

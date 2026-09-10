@@ -15,7 +15,6 @@ import type {
   SystemProfile,
   Span,
 } from '@/lib/types';
-import { radiusForDuration } from '@/lib/scene/blob';
 import { automaticProbes, invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
 import { detectUnfinished } from '@/lib/scene/markers';
 import { placeEntry, type PlacedNode } from '@/lib/scene/placement';
@@ -133,6 +132,8 @@ export class MockBridge implements Bridge {
     providerName: 'llama-server',
     defaultLocalOnly: false,
     transcriptionModel: 'base',
+    transcriptionBackend: 'auto',
+    reasoningBackend: 'auto',
   };
 
   private models: ModelInfo[] = [

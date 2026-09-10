@@ -293,8 +293,4 @@ export function invokedProbes(entry: Entry, types: TypeDefinition[] = BUILT_IN_T
   return ALL_PROBES.filter((p) => (p.id === 'feynman' ? canExplain : canPush));
 }
 
-export function edgeTreatmentFor(entry: Entry, types?: TypeDefinition[]): EdgeTreatment {
-  return treatmentFor(entry, types)?.edge ?? 'plain';
-}
-
 export type { Role };
