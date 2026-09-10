@@ -35,12 +35,21 @@ pub fn get_system_profile() -> SystemProfile {
     }
 }
 
-/// The catalogue. Sizes are the real download sizes, and the RAM figures are
-/// what each is worth running at rather than the minimum it will load in.
+/// The catalogue. Sizes are the real download sizes; the RAM figure is the
+/// least a model is worth recommending at, since onboarding picks the largest
+/// one that fits.
 ///
 /// Measured: Qwen3-4B is the floor for classification. At 1.7B the JSON is
 /// always valid and the content is not -- wrong register, a summary that
-/// misstates the note, and the move phrase copied out of the prompt.
+/// misstates the note, and the move phrase copied out of the prompt. So 4B's
+/// figure is what it actually needs rather than a round number: 2.4GB of
+/// weights plus a KV cache is comfortable in 12GB, and a 16GB machine that
+/// reports 14.9 would otherwise be handed the model known not to work.
+///
+/// Every figure is set against what a machine of that size actually reports,
+/// not what is printed on the box. Firmware takes its share before the OS
+/// sees anything, so a round number here silently excludes the machine it was
+/// chosen for.
 fn catalogue() -> Vec<ModelInfo> {
     vec![
         model(
@@ -77,7 +86,7 @@ fn catalogue() -> Vec<ModelInfo> {
             "1.7B",
             "Q4_K_M",
             1_050_000_000,
-            8,
+            6,
         ),
         model(
             "qwen3-4b-q4",
@@ -86,7 +95,7 @@ fn catalogue() -> Vec<ModelInfo> {
             "4B",
             "Q4_K_M",
             2_400_000_000,
-            16,
+            12,
         ),
         model(
             "qwen3-8b-q4",
@@ -95,7 +104,7 @@ fn catalogue() -> Vec<ModelInfo> {
             "8B",
             "Q4_K_M",
             4_700_000_000,
-            32,
+            24,
         ),
     ]
 }
@@ -235,14 +244,32 @@ mod tests {
         assert_eq!(ids.len(), count);
     }
 
-    /// Measured on the target machine: 4B is the floor for classification, and
-    /// it has to be reachable on a 16GB laptop or the recommendation picks 1.7B.
+    /// 4B is the measured floor for classification, so it has to be reachable
+    /// on an ordinary laptop. A 16GB machine reports about 14.9GB once
+    /// firmware has taken its share, and recommending against the sticker
+    /// number hands that machine the model known not to work.
     #[test]
-    fn the_four_billion_model_is_recommended_within_sixteen_gigabytes() {
-        let four_b = catalogue()
+    fn a_sixteen_gigabyte_laptop_is_recommended_the_model_that_works() {
+        let reported = 14_900_000_000u64;
+        let best = catalogue()
             .into_iter()
-            .find(|m| m.id == "qwen3-4b-q4")
+            .filter(|m| m.kind == ModelKind::Reasoning)
+            .filter(|m| m.recommended_ram_bytes <= reported)
+            .max_by_key(|m| m.size_bytes)
             .unwrap();
-        assert!(four_b.recommended_ram_bytes <= 16_000_000_000);
+
+        assert_eq!(
+            best.id, "qwen3-4b-q4",
+            "1.7B was measured as not good enough"
+        );
+    }
+
+    /// And a genuinely small machine is still offered something.
+    #[test]
+    fn an_eight_gigabyte_machine_is_still_offered_a_model() {
+        let reported = 7_800_000_000u64;
+        assert!(catalogue()
+            .into_iter()
+            .any(|m| m.kind == ModelKind::Reasoning && m.recommended_ram_bytes <= reported));
     }
 }
