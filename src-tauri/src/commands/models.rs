@@ -147,8 +147,23 @@ fn model(
 /// exactly, not because a tenth of a model is acceptable.
 const COMPLETE_ENOUGH: f64 = 0.9;
 
-fn state_for(expected_bytes: u64, on_disk: Option<u64>) -> ModelState {
-    match on_disk {
+fn state_for(expected_bytes: u64, on_disk: Option<u64>, partial: Option<u64>) -> ModelState {
+    // A .part is a download in flight. The bytes are on disk under a name
+    // nothing loads, so without looking for it a download in progress reads as
+    // never started -- and the status bar said "not downloaded" at 22%.
+    let on_disk = match on_disk {
+        Some(bytes) => bytes,
+        None => {
+            return match partial {
+                Some(bytes) => ModelState::Downloading {
+                    received_bytes: bytes,
+                    total_bytes: expected_bytes,
+                },
+                None => ModelState::NotDownloaded,
+            }
+        }
+    };
+    match Some(on_disk) {
         None => ModelState::NotDownloaded,
         Some(bytes) if (bytes as f64) >= expected_bytes as f64 * COMPLETE_ENOUGH => {
             ModelState::Ready
@@ -170,9 +185,11 @@ pub fn list_models(state: State<AppState>) -> Vec<ModelInfo> {
         .into_iter()
         .map(|mut info| {
             let path = dir.join(format!("{}.gguf", info.id));
+            let part = crate::model::download::part_path(&path);
             info.state = state_for(
                 info.size_bytes,
                 std::fs::metadata(&path).ok().map(|m| m.len()),
+                std::fs::metadata(&part).ok().map(|m| m.len()),
             );
             info
         })
@@ -192,26 +209,35 @@ mod tests {
 
     #[test]
     fn a_model_that_is_not_there_is_not_downloaded() {
-        assert!(matches!(state_for(1_000, None), ModelState::NotDownloaded));
+        assert!(matches!(
+            state_for(1_000, None, None),
+            ModelState::NotDownloaded
+        ));
     }
 
     #[test]
     fn a_complete_file_is_ready() {
-        assert!(matches!(state_for(1_000, Some(1_000)), ModelState::Ready));
+        assert!(matches!(
+            state_for(1_000, Some(1_000), None),
+            ModelState::Ready
+        ));
     }
 
     /// Published sizes and bytes on disk rarely agree exactly, so a small
     /// shortfall is still a model.
     #[test]
     fn a_slightly_smaller_file_is_still_ready() {
-        assert!(matches!(state_for(1_000, Some(950)), ModelState::Ready));
+        assert!(matches!(
+            state_for(1_000, Some(950), None),
+            ModelState::Ready
+        ));
     }
 
     /// The case this exists for: an interrupted download left on disk would
     /// otherwise load as a corrupt model and read as the app being broken.
     #[test]
     fn a_truncated_download_reports_as_still_arriving() {
-        match state_for(1_000, Some(400)) {
+        match state_for(1_000, Some(400), None) {
             ModelState::Downloading {
                 received_bytes,
                 total_bytes,
@@ -226,7 +252,7 @@ mod tests {
     #[test]
     fn an_empty_file_is_not_a_model() {
         assert!(matches!(
-            state_for(1_000, Some(0)),
+            state_for(1_000, Some(0), None),
             ModelState::Downloading { .. }
         ));
     }
@@ -244,6 +270,31 @@ mod tests {
 
     /// Ids are the filename on disk, so a collision would make two models the
     /// same file.
+    /// Bytes on disk under a name nothing loads. Without this the status bar
+    /// said "not downloaded" while a 2.5GB download sat at 22%.
+    #[test]
+    fn a_part_file_reports_as_downloading() {
+        match state_for(1_000, None, Some(220)) {
+            ModelState::Downloading {
+                received_bytes,
+                total_bytes,
+            } => {
+                assert_eq!(received_bytes, 220);
+                assert_eq!(total_bytes, 1_000);
+            }
+            other => panic!("expected downloading, got {other:?}"),
+        }
+    }
+
+    /// The finished file wins: a .part left behind must not mask it.
+    #[test]
+    fn a_complete_file_beats_a_leftover_part() {
+        assert!(matches!(
+            state_for(1_000, Some(1_000), Some(220)),
+            ModelState::Ready
+        ));
+    }
+
     #[test]
     fn catalogue_ids_are_unique() {
         let mut ids: Vec<String> = catalogue().into_iter().map(|m| m.id).collect();

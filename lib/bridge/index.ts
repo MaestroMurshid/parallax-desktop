@@ -80,6 +80,9 @@ export interface Bridge {
    *  before you stop (§4). Backed by a ~60s undo window, not a dialog. */
   discardRecording(): Promise<void>;
   undoDiscard(): Promise<Entry | null>;
+  /** The transcript so far, while still recording. Empty when there is no model
+   *  yet, too little audio, or nothing recording. */
+  partialTranscript(): Promise<string>;
   /** Live amplitude for the equalizer bars. The only thing that animates (§8). */
   onAmplitude(cb: (level: number) => void): Unsubscribe;
 

@@ -157,6 +157,7 @@ pub fn run() {
             commands::capture::discard_recording,
             commands::capture::undo_discard,
             commands::capture::recording_level,
+            commands::capture::partial_transcript,
             commands::corpus::create_entry,
             commands::corpus::get_entry,
             commands::corpus::read_audio,

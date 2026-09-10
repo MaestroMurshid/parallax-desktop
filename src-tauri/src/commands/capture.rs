@@ -38,6 +38,47 @@ pub fn recording_level(state: State<AppState>) -> f32 {
         .unwrap_or(0.0)
 }
 
+/// The transcript so far, for the panel to show while you are still talking.
+///
+/// Polled for the same reason the level is: the panel asks while it is on
+/// screen, and nothing has to be torn down when it is not. Each call transcribes
+/// everything recorded so far, because whisper needs the whole utterance to be
+/// coherent -- so a pass costs about a thirty-fifth of the duration and the
+/// refresh naturally slows as the note grows. Empty rather than an error when
+/// there is no model, too little audio, or no recording.
+#[tauri::command]
+pub async fn partial_transcript(state: State<'_, AppState>) -> Result<String> {
+    const MIN_SAMPLES: usize = 16_000;
+
+    let samples = {
+        let slot = state.recording.lock().unwrap_or_else(|p| p.into_inner());
+        match slot.as_ref() {
+            Some(recording) => recording.samples(),
+            None => return Ok(String::new()),
+        }
+    };
+    if samples.len() < MIN_SAMPLES {
+        return Ok(String::new());
+    }
+
+    let settings = {
+        let conn = state.db();
+        db::settings::get(&conn)?
+    };
+    let Some(model) = state.transcription_model(settings.transcription_model) else {
+        return Ok(String::new());
+    };
+
+    // Always on the CPU: the reasoning model has first claim on VRAM, and this
+    // runs repeatedly while a recording is in flight.
+    Ok(
+        crate::stt::transcribe(&model, &samples, crate::model::ComputeBackend::Cpu)?
+            .text
+            .trim()
+            .to_string(),
+    )
+}
+
 /// Stops, writes the audio, transcribes, and lands an entry.
 ///
 /// Async so the transcription does not run on the thread pumping the window.

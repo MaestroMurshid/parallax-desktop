@@ -416,6 +416,15 @@ export class MockBridge implements Bridge {
     return this.discarded;
   }
 
+  /** Reveals the fixture transcript a few words at a time, so the browser shows
+   *  the same shape the native path does. */
+  async partialTranscript(): Promise<string> {
+    const note = PLACEHOLDER_NOTES[this.liveTake % PLACEHOLDER_NOTES.length]!;
+    const said = note.transcript.split(' ');
+    const shown = Math.min(said.length, Math.floor((Date.now() - this.recordingStartedAt) / 700));
+    return said.slice(0, shown).join(' ');
+  }
+
   onAmplitude(cb: (level: number) => void): Unsubscribe {
     this.amplitudeListeners.add(cb);
     return () => {

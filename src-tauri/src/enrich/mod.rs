@@ -70,8 +70,11 @@ pub fn classify(
     transcript: &str,
     type_ids: &[String],
 ) -> Result<Classification> {
-    let reply = provider
-        .ask(Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids)))?;
+    // 400 truncated a real summary mid-string, and a constrained reply that stops
+    // early is unparseable rather than short.
+    let mut ask = Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids));
+    ask.max_tokens = 700;
+    let reply = provider.ask(ask)?;
 
     let mut parsed: Classification = serde_json::from_str(&reply)
         .map_err(|e| Error::Other(format!("classification was not readable: {e}")))?;

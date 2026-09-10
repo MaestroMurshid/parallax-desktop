@@ -102,8 +102,26 @@ export class TauriBridge implements Bridge {
   }
 
   /** cpal capture emits these; the equalizer is the only animation in the app (§8). */
+  partialTranscript(): Promise<string> {
+    return invoke('partial_transcript');
+  }
+
   onAmplitude(cb: (level: number) => void): Unsubscribe {
-    return subscribe<number>('capture://amplitude', cb);
+    // Polled, not pushed. recording_level exists for exactly this and nothing
+    // ever emitted capture://amplitude, so the bars sat still and a live mic
+    // looked muted. 33ms is the refresh the equalizer was built against.
+    let stopped = false;
+    const timer = setInterval(() => {
+      void invoke<number>('recording_level')
+        .then((level) => {
+          if (!stopped) cb(Math.min(1, Math.max(0, level)));
+        })
+        .catch(() => {});
+    }, 33);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }
 
   // -- enrichment ---------------------------------------------------------

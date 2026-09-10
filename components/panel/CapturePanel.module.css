@@ -41,3 +41,15 @@
   color: var(--meta);
   font-variant-numeric: tabular-nums;
 }
+
+/* A rough draft, and shaped to read as one: dimmed, small, and capped so a long
+   note scrolls rather than growing the panel under the cursor. */
+.partial {
+  margin: 0.5rem 0 0;
+  max-height: 4.5em;
+  overflow-y: auto;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: var(--dimmed-fg);
+  text-align: left;
+}

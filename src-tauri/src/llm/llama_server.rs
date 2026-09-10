@@ -21,6 +21,10 @@ pub struct LlamaServer {
     client: reqwest::blocking::Client,
 }
 
+/// Enough for compute buffers and the desktop, and little enough that a 4GB
+/// card still takes the whole model.
+const FIT_MARGIN_MIB: u32 = 256;
+
 impl LlamaServer {
     /// Spawns the server and waits for it to answer `/health`.
     ///
@@ -61,6 +65,11 @@ impl LlamaServer {
                 if let Some(id) = device {
                     command.arg("--device").arg(id);
                 }
+                // --fit keeps 1GiB per device free by default, which is a
+                // quarter of a 4GB card: 2.3GiB of weights plus a 576MiB KV
+                // cache then does not fit, so it offloads part of the model and
+                // runs the rest on CPU. Measured, that costs about 10x.
+                command.arg("--fit-target").arg(FIT_MARGIN_MIB.to_string());
             }
         }
 

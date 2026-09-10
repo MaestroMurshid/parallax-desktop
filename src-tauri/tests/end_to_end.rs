@@ -460,3 +460,92 @@ fn a_real_whisper_model_downloads_and_transcribes() {
         out.text
     );
 }
+
+/// The real model, the real server, the real enrichment path. Ignored because it
+/// needs ~2.5GB staged and takes seconds:
+///   cargo test --test end_to_end -- --ignored --nocapture real_enrichment
+#[test]
+#[ignore = "needs a staged reasoning model"]
+fn real_enrichment_classifies_and_anchors_a_question() {
+    let root = std::path::PathBuf::from("D:/parallax-test-root");
+    if !root.join("models/qwen3-4b-q4.gguf").is_file() {
+        eprintln!("skipped: no model staged at {}", root.display());
+        return;
+    }
+
+    let state = AppState::open(root).unwrap();
+    *state.llama_dir.lock().unwrap() =
+        Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/llama"));
+
+    {
+        let conn = state.db();
+        let mut settings = db::settings::get(&conn).unwrap();
+        settings.model_id = Some("qwen3-4b-q4".into());
+        db::settings::set(&conn, &settings).unwrap();
+    }
+
+    let said = "I keep reaching for an index whenever a query feels slow, but the \
+        write amplification is real and I have never actually measured whether the \
+        reads I am speeding up are the ones anybody waits on.";
+
+    let made = {
+        let conn = state.db();
+        db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: said.into(),
+                duration_ms: 48_000,
+                fingerprint: vec![0.3, 0.6, 0.4],
+                parent_entry_id: None,
+                local_only: None,
+                typed: false,
+            },
+        )
+        .unwrap()
+    };
+    eprintln!(
+        "before: title={:?} register={:?}",
+        made.title, made.register
+    );
+
+    let started = std::time::Instant::now();
+    let done = state
+        .with_reasoning(|provider| {
+            eprintln!(
+                "provider: {} (load {:?})",
+                provider.name(),
+                started.elapsed()
+            );
+            let asked = std::time::Instant::now();
+            let out = parallax_lib::enrich::run::run(&state.db(), provider, &made.id);
+            eprintln!("enrichment took {:?}", asked.elapsed());
+            out
+        })
+        .unwrap()
+        .expect("a staged model should produce a provider");
+    eprintln!("total {:?}", started.elapsed());
+
+    let conn = state.db();
+    let after = db::entries::get(&conn, &made.id).unwrap().unwrap();
+    eprintln!(
+        "after: title={:?} role={:?} register={:?} type={:?}\nsummary={:?}",
+        after.title, after.role, after.register, after.type_id, after.summary
+    );
+    assert!(done.classified);
+    assert_ne!(
+        after.title, made.title,
+        "classification did not change anything"
+    );
+
+    match db::questions::list_for(&conn, &made.id).unwrap().first() {
+        Some(q) => {
+            let span = q.span.as_ref().expect("a question must be anchored");
+            let quoted = &said[span.start as usize..span.end as usize];
+            eprintln!("question: {:?}\nanchored to: {:?}", q.text, quoted);
+            assert!(said.contains(quoted), "the anchor is not in the note");
+        }
+        None => eprintln!("no question: gates declined after classification"),
+    }
+
+    state.shutdown();
+}
