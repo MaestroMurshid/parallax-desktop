@@ -28,22 +28,40 @@ pub struct Classification {
 const CLASSIFY_SYSTEM: &str = "\
 You are filing a spoken note. Answer about the note, never about the speaker.
 
-role -- what the note does:
-  position: the speaker's own reasoning, asserted with grounds
-  evidence: a fact, a number, something noticed, or something being learned
-  note: admin, lists, intents, reminders
-
-register -- live when something personal is at stake in it, unresolved or raw;
-neutral otherwise. When it is not clear, answer live.
+Answer the fields in the order they are listed. An earlier answer cannot be
+revised once a later one has been given.
 
 title: three or four words taken from the speaker's own phrasing. Not a
 description of the note. Lowercase unless the words are names.
 
-summary: one line. Leave it empty when the register is live -- a tidy sentence
-about something raw is worse than nothing.
+role -- what the note mostly does:
+  evidence: reports something observed, measured or learned. A figure, a reading
+  or a result is actually in it. Saying a measurement has not been taken is not
+  evidence; it is the absence of one.
+  note: records something to do or to keep -- errands, lists, intents,
+  reminders. Mostly items means note.
+  position: the speaker's own reasoning, asserted with grounds. It argues,
+  weighs or doubts rather than reporting or listing.
+A note that weighs a tradeoff, doubts itself, or admits it has not checked
+something is arguing, so it is a position even where measuring is mentioned.
+
+register -- live when something personal is at stake in it: the speaker's own
+life, a relationship, work they might leave, something raw or unresolved about
+themselves. Neutral otherwise, and that includes a note that is uncertain,
+weighing a tradeoff, or admitting it has not checked something. Doubt about an
+idea is not personal stake. Answer live only when personal stake is genuinely
+unclear.
+
+typeId: which drawer the note is filed in. Use the value equal to role unless
+another allowed value plainly fits the note better.
+
+summary: one line, third person, saying what the note says. Required whenever
+register is neutral -- an empty summary there is an error. When register is
+live, return an empty string and nothing else: a tidy sentence about something
+raw is worse than nothing.
 
 movePhrase: what the note does as a move, with its subject removed, so that two
-notes about different things can be recognised as doing the same thing. Say it \
+notes about different things can be recognised as doing the same thing. Say it
 as a verb phrase about an unnamed claim.";
 
 /// The type list is built from the registry at call time, so a user-defined
@@ -87,24 +105,55 @@ pub fn classify(
     if parsed.summary.as_deref().is_some_and(str::is_empty) {
         parsed.summary = None;
     }
+    parsed.title = trim_title(&parsed.title);
     Ok(parsed)
 }
 
+/// A span, enforced rather than asked for: asked for under twenty words it
+/// returned twenty-four and thirty-six. Cutting on a word boundary keeps a
+/// verbatim substring verbatim, so the anchor still resolves.
+fn trim_quote(quote: &str) -> String {
+    const MOST: usize = 20;
+    let words: Vec<&str> = quote.split_whitespace().collect();
+    if words.len() <= MOST {
+        return words.join(" ");
+    }
+    words[..MOST].join(" ")
+}
+
+/// Three or four words, enforced rather than asked for. A 4B model cannot count
+/// and returned six reliably, and a long title widens the box placement was
+/// already solved against.
+fn trim_title(title: &str) -> String {
+    const MOST: usize = 4;
+    let words: Vec<&str> = title.split_whitespace().collect();
+    if words.len() <= MOST {
+        return words.join(" ");
+    }
+    words[..MOST].join(" ")
+}
+
 const QUESTION_SYSTEM: &str = "\
-You ask one question about a note someone recorded. You may ask. You may not \
-conclude.
+You ask one question about a note someone recorded. You may ask. You may not
+conclude. Answer the two fields in the order they are listed.
 
-Push on the reasoning, not the conclusion: \"this holds if X -- is X true?\" \
-produces thinking, \"you are wrong about X\" produces a rebuttal.
+quote: first choose the passage the question will be about, and copy it out of
+the note. The shortest passage that carries the claim -- a phrase, under twenty
+words, never the whole note. Transcribe it rather than recall it: read the
+characters off the note in order. Substituting a word the note uses elsewhere
+makes the question uncheckable, and it is discarded.
 
-One question. Not two, not a list. Five objections is an attack; one question \
-is an invitation.
+text: then write the question about that passage. One question, ending in a
+question mark. Never the passage again, never a statement, never a list. For a
+note arguing an index is worth it, a question is \"what would show the reads
+being sped up are ones anybody waits on?\".
 
-Speak about the note in the third person, never about the person who made it. \
-\"The note treats X as settled\", never \"you believe X\".
+Push on the reasoning, not the conclusion: \"this holds if X -- is X true?\"
+produces thinking, \"you are wrong about X\" produces a rebuttal. One question is
+an invitation; five objections is an attack.
 
-Quote the span your question is about, exactly as it appears in the note, so \
-the question can be checked rather than taken on trust.";
+Speak about the note in the third person, never about the person who made it.
+\"The note treats X as settled\", never \"you believe X\".";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Asked {
@@ -118,10 +167,10 @@ fn question_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "text": { "type": "string" },
             "quote": { "type": "string" },
+            "text": { "type": "string" },
         },
-        "required": ["text", "quote"],
+        "required": ["quote", "text"],
         "additionalProperties": false,
     })
 }
@@ -136,12 +185,13 @@ pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, probe_hint: &str) ->
     );
     let reply = provider.ask(Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema()))?;
 
-    let asked: Asked = serde_json::from_str(&reply)
+    let mut asked: Asked = serde_json::from_str(&reply)
         .map_err(|e| Error::Other(format!("the question was not readable: {e}")))?;
 
     if asked.text.trim().is_empty() {
         return Err(Error::Other("the model returned an empty question".into()));
     }
+    asked.quote = trim_quote(&asked.quote);
     Ok(asked)
 }
 
@@ -149,6 +199,47 @@ pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, probe_hint: &str) ->
 mod tests {
     use super::*;
     use crate::llm::fake::FakeProvider;
+
+    #[test]
+    fn a_title_within_four_words_is_left_alone() {
+        assert_eq!(trim_title("indexing dilemma"), "indexing dilemma");
+        assert_eq!(
+            trim_title("free will and reflection"),
+            "free will and reflection"
+        );
+    }
+
+    /// Measured: asked for four, it returned six.
+    #[test]
+    fn a_longer_title_is_cut_to_four_words() {
+        assert_eq!(
+            trim_title("renew the domain before the twentieth"),
+            "renew the domain before"
+        );
+    }
+
+    /// Cutting on a word boundary has to leave it findable in the transcript.
+    #[test]
+    fn a_long_quote_is_cut_but_stays_verbatim() {
+        let said = "one two three four five six seven eight nine ten eleven twelve                     thirteen fourteen fifteen sixteen seventeen eighteen nineteen                     twenty twenty-one twenty-two";
+        let said: String = said.split_whitespace().collect::<Vec<_>>().join(" ");
+        let cut = trim_quote(&said);
+        assert_eq!(cut.split_whitespace().count(), 20);
+        assert!(said.contains(&cut), "a cut quote must still be in the note");
+    }
+
+    #[test]
+    fn a_short_quote_is_left_alone() {
+        assert_eq!(
+            trim_quote("the reads anybody waits on"),
+            "the reads anybody waits on"
+        );
+    }
+
+    #[test]
+    fn a_title_is_not_left_padded_with_whitespace() {
+        assert_eq!(trim_title("  indexing   dilemma  "), "indexing dilemma");
+    }
 
     fn entry(transcript: &str) -> Entry {
         Entry {
