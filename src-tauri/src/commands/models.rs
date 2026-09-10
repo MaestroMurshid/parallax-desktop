@@ -121,6 +121,27 @@ fn model(
     }
 }
 
+/// A file well under its expected size is a partial download, not a model.
+/// Loading a truncated gguf fails in a way that reads as the app being broken
+/// rather than the file being incomplete, so it reports as still arriving.
+///
+/// The tolerance is because published sizes and bytes on disk rarely agree
+/// exactly, not because a tenth of a model is acceptable.
+const COMPLETE_ENOUGH: f64 = 0.9;
+
+fn state_for(expected_bytes: u64, on_disk: Option<u64>) -> ModelState {
+    match on_disk {
+        None => ModelState::NotDownloaded,
+        Some(bytes) if (bytes as f64) >= expected_bytes as f64 * COMPLETE_ENOUGH => {
+            ModelState::Ready
+        }
+        Some(bytes) => ModelState::Downloading {
+            received_bytes: bytes,
+            total_bytes: expected_bytes,
+        },
+    }
+}
+
 /// State comes from the disk rather than a record of what was asked for: a
 /// half-finished download that was interrupted is not a model, and a file
 /// copied in by hand is.
@@ -131,20 +152,10 @@ pub fn list_models(state: State<AppState>) -> Vec<ModelInfo> {
         .into_iter()
         .map(|mut info| {
             let path = dir.join(format!("{}.gguf", info.id));
-            if let Ok(meta) = std::fs::metadata(&path) {
-                // Within a tenth of the expected size. A truncated download
-                // loads as a corrupt model, which reads as the app being
-                // broken rather than the file being incomplete.
-                let expected = info.size_bytes as f64;
-                if (meta.len() as f64) >= expected * 0.9 {
-                    info.state = ModelState::Ready;
-                } else {
-                    info.state = ModelState::Downloading {
-                        received_bytes: meta.len(),
-                        total_bytes: info.size_bytes,
-                    };
-                }
-            }
+            info.state = state_for(
+                info.size_bytes,
+                std::fs::metadata(&path).ok().map(|m| m.len()),
+            );
             info
         })
         .collect()
@@ -155,4 +166,83 @@ pub fn models_location(state: State<AppState>) -> Result<String> {
     let dir = state.models_dir();
     std::fs::create_dir_all(&dir)?;
     Ok(dir.display().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_model_that_is_not_there_is_not_downloaded() {
+        assert!(matches!(state_for(1_000, None), ModelState::NotDownloaded));
+    }
+
+    #[test]
+    fn a_complete_file_is_ready() {
+        assert!(matches!(state_for(1_000, Some(1_000)), ModelState::Ready));
+    }
+
+    /// Published sizes and bytes on disk rarely agree exactly, so a small
+    /// shortfall is still a model.
+    #[test]
+    fn a_slightly_smaller_file_is_still_ready() {
+        assert!(matches!(state_for(1_000, Some(950)), ModelState::Ready));
+    }
+
+    /// The case this exists for: an interrupted download left on disk would
+    /// otherwise load as a corrupt model and read as the app being broken.
+    #[test]
+    fn a_truncated_download_reports_as_still_arriving() {
+        match state_for(1_000, Some(400)) {
+            ModelState::Downloading {
+                received_bytes,
+                total_bytes,
+            } => {
+                assert_eq!(received_bytes, 400);
+                assert_eq!(total_bytes, 1_000);
+            }
+            other => panic!("expected downloading, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_file_is_not_a_model() {
+        assert!(matches!(
+            state_for(1_000, Some(0)),
+            ModelState::Downloading { .. }
+        ));
+    }
+
+    /// The catalogue drives the onboarding default, so its shape matters:
+    /// something to transcribe with and something to reason with.
+    #[test]
+    fn the_catalogue_offers_both_kinds() {
+        let all = catalogue();
+        assert!(all.iter().any(|m| m.kind == ModelKind::Transcription));
+        assert!(all.iter().any(|m| m.kind == ModelKind::Reasoning));
+        assert!(all.iter().all(|m| m.size_bytes > 0));
+        assert!(all.iter().all(|m| m.recommended_ram_bytes > m.size_bytes));
+    }
+
+    /// Ids are the filename on disk, so a collision would make two models the
+    /// same file.
+    #[test]
+    fn catalogue_ids_are_unique() {
+        let mut ids: Vec<String> = catalogue().into_iter().map(|m| m.id).collect();
+        let count = ids.len();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), count);
+    }
+
+    /// Measured on the target machine: 4B is the floor for classification, and
+    /// it has to be reachable on a 16GB laptop or the recommendation picks 1.7B.
+    #[test]
+    fn the_four_billion_model_is_recommended_within_sixteen_gigabytes() {
+        let four_b = catalogue()
+            .into_iter()
+            .find(|m| m.id == "qwen3-4b-q4")
+            .unwrap();
+        assert!(four_b.recommended_ram_bytes <= 16_000_000_000);
+    }
 }

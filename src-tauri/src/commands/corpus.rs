@@ -31,6 +31,19 @@ pub fn list_children(state: State<AppState>, entry_id: String) -> Result<Vec<Ent
     db::entries::children_of(&conn, &entry_id)
 }
 
+/// Offered from the empty state, never forced.
+#[tauri::command]
+pub fn load_sample_corpus(state: State<AppState>) -> Result<()> {
+    let conn = state.db();
+    db::sample::load(&conn)
+}
+
+#[tauri::command]
+pub fn clear_sample_corpus(state: State<AppState>) -> Result<()> {
+    let conn = state.db();
+    db::sample::clear(&conn)
+}
+
 /// Substring by default; a quoted query matches whole words only.
 #[tauri::command]
 pub fn search_entries(state: State<AppState>, query: String) -> Result<Vec<SearchHit>> {

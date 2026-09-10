@@ -31,7 +31,7 @@ const MAX_PER_ENTRY: usize = 3;
 fn on_word_boundaries(haystack: &str, start: usize, end: usize) -> bool {
     let before = haystack[..start].chars().next_back();
     let after = haystack[end..].chars().next();
-    let boundary = |c: Option<char>| c.is_none_or(|c| !c.is_alphanumeric());
+    let boundary = |c: Option<char>| !matches!(c, Some(ch) if ch.is_alphanumeric());
     boundary(before) && boundary(after)
 }
 

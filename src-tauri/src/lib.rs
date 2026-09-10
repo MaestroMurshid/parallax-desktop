@@ -172,6 +172,8 @@ pub fn run() {
             commands::enrichment::list_action_items,
             commands::enrichment::set_action_item_done,
             commands::corpus::search_entries,
+            commands::corpus::load_sample_corpus,
+            commands::corpus::clear_sample_corpus,
             commands::models::get_system_profile,
             commands::models::list_models,
             commands::models::models_location,

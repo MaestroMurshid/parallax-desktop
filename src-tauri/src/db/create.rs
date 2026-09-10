@@ -86,7 +86,7 @@ const HEDGES: &[&str] = &[
     "maybe?",
 ];
 
-fn detect_unfinished(transcript: &str) -> bool {
+pub fn detect_unfinished(transcript: &str) -> bool {
     let lower = transcript.to_lowercase();
     HEDGES.iter().any(|h| lower.contains(h))
 }
