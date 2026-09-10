@@ -54,3 +54,8 @@ $RECYCLE.BIN/
 
 # Local scratch
 *.bak
+
+# Working notes kept beside the project rather than in it: what you need to
+# pick this up cold, plus the design doc. Local, not part of the repo.
+docs/*
+!docs/ui-fixes.html
