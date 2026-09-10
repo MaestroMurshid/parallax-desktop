@@ -182,6 +182,16 @@ export class TauriBridge implements Bridge {
     return subscribe<string>('entry://enriched', cb);
   }
 
+  async readAudio(entryId: string): Promise<ArrayBuffer | null> {
+    // A typed entry rejects rather than returning null, and that is not an error
+    // worth surfacing: the pill simply has nothing to play.
+    try {
+      return await invoke<ArrayBuffer>('read_audio', { entryId });
+    } catch {
+      return null;
+    }
+  }
+
   getSettings(): Promise<Settings> {
     return invoke('get_settings');
   }

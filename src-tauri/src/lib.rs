@@ -159,6 +159,7 @@ pub fn run() {
             commands::capture::recording_level,
             commands::corpus::create_entry,
             commands::corpus::get_entry,
+            commands::corpus::read_audio,
             commands::corpus::list_children,
             commands::corpus::move_entry,
             commands::corpus::delete_entry,

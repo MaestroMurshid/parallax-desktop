@@ -11,7 +11,10 @@ export interface PlaybackSlice {
   playbackMs: number;
   playEntry(id: string): void;
   stopPlayback(): void;
+  /** Advances the simulated clock. Only used when there is no real audio. */
   tickPlayback(): void;
+  /** Driven by the audio element, which is the clock when bytes exist. */
+  setPlaybackMs(ms: number): void;
 }
 
 export const createPlaybackSlice: StateCreator<AppState, Mutators, [], PlaybackSlice> = (
@@ -30,6 +33,11 @@ export const createPlaybackSlice: StateCreator<AppState, Mutators, [], PlaybackS
 
   stopPlayback() {
     set({ playingEntryId: null, playbackMs: 0 });
+  },
+
+  setPlaybackMs(ms) {
+    if (!get().playingEntryId) return;
+    set({ playbackMs: ms });
   },
 
   tickPlayback() {

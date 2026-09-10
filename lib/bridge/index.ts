@@ -133,6 +133,9 @@ export interface Bridge {
    *  Enrichment runs after capture returns, so without this the canvas keeps
    *  showing the placeholder title and the question never appears. */
   onEntryEnriched(cb: (entryId: string) => void): Unsubscribe;
+  /** The recording itself, for playback. `null` when the entry was typed or the
+   *  file is gone -- the caller falls back to a simulated clock. */
+  readAudio(entryId: string): Promise<ArrayBuffer | null>;
 
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;

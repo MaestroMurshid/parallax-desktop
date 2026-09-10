@@ -627,6 +627,11 @@ export class MockBridge implements Bridge {
     }, 220);
   }
 
+  /** No bytes exist in the fixture corpus, so the pill runs its own clock. */
+  async readAudio(_entryId: string): Promise<ArrayBuffer | null> {
+    return null;
+  }
+
   /** The mock enriches inline before returning, so nothing lands later. */
   onEntryEnriched(_cb: (entryId: string) => void): Unsubscribe {
     return () => {};

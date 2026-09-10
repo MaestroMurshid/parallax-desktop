@@ -4,7 +4,7 @@
 use crate::db;
 use crate::db::create::NewEntry;
 use crate::db::search::SearchHit;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::model::Entry;
 use crate::state::AppState;
 use tauri::State;
@@ -71,4 +71,75 @@ pub fn move_entry(state: State<AppState>, id: String, x: f64, y: f64) -> Result<
 #[tauri::command]
 pub fn delete_entry(state: State<AppState>, id: String) -> Result<()> {
     state.delete_entry(&id)
+}
+
+/// The recording for an entry, as bytes.
+///
+/// Raw rather than JSON: a two-minute note is about 4MB of 16kHz mono, and
+/// number-per-byte would be thirty times that. Whole-file rather than ranged,
+/// so there is no seeking before it loads -- acceptable while notes are minutes.
+#[tauri::command]
+pub fn read_audio(state: State<AppState>, entry_id: String) -> Result<tauri::ipc::Response> {
+    let relative = {
+        let conn = state.db();
+        db::entries::audio_path(&conn, &entry_id)?
+    }
+    .ok_or_else(|| Error::NotFound(format!("{entry_id} has no audio")))?;
+
+    let full = resolve_audio(&state.root, &state.audio_dir(), &relative)?;
+    Ok(tauri::ipc::Response::new(std::fs::read(full)?))
+}
+
+/// A stored path is a database value, so it is checked rather than trusted: a
+/// row claiming `../../` must not read outside the corpus.
+fn resolve_audio(
+    root: &std::path::Path,
+    audio_dir: &std::path::Path,
+    relative: &str,
+) -> Result<std::path::PathBuf> {
+    let (full, audio_dir) = match (root.join(relative).canonicalize(), audio_dir.canonicalize()) {
+        (Ok(f), Ok(d)) => (f, d),
+        _ => return Err(Error::NotFound(format!("no recording at {relative}"))),
+    };
+    if !full.starts_with(&audio_dir) {
+        return Err(Error::Other(format!("{relative} is outside the corpus")));
+    }
+    Ok(full)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn corpus_root(tag: &str) -> std::path::PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("parallax-audio-{tag}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("audio")).unwrap();
+        root
+    }
+
+    #[test]
+    fn a_recording_inside_the_corpus_resolves() {
+        let root = corpus_root("inside");
+        std::fs::write(root.join("audio/e1.wav"), b"bytes").unwrap();
+        let found = resolve_audio(&root, &root.join("audio"), "audio/e1.wav").unwrap();
+        assert_eq!(std::fs::read(found).unwrap(), b"bytes");
+    }
+
+    #[test]
+    fn a_path_that_escapes_the_corpus_is_refused() {
+        let root = corpus_root("escape");
+        let secret = root.parent().unwrap().join("outside.wav");
+        std::fs::write(&secret, b"not yours").unwrap();
+
+        let escaped = resolve_audio(&root, &root.join("audio"), "audio/../../outside.wav");
+        assert!(escaped.is_err(), "a stored path must not read outside");
+        let _ = std::fs::remove_file(secret);
+    }
+
+    #[test]
+    fn a_missing_recording_is_not_found() {
+        let root = corpus_root("missing");
+        assert!(resolve_audio(&root, &root.join("audio"), "audio/gone.wav").is_err());
+    }
 }
