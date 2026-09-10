@@ -62,16 +62,32 @@ pub async fn stop_recording(
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();
+    finish(&state, pcm, duration_ms, parent_edge, question_id)
+}
+
+/// Everything after the microphone stops, separated so the order in which a
+/// recording becomes durable is testable without a microphone.
+pub fn finish(
+    state: &AppState,
+    pcm: Vec<f32>,
+    duration_ms: i64,
+    parent_edge: Option<String>,
+    question_id: Option<String>,
+) -> Result<Entry> {
+    // The recording cannot be recreated, so it is staged before anything that
+    // can fail -- reading settings included.
+    stage(state, &pcm, duration_ms);
 
     let settings = {
         let conn = state.db();
         db::settings::get(&conn)?
     };
 
-    // The recording is the one thing here that cannot be recreated, so it is
-    // staged before anything that can fail. If transcription throws, the
-    // samples are still recoverable rather than dropped on the floor.
-    stage(&state, &pcm, duration_ms);
+    // On disk before transcription, not after: a model that fails to load must
+    // cost the transcript and never the recording.
+    let id = uuid::Uuid::new_v4().to_string();
+    let full = state.root.join(format!("audio/{id}.wav"));
+    let bytes = wav::write(&pcm, &full)?;
 
     let transcript = match state.transcription_model(settings.transcription_model) {
         Some(model) => crate::stt::transcribe(&model, &pcm, settings.transcription_backend)?.text,
@@ -80,7 +96,16 @@ pub async fn stop_recording(
         None => String::new(),
     };
 
-    let entry = land(&state, pcm, transcript, duration_ms, parent_edge)?;
+    let entry = land(
+        state,
+        id,
+        &full,
+        bytes,
+        pcm,
+        transcript,
+        duration_ms,
+        parent_edge,
+    )?;
 
     let conn = state.db();
     if let Some(question_id) = question_id {
@@ -104,24 +129,19 @@ fn stage(state: &AppState, pcm: &[f32], duration_ms: i64) {
     });
 }
 
-/// Writes the audio, then the row that points at it.
-///
-/// That order matters. The row used to be committed first and the file written
-/// after, so a full disk left an entry on the canvas referring to audio that
-/// did not exist -- and nothing rolled it back, because each statement had
-/// already autocommitted.
+/// The row for audio that is already on disk. The file is written first so a
+/// full disk cannot leave an entry on the canvas pointing at nothing.
+#[allow(clippy::too_many_arguments)]
 fn land(
     state: &AppState,
+    id: String,
+    full: &std::path::Path,
+    bytes: u64,
     pcm: Vec<f32>,
     transcript: String,
     duration_ms: i64,
     parent_edge: Option<String>,
 ) -> Result<Entry> {
-    let id = uuid::Uuid::new_v4().to_string();
-    let relative = format!("audio/{id}.wav");
-    let full = state.root.join(&relative);
-    let bytes = wav::write(&pcm, &full)?;
-
     let conn = state.db();
     let entry = db::create::create_with_id(
         &conn,
@@ -147,7 +167,7 @@ fn land(
         Err(e) => {
             // No row, so the file is an orphan. Leaving it would accumulate
             // silently in the audio directory.
-            let _ = std::fs::remove_file(&full);
+            let _ = std::fs::remove_file(full);
             Err(e)
         }
     }
@@ -196,20 +216,7 @@ pub async fn undo_discard(state: State<'_, AppState>) -> Result<Option<Entry>> {
         return Ok(None);
     };
 
-    let settings = {
-        let conn = state.db();
-        db::settings::get(&conn)?
-    };
-    let transcript = match state.transcription_model(settings.transcription_model) {
-        Some(model) => crate::stt::transcribe(&model, &pcm, settings.transcription_backend)?.text,
-        None => String::new(),
-    };
-
-    let entry = land(&state, pcm, transcript, duration_ms, None)?;
-    state
-        .discarded
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .take();
-    Ok(Some(entry))
+    // Same pipeline as a fresh stop, so undo cannot drift from it. Parent and
+    // question are still lost here -- the staging slot does not carry them.
+    Ok(Some(finish(&state, pcm, duration_ms, None, None)?))
 }

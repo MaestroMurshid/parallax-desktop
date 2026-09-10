@@ -56,6 +56,21 @@ impl AppState {
         self.root.join("audio")
     }
 
+    /// The row goes first: a failed unlink orphans a file, while the reverse
+    /// destroys the recording of an entry that still exists.
+    pub fn delete_entry(&self, id: &str) -> Result<()> {
+        let audio = {
+            let conn = self.db();
+            let path = db::entries::audio_path(&conn, id)?;
+            db::entries::delete(&conn, id)?;
+            path
+        };
+        if let Some(relative) = audio {
+            let _ = std::fs::remove_file(self.root.join(relative));
+        }
+        Ok(())
+    }
+
     /// Everything that outlives a destructor. Called from the exit handler
     /// rather than `Drop`, because Tauri exits through `std::process::exit`.
     pub fn shutdown(&self) {
