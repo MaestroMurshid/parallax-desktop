@@ -63,3 +63,7 @@ docs/*
 # Bundled llama.cpp runtime. ~89MB of third-party binaries: fetched by
 # scripts/fetch-llama.ps1 at a pinned build, not carried in the repo.
 src-tauri/binaries/
+
+# Python bytecode, from the prompt eval script
+__pycache__/
+*.pyc
