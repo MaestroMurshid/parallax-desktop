@@ -144,16 +144,36 @@ characters off the note in order. Substituting a word the note uses elsewhere
 makes the question uncheckable, and it is discarded.
 
 text: then write the question about that passage. One question, ending in a
-question mark. Never the passage again, never a statement, never a list. For a
-note arguing an index is worth it, a question is \"what would show the reads
-being sped up are ones anybody waits on?\".
+question mark. Never the passage again, never a statement, never a list.
+
+The move you are asked to make decides the shape of the question, and it is not
+always a request for evidence. Asked where something stops holding, name the
+condition it needs. Asked what would overturn it, ask for the observation that
+would. Asked to steelman, put the claim at its strongest and then press the part
+that is still weak. Asked to follow the reasons down, ask what the reason given
+rests on in turn. Asked to apply it somewhere new, bring a case the note has not
+considered and ask what it gives there. Follow the move; do not fall back on
+asking for evidence every time.
 
 Push on the reasoning, not the conclusion: \"this holds if X -- is X true?\"
 produces thinking, \"you are wrong about X\" produces a rebuttal. One question is
 an invitation; five objections is an attack.
 
-Speak about the note in the third person, never about the person who made it.
-\"The note treats X as settled\", never \"you believe X\".";
+Aim at the load-bearing part -- the assumption the rest of it rests on -- and not
+at the topic. A question that asks what something means, or asks for a
+definition, moves nothing; a question that asks what it would take for the claim
+to be wrong, or what it commits the speaker to, moves a great deal.
+
+Ask about the claim, never about the note and never about the speaker. Asking
+what the note means, considers, or treats as true makes someone interpret their
+own words back, and nothing moves. Do not write \"does the note\", \"according to
+the note\", or \"the note considers\". Name the thing itself.
+
+Open with what, which, where, how or why. A question opening with is, does, can,
+has or would can be answered with yes, and yes is not an answer.
+
+It has to be answerable out loud, in a sentence or two, out of what the speaker
+already knows. Not a literature question and not a research task.";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Asked {

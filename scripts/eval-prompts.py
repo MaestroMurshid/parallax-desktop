@@ -10,8 +10,18 @@ in code, so a failure here is the model getting it wrong and not the app.
         -c 4096 --no-webui --fit-target 256
     python scripts/eval-prompts.py 3
 
-Baseline when written (Qwen3-4B-Q4_K_M, 11 Sep 2026): 12 failures before the
-prompts were revised, 0-1 after.
+Baseline (Qwen3-4B-Q4_K_M, 11 Sep 2026), over three runs: 12 failures from the
+original classifier prompts, then 0. The probe went 5 to 0 on asking about the
+note rather than the claim, and 3 to 2 on opening with a yes/no auxiliary.
+
+That last one is a known residual, about one run in three on the index fixture.
+It is a style fault rather than a shallow question -- "is the claim true if X?"
+cannot really be answered with yes -- and further prompt pressure on a 4B model
+was not buying anything. It is left failing so it stays visible.
+
+Only the Boundary hint is exercised here. The five probes are checked by hand for
+shape; they converged on one phrasing when the prompt carried a worked example,
+which is the thing to watch for if a question starts sounding stock.
 """
 
 import json
@@ -128,6 +138,58 @@ def ask(system, user, schema, max_tokens):
     )
 
 
+# A question that could be asked of any note is not a question about this one.
+GENERIC = (
+    "what do you mean",
+    "can you elaborate",
+    "have you considered",
+    "could you clarify",
+    "tell me more",
+    "why do you think that",
+)
+# Asking what the note means makes someone interpret their own words back, which
+# advances nothing. The claim is the subject, not the recording of it.
+META = (
+    "does the note",
+    "the note consider",
+    "the note treat",
+    "the note define",
+    "the note mean",
+    "according to the note",
+    "the note's argument",
+    "the note's claim",
+    "in the note",
+)
+# A bare auxiliary opener invites yes, which is not an answer.
+YES_NO = (
+    "is", "are", "was", "were", "do", "does", "did", "have", "has", "had",
+    "can", "could", "should", "will", "shall", "am",
+)
+
+
+def depth_faults(note, text):
+    """Answerable, specific to this note, and not a yes/no."""
+    out = []
+    lowered = text.lower().strip()
+    if "?" not in text:
+        out.append(f"{note['id']}: no question mark")
+    if lowered.split()[:1] and lowered.split()[0].strip("\"'") in YES_NO:
+        out.append(f"{note['id']}: opens yes/no: {text[:48]!r}")
+    if any(g in lowered for g in GENERIC):
+        out.append(f"{note['id']}: generic phrasing: {text[:48]!r}")
+    if any(m in lowered for m in META):
+        out.append(f"{note['id']}: asks about the note, not the claim: {text[:52]!r}")
+    count = len(text.split())
+    if not 6 <= count <= 40:
+        out.append(f"{note['id']}: question is {count} words")
+    # Shares its subject with the note rather than floating free of it.
+    note_words = {w.strip(".,").lower() for w in note["text"].split() if len(w) > 4}
+    shared = note_words & {w.strip("?.,").lower() for w in text.split() if len(w) > 4}
+    if len(shared) < 2:
+        out.append(f"{note['id']}: not anchored in the note's subject: {text[:48]!r}")
+    return out
+
+
 def words(text, most):
     """Mirrors trim_title and trim_quote: the app caps these rather than asking."""
     return " ".join(text.split()[:most])
@@ -180,8 +242,7 @@ def one_run(classify_system, question_system, show):
             fails.append(f"{note['id']}: quote not verbatim: {quote[:60]!r}")
         if quote and len(quote) > 0.7 * len(note["text"]):
             fails.append(f"{note['id']}: quote is most of the note")
-        if "?" not in q["text"]:
-            fails.append(f"{note['id']}: question has no question mark")
+        fails.extend(depth_faults(note, q["text"]))
         if show:
             print(f"  [{note['id']}] {q['text'][:72]}\n          on: {quote[:72]!r}")
 
