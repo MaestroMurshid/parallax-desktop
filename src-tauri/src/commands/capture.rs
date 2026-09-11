@@ -8,7 +8,7 @@ use crate::db;
 use crate::error::{Error, Result};
 use crate::model::Entry;
 use crate::state::AppState;
-use tauri::State;
+use tauri::{Emitter, Manager, State};
 
 /// §4 -- a discard is undoable for a minute, because escape meaning "throw it
 /// away" while recording and "leave it" once stopped is a muscle-memory trap.
@@ -38,6 +38,47 @@ pub fn recording_level(state: State<AppState>) -> f32 {
         .unwrap_or(0.0)
 }
 
+/// The transcript so far, for the panel to show while you are still talking.
+///
+/// Polled for the same reason the level is: the panel asks while it is on
+/// screen, and nothing has to be torn down when it is not. Each call transcribes
+/// everything recorded so far, because whisper needs the whole utterance to be
+/// coherent -- so a pass costs about a thirty-fifth of the duration and the
+/// refresh naturally slows as the note grows. Empty rather than an error when
+/// there is no model, too little audio, or no recording.
+#[tauri::command]
+pub async fn partial_transcript(state: State<'_, AppState>) -> Result<String> {
+    const MIN_SAMPLES: usize = 16_000;
+
+    let samples = {
+        let slot = state.recording.lock().unwrap_or_else(|p| p.into_inner());
+        match slot.as_ref() {
+            Some(recording) => recording.samples(),
+            None => return Ok(String::new()),
+        }
+    };
+    if samples.len() < MIN_SAMPLES {
+        return Ok(String::new());
+    }
+
+    let settings = {
+        let conn = state.db();
+        db::settings::get(&conn)?
+    };
+    let Some(model) = state.transcription_model(settings.transcription_model) else {
+        return Ok(String::new());
+    };
+
+    // Always on the CPU: the reasoning model has first claim on VRAM, and this
+    // runs repeatedly while a recording is in flight.
+    Ok(
+        crate::stt::transcribe(&model, &samples, crate::model::ComputeBackend::Cpu)?
+            .text
+            .trim()
+            .to_string(),
+    )
+}
+
 /// Stops, writes the audio, transcribes, and lands an entry.
 ///
 /// Async so the transcription does not run on the thread pumping the window.
@@ -49,6 +90,7 @@ pub fn recording_level(state: State<AppState>) -> f32 {
 /// after, so a slow or absent model cannot cost someone their recording.
 #[tauri::command]
 pub async fn stop_recording(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     parent_edge: Option<String>,
     question_id: Option<String>,
@@ -62,7 +104,31 @@ pub async fn stop_recording(
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();
-    finish(&state, pcm, duration_ms, parent_edge, question_id)
+    let entry = finish(&state, pcm, duration_ms, parent_edge, question_id)?;
+    enrich_later(&app, entry.id.clone());
+    Ok(entry)
+}
+
+/// Enrichment runs after the entry is safe on disk, never before. It is allowed
+/// to be slow, absent or wrong, and none of that may cost a recording (§9.4).
+fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let done = state
+            .with_reasoning(|provider| crate::enrich::run::run(&state.db(), provider, &entry_id));
+        match done {
+            // No binary or no model yet: the question arrives when one lands.
+            Ok(None) => {}
+            Ok(Some(enriched)) => {
+                let _ = app.emit("entry://enriched", &entry_id);
+                if enriched.question_id.is_none() {
+                    println!("classified {entry_id}, no question");
+                }
+            }
+            Err(e) => eprintln!("enrichment failed for {entry_id}: {e}"),
+        }
+    });
 }
 
 /// Everything after the microphone stops, separated so the order in which a

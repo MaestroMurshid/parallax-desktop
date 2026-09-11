@@ -1,5 +1,6 @@
 //! Wire types. These mirror `lib/types.ts`, which is the contract.
 
+pub mod download;
 pub mod edge;
 pub mod entry;
 pub mod question;

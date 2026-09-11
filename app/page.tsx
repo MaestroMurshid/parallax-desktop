@@ -59,6 +59,20 @@ export default function Page() {
     })();
   }, []);
 
+  // Enrichment lands after capture returns, so the canvas has to be told the
+  // row changed. Canvas only: the panel does not render titles or questions.
+  useEffect(() => {
+    if (isPanel !== false) return;
+    let stop: (() => void) | null = null;
+    void (async () => {
+      await initBridge();
+      stop = getBridge().onEntryEnriched((entryId) => {
+        void useApp.getState().refreshEntry(entryId);
+      });
+    })();
+    return () => stop?.();
+  }, [isPanel]);
+
   // Rust routes the shortcut to whichever window should own the recording: the
   // canvas while it has focus, the panel every other time. Both windows listen;
   // only one is ever told, so one press is always one take.

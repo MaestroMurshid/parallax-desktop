@@ -18,6 +18,9 @@ export interface CorpusSlice {
 
   loadCorpus(): Promise<void>;
   upsertEntry(entry: Entry): void;
+  /** Re-reads one entry after enrichment wrote to it. Fetches rather than
+   *  recomputes: classification and the question are already on disk. */
+  refreshEntry(id: string): Promise<void>;
   /** Appends. A question asked of an entry stays on it (§3.4). */
   addQuestion(entryId: string, question: Question): void;
   /** Marks one question answered without disturbing the others. */
@@ -89,6 +92,19 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
     );
 
     set({ entries: map, order, edges, actionItems, questions, loaded: true });
+  },
+
+  async refreshEntry(id) {
+    const bridge = getBridge();
+    const [entry, question] = await Promise.all([bridge.getEntry(id), bridge.getQuestion(id)]);
+    // Deleted while enrichment was running.
+    if (!entry) return;
+    get().upsertEntry(entry);
+
+    const questions = new Map(get().questions);
+    // Replaced, not appended: a refresh must not double a question up.
+    if (question) questions.set(id, [question]);
+    set({ questions });
   },
 
   upsertEntry(entry) {

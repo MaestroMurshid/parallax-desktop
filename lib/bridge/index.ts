@@ -80,6 +80,9 @@ export interface Bridge {
    *  before you stop (§4). Backed by a ~60s undo window, not a dialog. */
   discardRecording(): Promise<void>;
   undoDiscard(): Promise<Entry | null>;
+  /** The transcript so far, while still recording. Empty when there is no model
+   *  yet, too little audio, or nothing recording. */
+  partialTranscript(): Promise<string>;
   /** Live amplitude for the equalizer bars. The only thing that animates (§8). */
   onAmplitude(cb: (level: number) => void): Unsubscribe;
 
@@ -129,6 +132,13 @@ export interface Bridge {
    *  work without it, and the question surfaces when the model lands (§9.4). */
   downloadModel(modelId: string): Promise<void>;
   onModelProgress(cb: (m: ModelInfo) => void): Unsubscribe;
+  /** Fires when classification and the question have landed on an entry.
+   *  Enrichment runs after capture returns, so without this the canvas keeps
+   *  showing the placeholder title and the question never appears. */
+  onEntryEnriched(cb: (entryId: string) => void): Unsubscribe;
+  /** The recording itself, for playback. `null` when the entry was typed or the
+   *  file is gone -- the caller falls back to a simulated clock. */
+  readAudio(entryId: string): Promise<ArrayBuffer | null>;
 
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;

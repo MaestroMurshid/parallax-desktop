@@ -136,46 +136,41 @@ export class MockBridge implements Bridge {
     reasoningBackend: 'auto',
   };
 
+  // Mirrors the Rust catalogue in commands/models.rs; a mock that lists
+  // models the backend does not have is worse than no mock.
   private models: ModelInfo[] = [
     {
       id: 'whisper-tiny',
       kind: 'transcription',
       name: 'tiny',
       params: '39M',
-      quantization: 'q5_1',
-      sizeBytes: 75_000_000,
-      recommendedRamBytes: 2e9,
+      quantization: 'Q4_K_M',
+      sizeBytes: 43_600_000,
+      recommendedRamBytes: 1_800_000_000,
       state: { kind: 'not-downloaded' },
+      url: 'https://huggingface.co/handy-computer/whisper-tiny-gguf/resolve/main/whisper-tiny-Q4_K_M.gguf',
     },
     {
       id: 'whisper-base',
       kind: 'transcription',
       name: 'base',
       params: '74M',
-      quantization: 'q5_1',
-      sizeBytes: 140_000_000,
-      recommendedRamBytes: 4e9,
+      quantization: 'Q4_K_M',
+      sizeBytes: 58_900_000,
+      recommendedRamBytes: 3_700_000_000,
       state: { kind: 'not-downloaded' },
+      url: 'https://huggingface.co/handy-computer/whisper-base-gguf/resolve/main/whisper-base-Q4_K_M.gguf',
     },
     {
       id: 'whisper-small',
       kind: 'transcription',
       name: 'small',
       params: '244M',
-      quantization: 'q5_1',
-      sizeBytes: 470_000_000,
-      recommendedRamBytes: 8e9,
-      state: { kind: 'not-downloaded' },
-    },
-    {
-      id: 'qwen3-1.7b-q4',
-      kind: 'reasoning',
-      name: 'Qwen3 1.7B',
-      params: '1.7B',
       quantization: 'Q4_K_M',
-      sizeBytes: 1_050_000_000,
-      recommendedRamBytes: 8e9,
+      sizeBytes: 171_600_000,
+      recommendedRamBytes: 7_500_000_000,
       state: { kind: 'not-downloaded' },
+      url: 'https://huggingface.co/handy-computer/whisper-small-gguf/resolve/main/whisper-small-Q4_K_M.gguf',
     },
     {
       id: 'qwen3-4b-q4',
@@ -183,9 +178,10 @@ export class MockBridge implements Bridge {
       name: 'Qwen3 4B',
       params: '4B',
       quantization: 'Q4_K_M',
-      sizeBytes: 2_400_000_000,
-      recommendedRamBytes: 16e9,
+      sizeBytes: 2_500_000_000,
+      recommendedRamBytes: 7_500_000_000,
       state: { kind: 'not-downloaded' },
+      url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf',
     },
     {
       id: 'qwen3-8b-q4',
@@ -193,9 +189,10 @@ export class MockBridge implements Bridge {
       name: 'Qwen3 8B',
       params: '8B',
       quantization: 'Q4_K_M',
-      sizeBytes: 4_700_000_000,
-      recommendedRamBytes: 32e9,
+      sizeBytes: 5_030_000_000,
+      recommendedRamBytes: 15_000_000_000,
       state: { kind: 'not-downloaded' },
+      url: 'https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf',
     },
   ];
 
@@ -419,6 +416,15 @@ export class MockBridge implements Bridge {
     return this.discarded;
   }
 
+  /** Reveals the fixture transcript a few words at a time, so the browser shows
+   *  the same shape the native path does. */
+  async partialTranscript(): Promise<string> {
+    const note = PLACEHOLDER_NOTES[this.liveTake % PLACEHOLDER_NOTES.length]!;
+    const said = note.transcript.split(' ');
+    const shown = Math.min(said.length, Math.floor((Date.now() - this.recordingStartedAt) / 700));
+    return said.slice(0, shown).join(' ');
+  }
+
   onAmplitude(cb: (level: number) => void): Unsubscribe {
     this.amplitudeListeners.add(cb);
     return () => {
@@ -628,6 +634,16 @@ export class MockBridge implements Bridge {
       for (const cb of this.modelListeners) cb({ ...model });
       if (received >= model.sizeBytes) clearInterval(timer);
     }, 220);
+  }
+
+  /** No bytes exist in the fixture corpus, so the pill runs its own clock. */
+  async readAudio(_entryId: string): Promise<ArrayBuffer | null> {
+    return null;
+  }
+
+  /** The mock enriches inline before returning, so nothing lands later. */
+  onEntryEnriched(_cb: (entryId: string) => void): Unsubscribe {
+    return () => {};
   }
 
   onModelProgress(cb: (m: ModelInfo) => void): Unsubscribe {

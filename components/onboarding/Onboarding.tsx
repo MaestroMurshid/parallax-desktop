@@ -105,18 +105,30 @@ export default function Onboarding({
   const speechProgress = progressOf(speech);
   const reasoningProgress = progressOf(reasoning);
 
-  /** Start both downloads and move on — the point of splitting the two beats. */
+  /** Record the choices, move on, and fetch in the background. */
   const chooseModels = async () => {
     const bridge = getBridge();
     if (speech) {
       await bridge.setSettings({ transcriptionModel: speech.name as Settings['transcriptionModel'] });
-      void bridge.downloadModel(speech.id);
     }
     if (modelId) {
       await bridge.setSettings({ modelId });
-      void bridge.downloadModel(modelId);
     }
     setStep('field');
+
+    // Transcription first and alone. It is about 59MB against 2.5GB, so sharing
+    // the line means the first notes come back with no transcript at all —
+    // which reads as the app being broken rather than as still arriving.
+    void (async () => {
+      for (const id of [speech?.id, modelId]) {
+        if (!id) continue;
+        try {
+          await bridge.downloadModel(id);
+        } catch {
+          // Reported through model://progress as failed; the next one still runs.
+        }
+      }
+    })();
   };
 
   const start = async () => {

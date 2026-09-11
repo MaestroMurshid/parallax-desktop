@@ -101,4 +101,43 @@ pub mod fake {
             true
         }
     }
+
+    /// Replies in order, so one enrichment run can drive classify and the
+    /// question with different output.
+    pub struct ScriptedProvider {
+        replies: Mutex<std::collections::VecDeque<String>>,
+        pub asked: Mutex<Vec<String>>,
+    }
+
+    impl ScriptedProvider {
+        pub fn with(replies: &[&str]) -> Self {
+            Self {
+                replies: Mutex::new(replies.iter().map(|r| r.to_string()).collect()),
+                asked: Mutex::new(Vec::new()),
+            }
+        }
+
+        pub fn calls(&self) -> usize {
+            self.asked.lock().unwrap().len()
+        }
+    }
+
+    impl LlmProvider for ScriptedProvider {
+        fn name(&self) -> String {
+            "scripted".to_string()
+        }
+
+        fn ask(&self, ask: Ask) -> Result<String> {
+            self.asked.lock().unwrap().push(ask.user.to_string());
+            self.replies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| crate::error::Error::Other("the script ran out".into()))
+        }
+
+        fn ready(&self) -> bool {
+            true
+        }
+    }
 }

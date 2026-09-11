@@ -21,6 +21,10 @@ pub struct LlamaServer {
     client: reqwest::blocking::Client,
 }
 
+/// Enough for compute buffers and the desktop, and little enough that a 4GB
+/// card still takes the whole model.
+const FIT_MARGIN_MIB: u32 = 256;
+
 impl LlamaServer {
     /// Spawns the server and waits for it to answer `/health`.
     ///
@@ -48,20 +52,24 @@ impl LlamaServer {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
 
-        // Offload everything or nothing. A 4B Q4 sits at about 3.1GB of a 4GB
-        // card, so a partial split buys latency at the cost of the headroom the
-        // KV cache needs, and running out mid-answer is worse than being slow.
+        // -ngl is left unset on purpose: it defaults to `auto` and `--fit on`
+        // then sizes the offload to the memory actually free, keeping a margin.
+        // Forcing `99` overrode that and ran out mid-answer on a 4GB card.
         match backend {
             ComputeBackend::Cpu => {
                 command.arg("-ngl").arg("0");
             }
             _ => {
-                command.arg("-ngl").arg("99");
                 // Without a device, offload lands on the first one, which on a
                 // laptop is the integrated GPU and its shared system RAM.
                 if let Some(id) = device {
                     command.arg("--device").arg(id);
                 }
+                // --fit keeps 1GiB per device free by default, which is a
+                // quarter of a 4GB card: 2.3GiB of weights plus a 576MiB KV
+                // cache then does not fit, so it offloads part of the model and
+                // runs the rest on CPU. Measured, that costs about 10x.
+                command.arg("--fit-target").arg(FIT_MARGIN_MIB.to_string());
             }
         }
 
@@ -141,6 +149,12 @@ impl LlmProvider for LlamaServer {
             ],
             "temperature": ask.temperature,
             "max_tokens": ask.max_tokens,
+            // Qwen3 thinks by default, and measured it spent all 400 tokens
+            // doing it: finish_reason was length, reasoning_content held 2kB,
+            // and content -- the only thing the grammar applies to -- was empty.
+            // Off, the same call answers in 94 tokens and 3.5s rather than 8.5s.
+            // Templates without the flag ignore it.
+            "chat_template_kwargs": { "enable_thinking": false },
         });
 
         if let Some(schema) = ask.schema {

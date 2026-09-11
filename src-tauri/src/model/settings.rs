@@ -54,6 +54,10 @@ pub struct Settings {
     /// a person is waiting on, while transcription runs at ~35x realtime on CPU.
     pub transcription_backend: ComputeBackend,
     pub reasoning_backend: ComputeBackend,
+    /// Overrides the bundled llama-server. Set by someone who wants their own
+    /// build -- a CUDA one, most likely; absent for everyone else.
+    #[serde(default)]
+    pub llama_server_path: Option<String>,
 }
 
 impl Default for Settings {
@@ -68,6 +72,7 @@ impl Default for Settings {
             transcription_model: TranscriptionModel::Base,
             transcription_backend: ComputeBackend::Auto,
             reasoning_backend: ComputeBackend::Auto,
+            llama_server_path: None,
         }
     }
 }
@@ -122,4 +127,7 @@ pub struct ModelInfo {
     /// Drives the onboarding default.
     pub recommended_ram_bytes: u64,
     pub state: ModelState,
+    /// Where the file comes from. Served to the frontend so the user can see
+    /// what the app is about to fetch before it fetches it.
+    pub url: String,
 }

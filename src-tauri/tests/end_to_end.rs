@@ -407,3 +407,145 @@ fn the_bundled_llama_server_reports_its_devices() {
     eprintln!("devices: {found:?}\nchose: {} ({})", best.id, best.name);
     assert!(best.free_mib > 0);
 }
+
+/// The real URL, the real file, the real loader. Ignored because it pulls ~44MB:
+/// run with `cargo test --test end_to_end -- --ignored --nocapture`.
+#[test]
+#[ignore = "downloads a model over the network"]
+fn a_real_whisper_model_downloads_and_transcribes() {
+    use parallax_lib::model::download;
+
+    let (state, _root) = corpus();
+    let url = "https://huggingface.co/handy-computer/whisper-tiny-gguf/resolve/main/whisper-tiny-Q4_K_M.gguf";
+    let dest = state.models_dir().join("whisper-tiny.gguf");
+
+    let started = std::time::Instant::now();
+    let mut last = 0u64;
+    download::fetch(url, &dest, &mut |got, total| {
+        if got == total {
+            last = total;
+        }
+    })
+    .unwrap();
+    let bytes = std::fs::metadata(&dest).unwrap().len();
+    eprintln!("downloaded {bytes} bytes in {:?}", started.elapsed());
+    assert_eq!(
+        bytes, last,
+        "progress total disagreed with the file on disk"
+    );
+
+    // The catalogue says 43.6MB; the 90% rule in list_models depends on it.
+    assert!(
+        (41_000_000..46_000_000).contains(&bytes),
+        "unexpected size {bytes}"
+    );
+
+    // Found by the same lookup the capture path uses.
+    let found = state
+        .transcription_model(parallax_lib::model::TranscriptionModel::Tiny)
+        .expect("the downloaded model should be discoverable");
+    assert_eq!(found, dest);
+
+    // A second of quiet: proves the loader accepts the file, not that it hears.
+    let loaded = std::time::Instant::now();
+    let out = parallax_lib::stt::transcribe(
+        &found,
+        &vec![0.0f32; 16_000],
+        parallax_lib::model::ComputeBackend::Cpu,
+    )
+    .unwrap();
+    eprintln!(
+        "loaded and ran in {:?}, text: {:?}",
+        loaded.elapsed(),
+        out.text
+    );
+}
+
+/// The real model, the real server, the real enrichment path. Ignored because it
+/// needs ~2.5GB staged and takes seconds:
+///   cargo test --test end_to_end -- --ignored --nocapture real_enrichment
+#[test]
+#[ignore = "needs a staged reasoning model"]
+fn real_enrichment_classifies_and_anchors_a_question() {
+    let root = std::path::PathBuf::from("D:/parallax-test-root");
+    if !root.join("models/qwen3-4b-q4.gguf").is_file() {
+        eprintln!("skipped: no model staged at {}", root.display());
+        return;
+    }
+
+    let state = AppState::open(root).unwrap();
+    *state.llama_dir.lock().unwrap() =
+        Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/llama"));
+
+    {
+        let conn = state.db();
+        let mut settings = db::settings::get(&conn).unwrap();
+        settings.model_id = Some("qwen3-4b-q4".into());
+        db::settings::set(&conn, &settings).unwrap();
+    }
+
+    let said = "I keep reaching for an index whenever a query feels slow, but the \
+        write amplification is real and I have never actually measured whether the \
+        reads I am speeding up are the ones anybody waits on.";
+
+    let made = {
+        let conn = state.db();
+        db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: said.into(),
+                duration_ms: 48_000,
+                fingerprint: vec![0.3, 0.6, 0.4],
+                parent_entry_id: None,
+                local_only: None,
+                typed: false,
+            },
+        )
+        .unwrap()
+    };
+    eprintln!(
+        "before: title={:?} register={:?}",
+        made.title, made.register
+    );
+
+    let started = std::time::Instant::now();
+    let done = state
+        .with_reasoning(|provider| {
+            eprintln!(
+                "provider: {} (load {:?})",
+                provider.name(),
+                started.elapsed()
+            );
+            let asked = std::time::Instant::now();
+            let out = parallax_lib::enrich::run::run(&state.db(), provider, &made.id);
+            eprintln!("enrichment took {:?}", asked.elapsed());
+            out
+        })
+        .unwrap()
+        .expect("a staged model should produce a provider");
+    eprintln!("total {:?}", started.elapsed());
+
+    let conn = state.db();
+    let after = db::entries::get(&conn, &made.id).unwrap().unwrap();
+    eprintln!(
+        "after: title={:?} role={:?} register={:?} type={:?}\nsummary={:?}",
+        after.title, after.role, after.register, after.type_id, after.summary
+    );
+    assert!(done.classified);
+    assert_ne!(
+        after.title, made.title,
+        "classification did not change anything"
+    );
+
+    match db::questions::list_for(&conn, &made.id).unwrap().first() {
+        Some(q) => {
+            let span = q.span.as_ref().expect("a question must be anchored");
+            let quoted = &said[span.start as usize..span.end as usize];
+            eprintln!("question: {:?}\nanchored to: {:?}", q.text, quoted);
+            assert!(said.contains(quoted), "the anchor is not in the note");
+        }
+        None => eprintln!("no question: gates declined after classification"),
+    }
+
+    state.shutdown();
+}
