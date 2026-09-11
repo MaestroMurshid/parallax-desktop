@@ -8,7 +8,7 @@ use super::gate;
 use crate::db;
 use crate::error::{Error, Result};
 use crate::llm::LlmProvider;
-use crate::model::{Entry, Question, Span};
+use crate::model::{Entry, Span};
 use rusqlite::Connection;
 
 #[derive(Debug, Default)]
@@ -72,24 +72,9 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
         });
     };
 
-    let asked = super::ask_about(provider, &entry, probe.hint())?;
-    let Some(span) = anchor(&entry, &asked.quote) else {
-        return Err(Error::Other(format!(
-            "the question quoted something not in the note: {:?}",
-            asked.quote
-        )));
-    };
-
-    let question = Question {
-        id: uuid::Uuid::new_v4().to_string(),
-        entry_id: entry.id.clone(),
-        text: asked.text,
-        span: Some(span),
-        answered: false,
-        dismissed: false,
-        provider_name: provider.name(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-    };
+    // Shared with the invoked path: both owe a question that quotes the note
+    // verbatim, and there is one place that decides whether it does.
+    let question = super::invoke::compose(provider, &entry, probe, None)?;
     db::questions::insert(conn, &question, &entry.transcript)?;
 
     Ok(Enriched {

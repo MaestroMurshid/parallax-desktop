@@ -120,6 +120,25 @@ impl AppState {
         f(server).map(Some)
     }
 
+    /// Unlinks a recording, and only ever one inside the corpus.
+    ///
+    /// A stored path is data; an imported one is data from a stranger. Reads
+    /// have been checked since the start, and deleting on an unchecked path is
+    /// strictly worse -- a crafted export naming `audio/../../something` had
+    /// replace delete it. Silent on refusal: a path that does not resolve into
+    /// the corpus has no file of ours behind it to report on.
+    pub fn remove_audio(&self, relative: &str) {
+        let (Ok(full), Ok(audio_dir)) = (
+            self.root.join(relative).canonicalize(),
+            self.audio_dir().canonicalize(),
+        ) else {
+            return;
+        };
+        if full.starts_with(&audio_dir) {
+            let _ = std::fs::remove_file(full);
+        }
+    }
+
     /// The row goes first: a failed unlink orphans a file, while the reverse
     /// destroys the recording of an entry that still exists.
     pub fn delete_entry(&self, id: &str) -> Result<()> {
@@ -130,7 +149,7 @@ impl AppState {
             path
         };
         if let Some(relative) = audio {
-            let _ = std::fs::remove_file(self.root.join(relative));
+            self.remove_audio(&relative);
         }
         Ok(())
     }
@@ -199,6 +218,40 @@ mod tests {
     fn app_data_is_the_default() {
         let app_data = Path::new("C:/app-data/parallax");
         assert_eq!(resolve_root(app_data), app_data.to_path_buf());
+    }
+
+    /// An import supplies its own audio paths, so a crafted export must not be
+    /// able to name a file outside the corpus and have replace delete it. The
+    /// read path has been checked since the start; the unlink was not.
+    #[test]
+    fn a_crafted_audio_path_is_not_deleted() {
+        let dir = std::env::temp_dir().join(format!("parallax-unlink-{}", uuid::Uuid::new_v4()));
+        let state = AppState::open(dir.clone()).unwrap();
+
+        let outside = dir
+            .parent()
+            .unwrap()
+            .join(format!("hostage-{}.wav", uuid::Uuid::new_v4()));
+        std::fs::write(&outside, b"not yours").unwrap();
+        let escape = format!(
+            "audio/../../{}",
+            outside.file_name().unwrap().to_string_lossy()
+        );
+
+        state.remove_audio(&escape);
+        assert!(outside.is_file(), "an unlink escaped the corpus");
+
+        let inside = state.audio_dir().join("e1.wav");
+        std::fs::write(&inside, b"mine").unwrap();
+        state.remove_audio("audio/e1.wav");
+        assert!(
+            !inside.exists(),
+            "a recording inside the corpus must still go"
+        );
+
+        let _ = std::fs::remove_file(outside);
+        drop(state);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -25,6 +25,34 @@ pub enum Probe {
 }
 
 impl Probe {
+    /// The wire name, matching the ids in `lib/scene/classification.ts`.
+    /// `run_probe` is invoked with whatever the frontend calls a probe, so the
+    /// two spellings have to be the same one.
+    pub fn id(&self) -> &'static str {
+        match self {
+            Probe::Boundary => "boundary",
+            Probe::Disconfirming => "disconfirming",
+            Probe::Steelman => "steelman",
+            Probe::Munchhausen => "munchhausen",
+            Probe::Feynman => "feynman",
+        }
+    }
+
+    /// `None` for anything else. A probe id arrives over IPC, so it is parsed
+    /// rather than trusted -- an unknown one must not fall through to a probe
+    /// the gate would have refused.
+    pub fn from_id(id: &str) -> Option<Probe> {
+        [
+            Probe::Boundary,
+            Probe::Disconfirming,
+            Probe::Steelman,
+            Probe::Munchhausen,
+            Probe::Feynman,
+        ]
+        .into_iter()
+        .find(|probe| probe.id() == id)
+    }
+
     pub fn hint(&self) -> &'static str {
         match self {
             Probe::Boundary => "where does this stop holding?",
@@ -270,6 +298,29 @@ mod tests {
         let mut e = entry(Role::Position, Register::Neutral, 120_000);
         e.transcript = String::new();
         assert!(has_own_span(&e));
+    }
+
+    /// `run_probe` carries a probe id over IPC, so the name has to survive the
+    /// round trip. A probe whose id cannot be parsed back is unreachable.
+    #[test]
+    fn every_probe_survives_its_wire_name() {
+        for probe in [
+            Probe::Boundary,
+            Probe::Disconfirming,
+            Probe::Steelman,
+            Probe::Munchhausen,
+            Probe::Feynman,
+        ] {
+            assert_eq!(Probe::from_id(probe.id()), Some(probe), "{probe:?}");
+        }
+    }
+
+    /// Falling back to a probe would turn a typo into a question the gate was
+    /// never asked about.
+    #[test]
+    fn an_unknown_probe_id_is_not_a_probe() {
+        assert_eq!(Probe::from_id("regenerate"), None);
+        assert_eq!(Probe::from_id(""), None);
     }
 
     /// An attributed span longer than the transcript must not underflow into

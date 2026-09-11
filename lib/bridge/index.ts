@@ -94,6 +94,14 @@ export interface Bridge {
    */
   getQuestion(entryId: string): Promise<Question | null>;
   /**
+   * Every question in the corpus, in one call. `getQuestion` returns only the
+   * oldest open one, so a load built on it drops every answered and dismissed
+   * question from the record and from the export — the accumulation §3.4 is
+   * about. Optional because the mock holds questions per entry in memory and
+   * has nothing to restore; the load path falls back to `getQuestion` without it.
+   */
+  listQuestions?(): Promise<Question[]>;
+  /**
    * User-invoked question (§3.6). Which probe fits is the model's call — the
    * UI offers one door, not a menu of techniques. Register does not gate here
    * — §3.2 gives the invoked path to the user — but role and provenance do,

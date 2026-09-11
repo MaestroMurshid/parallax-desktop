@@ -4,6 +4,7 @@
 //! called on demand from the UI.
 
 pub mod gate;
+pub mod invoke;
 pub mod run;
 
 use crate::error::{Error, Result};
@@ -199,8 +200,24 @@ fn question_schema() -> Value {
 /// is given the stance rules and left to generate, rather than selecting from
 /// an enum, so adding a mode is noticing a shape in output worth having.
 pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, probe_hint: &str) -> Result<Asked> {
+    ask_about_passage(provider, entry, probe_hint, None)
+}
+
+/// The invoked path names the passage the user selected (§3.6). The whole
+/// transcript still goes with it: a sentence on its own is not enough to ask a
+/// question that lands, and the quote has to be verbatim in the note anyway.
+pub fn ask_about_passage(
+    provider: &dyn LlmProvider,
+    entry: &Entry,
+    probe_hint: &str,
+    passage: Option<&str>,
+) -> Result<Asked> {
+    let selected = match passage {
+        Some(passage) => format!("\nThe passage to ask about:\n\n{passage}\n"),
+        None => String::new(),
+    };
     let user = format!(
-        "The note:\n\n{}\n\nWhat to ask: {}",
+        "The note:\n\n{}\n{selected}\nWhat to ask: {}",
         entry.transcript, probe_hint
     );
     let reply = provider.ask(Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema()))?;

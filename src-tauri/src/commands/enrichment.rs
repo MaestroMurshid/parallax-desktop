@@ -5,8 +5,9 @@
 //! so a question is surfaced rather than produced on demand.
 
 use crate::db;
-use crate::error::Result;
-use crate::model::{ActionItem, Edge, EdgeStatus, Question, Relation};
+use crate::enrich::gate::Probe;
+use crate::error::{Error, Result};
+use crate::model::{ActionItem, Edge, EdgeStatus, Question, Relation, Span};
 use crate::state::AppState;
 use tauri::State;
 
@@ -26,6 +27,51 @@ pub fn get_question(state: State<AppState>, entry_id: String) -> Result<Option<Q
 pub fn list_questions(state: State<AppState>) -> Result<Vec<Question>> {
     let conn = state.db();
     db::questions::list(&conn)
+}
+
+/// §3.6 -- the one door the UI offers. Which move fits is not the user's to
+/// pick: the button says "ask me about this" and nothing names a technique.
+///
+/// Async like the rest of the model path: a cold llama-server is seconds, and
+/// running that on the thread pumping the window freezes the app and the hotkey
+/// with it.
+#[tauri::command]
+pub async fn ask_question(
+    state: State<'_, AppState>,
+    entry_id: String,
+    span: Option<Span>,
+) -> Result<Question> {
+    invoked(&state, &entry_id, None, span)
+}
+
+/// The primitive `ask_question` picks from. No UI path names a probe; this is
+/// for replay and evaluation, and the gate still decides (§3.2).
+#[tauri::command]
+pub async fn run_probe(
+    state: State<'_, AppState>,
+    entry_id: String,
+    probe_id: String,
+    span: Option<Span>,
+) -> Result<Question> {
+    let probe =
+        Probe::from_id(&probe_id).ok_or_else(|| Error::Other(format!("no probe {probe_id}")))?;
+    invoked(&state, &entry_id, Some(probe), span)
+}
+
+/// An error rather than `None` when there is no model: the automatic path may
+/// be absent (§9.4), but somebody who pressed the button is waiting for an
+/// answer and silence would read as a hang.
+fn invoked(
+    state: &AppState,
+    entry_id: &str,
+    probe: Option<Probe>,
+    span: Option<Span>,
+) -> Result<Question> {
+    state
+        .with_reasoning(|provider| {
+            crate::enrich::invoke::ask(&state.db(), provider, entry_id, probe, span)
+        })?
+        .ok_or_else(|| Error::Other("no reasoning model is installed yet".to_string()))
 }
 
 #[tauri::command]

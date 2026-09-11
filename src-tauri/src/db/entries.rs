@@ -197,6 +197,36 @@ pub fn move_to(conn: &Connection, id: &str, x: f64, y: f64) -> Result<()> {
     Ok(())
 }
 
+/// §6.3 -- resolution is declared, never inferred, and the text is the point.
+/// A bare flag records that you stopped rather than what you concluded, which
+/// is the only part worth keeping.
+pub fn resolve(conn: &Connection, id: &str, text: &str) -> Result<()> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(crate::error::Error::Other(
+            "a resolution has to say what was resolved".to_string(),
+        ));
+    }
+    let n = conn.execute(
+        "UPDATE entries SET resolved = 1, resolution_text = ?2 WHERE id = ?1",
+        params![id, text],
+    )?;
+    if n == 0 {
+        return Err(crate::error::Error::NotFound(id.to_string()));
+    }
+    Ok(())
+}
+
+/// The text stays. Reopening says you are not done, not that you never reached
+/// the conclusion -- and the thread layer renders that sentence (§6.2).
+pub fn reopen(conn: &Connection, id: &str) -> Result<()> {
+    let n = conn.execute("UPDATE entries SET resolved = 0 WHERE id = ?1", params![id])?;
+    if n == 0 {
+        return Err(crate::error::Error::NotFound(id.to_string()));
+    }
+    Ok(())
+}
+
 /// Audio, spans, action items, questions and edges go with it -- the schema
 /// cascades those. Children are orphaned instead, by `ON DELETE SET NULL` on
 /// `answers_entry_id`: an answer is still something you said.
@@ -581,6 +611,56 @@ mod tests {
             attributed: false,
         };
         assert_eq!(quoted(transcript, &span), "\u{1f3a7}b");
+    }
+
+    /// §6.3 -- the text is the point. A bare flag records that you stopped,
+    /// not what you concluded, which is the one thing worth keeping.
+    #[test]
+    fn resolving_stores_what_was_resolved() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("e1", "2024-02-03T10:21:00.000Z", false)).unwrap();
+
+        resolve(&conn, "e1", "Split the table and stopped worrying about it").unwrap();
+
+        let after = get(&conn, "e1").unwrap().unwrap();
+        assert!(after.resolved);
+        assert_eq!(
+            after.resolution_text.as_deref(),
+            Some("Split the table and stopped worrying about it")
+        );
+    }
+
+    #[test]
+    fn a_resolution_with_no_text_is_refused() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("e1", "2024-02-03T10:21:00.000Z", false)).unwrap();
+
+        assert!(resolve(&conn, "e1", "   ").is_err());
+        assert!(!get(&conn, "e1").unwrap().unwrap().resolved);
+    }
+
+    /// Reopening says you are not done, not that you never said it. Clearing
+    /// the text would delete a conclusion you actually reached.
+    #[test]
+    fn reopening_keeps_the_text() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("e1", "2024-02-03T10:21:00.000Z", false)).unwrap();
+        resolve(&conn, "e1", "Split the table").unwrap();
+
+        reopen(&conn, "e1").unwrap();
+
+        let after = get(&conn, "e1").unwrap().unwrap();
+        assert!(!after.resolved);
+        assert_eq!(after.resolution_text.as_deref(), Some("Split the table"));
+    }
+
+    /// An update against an id that is not there changes nothing and must not
+    /// report success: the command returns the entry it claims to have written.
+    #[test]
+    fn resolving_something_that_is_not_there_is_not_found() {
+        let conn = open_in_memory().unwrap();
+        assert!(resolve(&conn, "nobody", "done").is_err());
+        assert!(reopen(&conn, "nobody").is_err());
     }
 
     #[test]

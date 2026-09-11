@@ -83,13 +83,27 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .map((e) => e.id);
 
+    // The whole history, not the one still open: getQuestion returns the oldest
+    // unanswered question, so a reload built on it silently dropped every
+    // question that had been answered or dismissed — out of the entry and out
+    // of the export with it. One query for the corpus, not one per entry.
     const questions = new Map<string, Question[]>();
-    await Promise.all(
-      entries.map(async (e) => {
-        const q = await bridge.getQuestion(e.id);
-        if (q) questions.set(e.id, [q]);
-      }),
-    );
+    const all = await bridge.listQuestions?.();
+    if (all) {
+      for (const q of all) {
+        if (!map.has(q.entryId)) continue;
+        const prior = questions.get(q.entryId);
+        if (prior) prior.push(q);
+        else questions.set(q.entryId, [q]);
+      }
+    } else {
+      await Promise.all(
+        entries.map(async (e) => {
+          const q = await bridge.getQuestion(e.id);
+          if (q) questions.set(e.id, [q]);
+        }),
+      );
+    }
 
     set({ entries: map, order, edges, actionItems, questions, loaded: true });
   },
@@ -101,10 +115,11 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
     if (!entry) return;
     get().upsertEntry(entry);
 
-    const questions = new Map(get().questions);
-    // Replaced, not appended: a refresh must not double a question up.
-    if (question) questions.set(id, [question]);
-    set({ questions });
+    // Merged by id rather than replaced. Overwriting with `[question]` dropped
+    // every earlier question on the entry — getQuestion returns only the open
+    // one — and questions accumulate (§3.4); deduping by id is what keeps a
+    // refresh from doubling one up.
+    if (question) get().addQuestion(id, question);
   },
 
   upsertEntry(entry) {

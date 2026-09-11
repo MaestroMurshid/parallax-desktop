@@ -73,6 +73,44 @@ pub fn delete_entry(state: State<AppState>, id: String) -> Result<()> {
     state.delete_entry(&id)
 }
 
+/// §6.3 -- user-declared, and the text is the point. The AI never decides you
+/// are done thinking, and a bare flag records that you stopped rather than what
+/// you concluded.
+#[tauri::command]
+pub fn resolve_entry(state: State<AppState>, entry_id: String, text: String) -> Result<Entry> {
+    let conn = state.db();
+    db::entries::resolve(&conn, &entry_id, &text)?;
+    db::entries::get(&conn, &entry_id)?.ok_or_else(|| Error::NotFound(entry_id))
+}
+
+#[tauri::command]
+pub fn reopen_entry(state: State<AppState>, entry_id: String) -> Result<Entry> {
+    let conn = state.db();
+    db::entries::reopen(&conn, &entry_id)?;
+    db::entries::get(&conn, &entry_id)?.ok_or_else(|| Error::NotFound(entry_id))
+}
+
+/// Restores an exported corpus. `replace` is also what the status bar's `clear`
+/// means, with an empty payload -- which is why clearing needs no verb of its
+/// own on the bridge.
+#[tauri::command]
+pub fn import_corpus(
+    state: State<AppState>,
+    data: db::import::CorpusImport,
+    mode: db::import::ImportMode,
+) -> Result<()> {
+    let orphaned = {
+        let conn = state.db();
+        db::import::import(&conn, &data, mode)?
+    };
+    // The rows are gone either way; a failed unlink costs a file on disk, which
+    // is the safe direction and the same one `delete_entry` takes.
+    for relative in orphaned {
+        state.remove_audio(&relative);
+    }
+    Ok(())
+}
+
 /// The recording for an entry, as bytes.
 ///
 /// Raw rather than JSON: a two-minute note is about 4MB of 16kHz mono, and

@@ -130,6 +130,10 @@ export class TauriBridge implements Bridge {
     return invoke('get_question', { entryId });
   }
 
+  listQuestions(): Promise<Question[]> {
+    return invoke('list_questions');
+  }
+
   askQuestion(entryId: string, span?: Span | null): Promise<Question> {
     return invoke('ask_question', { entryId, span: span ?? null });
   }
