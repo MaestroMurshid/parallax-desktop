@@ -61,16 +61,27 @@ export default function Page() {
 
   // Enrichment lands after capture returns, so the canvas has to be told the
   // row changed. Canvas only: the panel does not render titles or questions.
+  //
+  // Both ends are listened for, not just the landing: the pass takes seconds,
+  // and the settled event fires even when it failed, so the indicator clears
+  // on the paths where nothing arrives.
   useEffect(() => {
     if (isPanel !== false) return;
-    let stop: (() => void) | null = null;
+    const stops: Array<() => void> = [];
     void (async () => {
       await initBridge();
-      stop = getBridge().onEntryEnriched((entryId) => {
+      const bridge = getBridge();
+      stops.push(bridge.onEntryEnriching((entryId) => {
+        useApp.getState().setEnriching(entryId, true);
+      }));
+      stops.push(bridge.onEntryEnriched((entryId) => {
+        useApp.getState().setEnriching(entryId, false);
         void useApp.getState().refreshEntry(entryId);
-      });
+      }));
     })();
-    return () => stop?.();
+    return () => {
+      for (const stop of stops) stop();
+    };
   }, [isPanel]);
 
   // Rust routes the shortcut to whichever window should own the recording: the

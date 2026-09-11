@@ -111,23 +111,32 @@ pub async fn stop_recording(
 
 /// Enrichment runs after the entry is safe on disk, never before. It is allowed
 /// to be slow, absent or wrong, and none of that may cost a recording (§9.4).
+///
+/// Both ends of the pass are announced, and the settled event fires on every
+/// exit including failure. A single event on success only would leave the
+/// indicator spinning forever on the paths that are most likely to be taken --
+/// no model installed, or a model that threw.
 fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        // Emitted before with_reasoning, which is where a cold llama-server is
+        // started: the first pass after launch spends most of its time there,
+        // and that wait is exactly what needs saying.
+        let _ = app.emit("entry://enriching", &entry_id);
         let done = state
             .with_reasoning(|provider| crate::enrich::run::run(&state.db(), provider, &entry_id));
         match done {
             // No binary or no model yet: the question arrives when one lands.
             Ok(None) => {}
             Ok(Some(enriched)) => {
-                let _ = app.emit("entry://enriched", &entry_id);
                 if enriched.question_id.is_none() {
                     println!("classified {entry_id}, no question");
                 }
             }
             Err(e) => eprintln!("enrichment failed for {entry_id}: {e}"),
         }
+        let _ = app.emit("entry://enriched", &entry_id);
     });
 }
 

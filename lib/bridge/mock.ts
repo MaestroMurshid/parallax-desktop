@@ -41,6 +41,8 @@ const SEARCH_MAX_PER_ENTRY = 3;
 
 /** Deliberative speech with its pauses — the rate the seed corpus is timed at. */
 const SPEECH_WORDS_PER_SEC = 1.15;
+/** What an enrichment pass costs on this laptop once the model is warm. */
+const MOCK_ENRICH_MS = 3400;
 
 interface PlaceholderNote {
   /**
@@ -115,6 +117,8 @@ export class MockBridge implements Bridge {
 
   private amplitudeListeners = new Set<(level: number) => void>();
   private modelListeners = new Set<(m: ModelInfo) => void>();
+  private enrichingListeners = new Set<(entryId: string) => void>();
+  private enrichedListeners = new Set<(entryId: string) => void>();
   private amplitudeTimer: ReturnType<typeof setInterval> | null = null;
   private recordingStartedAt = 0;
   private discarded: Entry | null = null;
@@ -404,6 +408,7 @@ export class MockBridge implements Bridge {
         createdAt: new Date().toISOString(),
       });
     }
+    this.announceEnrichment(entry.id);
     return entry;
   }
 
@@ -641,9 +646,29 @@ export class MockBridge implements Bridge {
     return null;
   }
 
-  /** The mock enriches inline before returning, so nothing lands later. */
-  onEntryEnriched(_cb: (entryId: string) => void): Unsubscribe {
-    return () => {};
+  onEntryEnriching(cb: (entryId: string) => void): Unsubscribe {
+    this.enrichingListeners.add(cb);
+    return () => {
+      this.enrichingListeners.delete(cb);
+    };
+  }
+
+  onEntryEnriched(cb: (entryId: string) => void): Unsubscribe {
+    this.enrichedListeners.add(cb);
+    return () => {
+      this.enrichedListeners.delete(cb);
+    };
+  }
+
+  /** The mock enriches inline, so there is nothing to wait for and nothing to
+   *  refresh. The pass is still announced on the same two events the native
+   *  backend uses, because otherwise the one state that says "the model is
+   *  working" can only be seen by installing a model. */
+  private announceEnrichment(entryId: string): void {
+    for (const cb of this.enrichingListeners) cb(entryId);
+    setTimeout(() => {
+      for (const cb of this.enrichedListeners) cb(entryId);
+    }, MOCK_ENRICH_MS);
   }
 
   onModelProgress(cb: (m: ModelInfo) => void): Unsubscribe {

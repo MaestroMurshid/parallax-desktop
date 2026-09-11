@@ -32,3 +32,37 @@
 .modelPending {
   color: var(--title);
 }
+
+/* Same pulse as the entry panel's, for the case where the note landed on the
+   canvas without opening. */
+.thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--meta);
+}
+
+.thinkingDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: statusThinkingPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes statusThinkingPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinkingDot {
+    animation: none;
+    opacity: 0.7;
+  }
+}

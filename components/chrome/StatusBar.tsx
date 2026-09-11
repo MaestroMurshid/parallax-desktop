@@ -35,6 +35,9 @@ function stateLabel(model: ModelInfo | undefined): string {
  */
 export default function StatusBar({ settings }: { settings: Settings }) {
   const entryCount = useApp((s) => s.order.length);
+  // A note caught from the panel lands on the canvas without opening, so the
+  // entry's own indicator is not on screen. This strip is.
+  const thinkingCount = useApp((s) => s.enriching.size);
   const [models, setModels] = useState<ModelInfo[]>([]);
 
   useEffect(() => {
@@ -56,6 +59,13 @@ export default function StatusBar({ settings }: { settings: Settings }) {
       <span>
         {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
       </span>
+
+      {thinkingCount > 0 && (
+        <span className={styles.thinking} role="status">
+          <span className={styles.thinkingDot} aria-hidden />
+          reading {thinkingCount === 1 ? 'a note' : `${thinkingCount} notes`} back
+        </span>
+      )}
 
       <span className={styles.models}>
         {/* Both models are identified, not just stated ready. There are three

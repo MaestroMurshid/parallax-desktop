@@ -56,6 +56,7 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   const entry = useApp((s) => (id ? s.entries.get(id) : undefined));
   const questions = useApp((s) => (id ? s.questions.get(id) : undefined)) ?? EMPTY;
   const analysisOpen = useApp((s) => s.analysisOpen);
+  const thinking = useApp((s) => (id ? s.enriching.has(id) : false));
   const toggleAnalysis = useApp((s) => s.toggleAnalysis);
   const setConnectSource = useApp((s) => s.setConnectSource);
   const close = useApp((s) => s.closeOverlay);
@@ -114,6 +115,15 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
           {Math.round(entry.durationMs / 1000)}s
           {entry.audioPath === null && ' · typed'}
           {entry.localOnly && ' · local only'}
+          {/* The title, role and type on screen right now are placeholders
+              derived from the words; saying so beats letting them read as the
+              model's answer. */}
+          {thinking && (
+            <span className={styles.thinking} role="status">
+              <span className={styles.thinkingDot} aria-hidden />
+              reading it back
+            </span>
+          )}
         </div>
         <div className={styles.headerActions}>
           {entry.audioPath !== null && playingEntryId !== entry.id && (
@@ -410,8 +420,12 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
             );
           })}
 
+          {/* §5.3's reasons are all statements about a decision the model has
+              already taken. While it is still deciding, none of them is true
+              yet -- "kept as written" on an entry about to be classified as a
+              position is the wrong thing to have said. */}
           {questions.length === 0 && proposed.length === 0 && (
-            <p className={styles.nothing}>{silenceReason(entry)}</p>
+            <p className={styles.nothing}>{thinking ? 'Reading it back…' : silenceReason(entry)}</p>
           )}
 
           {/* Nothing is waiting, but this is the entry you came back to. */}

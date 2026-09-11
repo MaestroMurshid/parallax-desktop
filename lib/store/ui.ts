@@ -39,6 +39,14 @@ export interface UiSlice {
   setPendingLink(l: { fromId: string; toId: string } | null): void;
   setDragging(d: { id: string; x: number; y: number } | null): void;
 
+  /**
+   * Entries the model is working on right now (§9.4). Enrichment is the one
+   * slow thing that happens without being asked for, and ~3.4s of silence
+   * after a note lands reads as the app having decided not to bother.
+   */
+  enriching: ReadonlySet<string>;
+  setEnriching(id: string, on: boolean): void;
+
   openEntry(id: string): void;
   closeOverlay(): void;
   setOverlay(o: Overlay): void;
@@ -55,6 +63,15 @@ export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set
   hoveredEntryId: null,
   analysisOpen: true,
   sampleLoaded: false,
+  enriching: new Set<string>(),
+  setEnriching: (id, on) =>
+    set((s) => {
+      if (s.enriching.has(id) === on) return {};
+      const next = new Set(s.enriching);
+      if (on) next.add(id);
+      else next.delete(id);
+      return { enriching: next };
+    }),
   dragging: null,
   composing: false,
   connecting: null,
