@@ -167,6 +167,22 @@ mod tests {
         assert!(!automatic_probes(&e).is_empty());
     }
 
+    /// Span offsets are UTF-16 units, so the coverage check has to be too.
+    /// Against a byte length a wholly-quoted non-ASCII entry reads as having
+    /// words of its own, and the app pushes on someone else's grief.
+    #[test]
+    fn a_wholly_attributed_non_ascii_entry_has_no_own_span() {
+        let mut e = entry(Role::Position, Register::Neutral, 120_000);
+        e.transcript = "«Наблюдаемость важнее логов», — сказал он.".into();
+        e.spans = vec![Span {
+            start: 0,
+            end: e.transcript.encode_utf16().count() as u32,
+            attributed: true,
+        }];
+        assert!(!has_own_span(&e));
+        assert!(automatic_probes(&e).is_empty());
+    }
+
     /// §3.2 -- a position opens with safe probes only. A steelman on an entry
     /// nobody asked about is the failure the tiers exist to prevent.
     #[test]

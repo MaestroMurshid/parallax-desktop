@@ -226,6 +226,45 @@ mod tests {
         assert!(anchor(&entry, "faster reads").is_some());
     }
 
+    /// The frontend slices by UTF-16 code unit, so that is what an anchor
+    /// returns. `find` gives bytes, and on a transcript with an em dash in it
+    /// the highlight lands two characters left of the quote.
+    #[test]
+    fn an_anchor_is_measured_in_utf16_units() {
+        let entry = Entry {
+            transcript: "Observability — not logging — is the claim here.".into(),
+            ..blank()
+        };
+        let span = anchor(&entry, "the claim").expect("a verbatim quote anchors");
+
+        let units: Vec<u16> = entry.transcript.encode_utf16().collect();
+        let sliced = String::from_utf16_lossy(&units[span.start as usize..span.end as usize]);
+        assert_eq!(sliced, "the claim");
+    }
+
+    /// The overlap check compares the new anchor against stored spans, so both
+    /// have to be in the same units before it means anything.
+    #[test]
+    fn the_attribution_check_compares_like_with_like() {
+        let quoted = "«Наблюдаемость важнее логов»";
+        let transcript = format!("{quoted} — and I think that is wrong.");
+        let entry = Entry {
+            spans: vec![Span {
+                start: 0,
+                end: quoted.encode_utf16().count() as u32,
+                attributed: true,
+            }],
+            transcript,
+            ..blank()
+        };
+
+        assert!(
+            anchor(&entry, "важнее логов").is_none(),
+            "the quote sits inside someone else's words"
+        );
+        assert!(anchor(&entry, "that is wrong").is_some());
+    }
+
     #[test]
     fn anchoring_refuses_an_empty_quote() {
         let entry = Entry {

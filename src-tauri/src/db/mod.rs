@@ -83,4 +83,61 @@ mod tests {
         // Running it again must not throw: migrate is called on every open.
         migrate(&conn).unwrap();
     }
+
+    /// Every span written before version 3 is a byte offset. An existing
+    /// corpus has to arrive in UTF-16 without being reloaded, and the only
+    /// thing that can convert it is the transcript sitting next to it.
+    #[test]
+    fn version_three_rewrites_byte_offsets_as_utf16() {
+        let conn = open_in_memory().unwrap();
+        let transcript = "«Наблюдаемость важнее логов», — сказал он.";
+        let quote = "важнее логов";
+        let at = transcript.find(quote).unwrap();
+
+        conn.execute(
+            "INSERT INTO entries (id, transcript, created_at, x, y, role, register,
+             type_id, resolved, title, duration_ms, unfinished, local_only, is_sample)
+             VALUES ('e1', ?1, '2024-01-01T00:00:00Z', 0, 0, 'position', 'neutral',
+             'position', 0, 't', 40000, 0, 0, 0)",
+            rusqlite::params![transcript],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO spans (entry_id, start_offset, end_offset, attributed, quoted_text)
+             VALUES ('e1', ?1, ?2, 1, ?3)",
+            rusqlite::params![at as i64, (at + quote.len()) as i64, quote],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO action_items (id, entry_id, span_start, span_end,
+             span_attributed, span_quoted, text, done)
+             VALUES ('a1', 'e1', ?1, ?2, 0, ?3, 'check it', 0)",
+            rusqlite::params![at as i64, (at + quote.len()) as i64, quote],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO questions (id, entry_id, text, span_start, span_end,
+             span_attributed, span_quoted, answered, dismissed, provider_name, created_at)
+             VALUES ('q1', 'e1', 'where does it stop?', ?1, ?2, 0, ?3, 0, 0, 'p',
+             '2024-01-02T00:00:00Z')",
+            rusqlite::params![at as i64, (at + quote.len()) as i64, quote],
+        )
+        .unwrap();
+
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        migrate(&conn).unwrap();
+
+        let expected = (
+            crate::text::byte_to_utf16(transcript, at) as i64,
+            crate::text::byte_to_utf16(transcript, at + quote.len()) as i64,
+        );
+        let read = |sql: &str| -> (i64, i64) {
+            conn.query_row(sql, [], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+        };
+        assert_eq!(read("SELECT start_offset, end_offset FROM spans"), expected);
+        assert_eq!(read("SELECT span_start, span_end FROM action_items"), expected);
+        assert_eq!(read("SELECT span_start, span_end FROM questions"), expected);
+        assert_ne!(expected.0, at as i64, "the fixture has to be non-ASCII");
+    }
 }

@@ -349,6 +349,18 @@ mod tests {
     use super::*;
     use crate::db::open_in_memory;
 
+    /// The seed quotes are found, not trusted, and what `find` returns is
+    /// bytes. The offset that reaches the frontend has to be UTF-16.
+    #[test]
+    fn a_found_quote_is_measured_in_utf16_units() {
+        let transcript = "Observability — not logging — is the claim.";
+        let span = span_for(transcript, "the claim", false).expect("verbatim");
+
+        let units: Vec<u16> = transcript.encode_utf16().collect();
+        let sliced = String::from_utf16_lossy(&units[span.start as usize..span.end as usize]);
+        assert_eq!(sliced, "the claim");
+    }
+
     #[test]
     fn the_sample_loads() {
         let conn = open_in_memory().unwrap();

@@ -554,6 +554,33 @@ mod tests {
         }
     }
 
+    /// `quoted` is the one place a span offset has to become a byte offset:
+    /// everything above SQLite counts UTF-16 units, and Rust slices bytes.
+    #[test]
+    fn quoted_reads_utf16_offsets() {
+        let transcript = "Observability — not logging — is the claim here.";
+        let at = transcript.find("the claim").unwrap();
+        let span = Span {
+            start: crate::text::byte_to_utf16(transcript, at),
+            end: crate::text::byte_to_utf16(transcript, at + "the claim".len()),
+            attributed: false,
+        };
+        assert_eq!(quoted(transcript, &span), "the claim");
+    }
+
+    /// Half a surrogate pair is a legal UTF-16 index and not a character
+    /// boundary. Returning nothing here would lose the stored quote.
+    #[test]
+    fn quoted_clamps_a_split_surrogate_pair() {
+        let transcript = "a\u{1f3a7}b";
+        let span = Span {
+            start: 1,
+            end: 4,
+            attributed: false,
+        };
+        assert_eq!(quoted(transcript, &span), "\u{1f3a7}b");
+    }
+
     #[test]
     fn an_entry_survives_the_round_trip() {
         let conn = open_in_memory().unwrap();
