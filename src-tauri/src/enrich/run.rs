@@ -27,10 +27,10 @@ pub fn anchor(entry: &Entry, quote: &str) -> Option<Span> {
     if quote.is_empty() {
         return None;
     }
-    let start = entry.transcript.find(quote)?;
+    let at = entry.transcript.find(quote)?;
     let span = Span {
-        start: start as u32,
-        end: (start + quote.len()) as u32,
+        start: crate::text::byte_to_utf16(&entry.transcript, at),
+        end: crate::text::byte_to_utf16(&entry.transcript, at + quote.len()),
         attributed: false,
     };
 

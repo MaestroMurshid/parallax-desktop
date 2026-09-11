@@ -77,8 +77,8 @@ struct SeedQuestion {
 /// the same rule corrections follow. A quote that is not there is dropped.
 fn span_for(transcript: &str, quote: &str, attributed: bool) -> Option<Span> {
     transcript.find(quote).map(|at| Span {
-        start: at as u32,
-        end: (at + quote.len()) as u32,
+        start: crate::text::byte_to_utf16(transcript, at),
+        end: crate::text::byte_to_utf16(transcript, at + quote.len()),
         attributed,
     })
 }

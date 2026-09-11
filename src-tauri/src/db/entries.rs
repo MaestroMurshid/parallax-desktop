@@ -41,12 +41,14 @@ fn register_str(r: Register) -> &'static str {
 }
 
 /// The text a span covers, stored so it can be re-found after a correction.
-/// Byte offsets from the wire are clamped to char boundaries -- a transcript is
-/// UTF-8 and slicing mid-character would panic.
+///
+/// The only place a span offset becomes a byte offset. `utf16_to_byte` clamps
+/// to a char boundary, so half a surrogate pair -- a legal UTF-16 index --
+/// widens to the character it sits in rather than losing the quote.
 pub fn quoted(transcript: &str, span: &Span) -> String {
-    let start = span.start as usize;
-    let end = (span.end as usize).min(transcript.len());
-    if start >= end || !transcript.is_char_boundary(start) || !transcript.is_char_boundary(end) {
+    let start = crate::text::utf16_to_byte(transcript, span.start);
+    let end = crate::text::utf16_to_byte(transcript, span.end);
+    if start >= end {
         return String::new();
     }
     transcript[start..end].to_string()

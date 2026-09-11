@@ -22,6 +22,12 @@ pub enum Register {
 
 /// Facet 3 — provenance. `attributed` is someone else's words, and the app
 /// may only push on a span that is the user's own (§7.3).
+///
+/// `start` and `end` are UTF-16 code units, not bytes, everywhere above
+/// SQLite and in SQLite itself. The frontend slices these offsets and the
+/// classification port compares them against `transcript.length`, so the
+/// frontend's unit wins; `text::utf16_to_byte` is the only way back to a Rust
+/// slice, and `db::entries::quoted` is the only caller that needs one.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Span {
     pub start: u32,

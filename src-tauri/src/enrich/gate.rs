@@ -52,7 +52,7 @@ pub fn has_own_span(entry: &Entry) -> bool {
         .filter(|s| s.attributed)
         .map(|s| s.end.saturating_sub(s.start))
         .sum();
-    covered < entry.transcript.len() as u32
+    covered < entry.transcript.encode_utf16().count() as u32
 }
 
 /// What may fire without being asked for.

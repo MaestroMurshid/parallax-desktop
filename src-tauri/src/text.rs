@@ -1,5 +1,7 @@
-//! Rust indexes by UTF-8 byte, JavaScript by UTF-16 code unit. Offsets convert
-//! here at the wire boundary; UTF-16 wins because `slice` is what consumes them.
+//! Rust indexes by UTF-8 byte, JavaScript by UTF-16 code unit. UTF-16 wins,
+//! because `slice` is what consumes a span offset and `transcript.length` is
+//! what the classification port compares it against: an offset is converted
+//! where it is produced, and converted back only to take a Rust slice.
 
 /// A mid-character offset clamps down to the character it sits inside.
 pub fn byte_to_utf16(s: &str, byte_offset: usize) -> u32 {

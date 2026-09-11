@@ -16,7 +16,7 @@ const SCHEMA: &str = include_str!("schema.sql");
 /// Bumped whenever `schema.sql` changes shape. `user_version` is a SQLite
 /// integer stored in the file header, so the database says which migration it
 /// is on without a table of its own.
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -53,9 +53,85 @@ fn migrate(conn: &Connection) -> Result<()> {
             "ALTER TABLE action_items ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;",
         )?;
     }
+    if current < 3 {
+        spans_to_utf16(conn)?;
+    }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
+    Ok(())
+}
+
+/// Every offset written before version 3 counts UTF-8 bytes; the frontend has
+/// always sliced UTF-16. Rewritten in place from the transcript beside it,
+/// because the stored quote is what a correction re-finds and it has to keep
+/// agreeing with the offsets.
+///
+/// ASCII is a fixed point, so the common corpus is untouched by design.
+fn spans_to_utf16(conn: &Connection) -> Result<()> {
+    use crate::text::byte_to_utf16;
+
+    let mut transcripts: std::collections::HashMap<String, String> = Default::default();
+    {
+        let mut stmt = conn.prepare("SELECT id, transcript FROM entries")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, transcript) = row?;
+            transcripts.insert(id, transcript);
+        }
+    }
+
+    // Every table that stores an offset; missing one leaves a highlight
+    // permanently skewed. Addressed by `rowid` because the three primary keys
+    // are not the same type and none of these tables is WITHOUT ROWID.
+    let tables = [
+        ("spans", "start_offset", "end_offset"),
+        ("action_items", "span_start", "span_end"),
+        ("questions", "span_start", "span_end"),
+    ];
+
+    for (table, start_col, end_col) in tables {
+        let mut pending: Vec<(i64, u32, u32)> = Vec::new();
+        {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT rowid, entry_id, {start_col}, {end_col} FROM {table}
+                 WHERE {start_col} IS NOT NULL AND {end_col} IS NOT NULL"
+            ))?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (key_value, entry_id, start, end) = row?;
+                let Some(transcript) = transcripts.get(&entry_id) else {
+                    continue;
+                };
+                // Skip the ASCII-only case rather than rewriting it to itself.
+                if transcript.is_ascii() {
+                    continue;
+                }
+                pending.push((
+                    key_value,
+                    byte_to_utf16(transcript, start.max(0) as usize),
+                    byte_to_utf16(transcript, end.max(0) as usize),
+                ));
+            }
+        }
+
+        for (key_value, start, end) in pending {
+            conn.execute(
+                &format!("UPDATE {table} SET {start_col} = ?2, {end_col} = ?3 WHERE rowid = ?1"),
+                rusqlite::params![key_value, start, end],
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -136,7 +212,10 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(read("SELECT start_offset, end_offset FROM spans"), expected);
-        assert_eq!(read("SELECT span_start, span_end FROM action_items"), expected);
+        assert_eq!(
+            read("SELECT span_start, span_end FROM action_items"),
+            expected
+        );
         assert_eq!(read("SELECT span_start, span_end FROM questions"), expected);
         assert_ne!(expected.0, at as i64, "the fixture has to be non-ASCII");
     }
