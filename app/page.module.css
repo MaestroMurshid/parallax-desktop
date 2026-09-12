@@ -18,6 +18,15 @@
 
 /* The list is the way in, so it occupies the same slot the canvas does rather
    than floating over it: swapping views must not look like opening a panel. */
+/* `hidden` would be display:none, and the canvas measures itself with a
+   ResizeObserver: mounted at zero it stays at zero, because unhiding fires no
+   resize. Kept laid out and merely invisible, so the observer sees real
+   dimensions whichever view is in front. */
+.offstage {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .listArea {
   position: absolute;
   inset: 0;

@@ -41,6 +41,8 @@ export default function TopBar() {
   const openEntry = useApp((s) => s.openEntry);
   const overlay = useApp((s) => s.overlay);
   const setOverlay = useApp((s) => s.setOverlay);
+  const view = useApp((s) => s.view);
+  const setView = useApp((s) => s.setView);
   const chatOpen = useApp((s) => s.chatOpen);
   const setChatOpen = useApp((s) => s.setChatOpen);
   const taskCount = useApp((s) => s.actionItems.filter((a) => !a.done).length);
@@ -151,6 +153,18 @@ export default function TopBar() {
       </div>
 
       <div className={styles.right}>
+        {/* Here rather than in the sidebar, which is the mistake this replaces:
+            the sidebar only renders in list view, so a toggle living there was
+            a one-way door -- once you reached the canvas there was no control
+            left to bring you back. */}
+        <button
+          type="button"
+          className={styles.textButton}
+          aria-pressed={view === 'canvas'}
+          onClick={() => setView(view === 'canvas' ? 'list' : 'canvas')}
+        >
+          {view === 'canvas' ? 'list' : 'canvas'}
+        </button>
         {/* Not an overlay, so it does not take the slot the entry sheet wants:
             recall is something you do *while* reading a note, not instead. */}
         <button

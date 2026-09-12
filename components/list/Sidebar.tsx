@@ -30,8 +30,6 @@ const FILTERS: Array<{ id: RoleFilter; label: string }> = [
 export default function Sidebar({ filter, onFilterChange }: SidebarProps) {
   const entries = useApp((s) => s.entries);
   const customTypes = useApp((s) => s.customTypes);
-  const view = useApp((s) => s.view);
-  const setView = useApp((s) => s.setView);
 
   const types = useMemo(() => resolveTypes(customTypes), [customTypes]);
 
@@ -65,29 +63,6 @@ export default function Sidebar({ filter, onFilterChange }: SidebarProps) {
         ))}
       </ul>
 
-      {/* Bottom of the sidebar, not the top: the graph is the thing you go to
-          once the list has already shown you there is something to connect. */}
-      <div className={styles.views}>
-        <span className={styles.heading}>View</span>
-        <div className={styles.viewRow}>
-          <button
-            type="button"
-            className={styles.view}
-            aria-pressed={view === 'list'}
-            onClick={() => setView('list')}
-          >
-            list
-          </button>
-          <button
-            type="button"
-            className={styles.view}
-            aria-pressed={view === 'canvas'}
-            onClick={() => setView('canvas')}
-          >
-            canvas
-          </button>
-        </div>
-      </div>
     </nav>
   );
 }

@@ -473,8 +473,8 @@ export default function Onboarding({
           <span className={styles.note}>
             {step === 'models'
               ? modelsAlreadyHere
-                ? 'Both are already on this machine, so nothing needs downloading.'
-                : 'Both start downloading now, so they run while you set the rest up.'
+                ? 'Already on this machine, so nothing needs downloading.'
+                : 'These start downloading now, so they run while you set the rest up.'
               : step === 'field'
                 ? 'Speech lands first, so you can record as soon as it does. The question waits on the larger one.'
                 : step === 'types'

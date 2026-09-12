@@ -254,7 +254,10 @@ export default function Page() {
         </div>
       ) : null}
 
-      <div className={styles.canvasArea} hidden={view !== 'canvas'}>
+      <div
+        className={`${styles.canvasArea} ${view === 'canvas' ? '' : styles.offstage}`}
+        aria-hidden={view !== 'canvas'}
+      >
         <Canvas />
         {loaded && !hasEntries && settings && view === 'canvas' && (
           <EmptyState hotkey={settings.hotkey} />
