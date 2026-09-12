@@ -241,7 +241,14 @@ pub fn run() {
             }
             app.manage(app_state);
 
-            app.global_shortcut().register(shortcut)?;
+            // Not fatal. Another instance, or any other app holding the same
+            // combination, makes this fail -- and aborting setup means the
+            // whole app dies at launch over a convenience. Observed: a second
+            // instance panicked with "HotKey already registered" and never
+            // reached a window. Capture is still reachable from the tray.
+            if let Err(e) = app.global_shortcut().register(shortcut) {
+                eprintln!("global hotkey unavailable, continuing without it: {e}");
+            }
             build_tray(app.handle())?;
             Ok(())
         })

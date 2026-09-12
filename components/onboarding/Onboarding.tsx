@@ -102,6 +102,11 @@ export default function Onboarding({
   const reasoningModels = models.filter((m) => m.kind === 'reasoning');
   const speech = models.find((m) => m.id === transcriptionId);
   const reasoning = models.find((m) => m.id === modelId);
+  // The download is skipped when the file is already there (`download_model`
+  // returns early), so promising one reads as the app about to spend 2.5GB it
+  // is not going to spend.
+  const modelsAlreadyHere =
+    speech?.state.kind === 'ready' && reasoning?.state.kind === 'ready';
   const speechProgress = progressOf(speech);
   const reasoningProgress = progressOf(reasoning);
 
@@ -419,7 +424,9 @@ export default function Onboarding({
         <div className={styles.go}>
           <span className={styles.note}>
             {step === 'models'
-              ? 'Both start downloading now, so they run while you set the rest up.'
+              ? modelsAlreadyHere
+                ? 'Both are already on this machine, so nothing needs downloading.'
+                : 'Both start downloading now, so they run while you set the rest up.'
               : step === 'field'
                 ? 'Speech lands first, so you can record as soon as it does. The question waits on the larger one.'
                 : step === 'types'
