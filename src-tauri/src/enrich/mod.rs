@@ -24,15 +24,12 @@ pub struct Classification {
     /// What the entry *does*, independent of its subject. §7.1 -- the thing
     /// that finds two notes making the same move in different vocabulary.
     pub move_phrase: String,
-    /// Vocabulary the corpus already has. Grammar-locked to it, so a
-    /// near-duplicate spelling is not merely discouraged but unsamplable.
+    /// What the note is about, in the note's own words. One field, not a
+    /// reuse/coin pair: offering the existing vocabulary as an enum stopped
+    /// the model coining at all, so reuse is decided in code by normalised
+    /// collision in `db::tags::upsert` instead of by the sampler.
     #[serde(default)]
     pub tags: Vec<String>,
-    /// New ground. Unconstrained, because a corpus that can only reuse its
-    /// first few notes' tags files everything under them and the candidate
-    /// filter stops filtering.
-    #[serde(default, rename = "newTags")]
-    pub new_tags: Vec<String>,
 }
 
 const CLASSIFY_SYSTEM: &str = "\
@@ -74,41 +71,47 @@ movePhrase: what the note does as a move, with its subject removed, so that two
 notes about different things can be recognised as doing the same thing. Say it
 as a verb phrase about an unnamed claim.
 
-tags and newTags: three to five in total, across both. A tag is what another
-note would have to be about for the two to be worth reading together -- the
-subject, not the opinion about it. Put a tag in tags when it is already listed
-there and it fits. Put it in newTags when the note is about something the list
-does not cover; that is an ordinary answer, not a failure to match. Do not
-stretch a listed tag to cover a note it only loosely touches, and do not add a
-tag so broad that half of any corpus would carry it.";
+tags: two or three. A tag is what another note would have to be about for the
+two to be worth reading together -- the subject, not the opinion about it.
+
+Take the tag from the speaker's own phrasing, the way the title is. Use words
+that are actually in the note to name what it is about: the topic it argues
+about, the system it describes, the thing it is a list of. A tag whose words
+are not in the note is discarded.
+
+A tag that could sit on a note about almost anything is wrong. Whole fields of
+study, whole activities and whole habits of mind are all too broad to be tags,
+however well they describe the note.
+
+Name the note as squarely as you can and do not worry whether other notes have
+been named the same way. Two notes about one subject are expected to arrive at
+the same words on their own.";
 
 /// The type list is built from the registry at call time, so a user-defined
 /// type becomes a value the model may return -- and constrained decoding makes
 /// returning one that does not exist structurally impossible.
-fn classify_schema(type_ids: &[String], tag_names: &[String]) -> Value {
-    let mut properties = json!({
-        "title": { "type": "string" },
-        "role": { "type": "string", "enum": ["position", "evidence", "note"] },
-        "register": { "type": "string", "enum": ["live", "neutral"] },
-        "typeId": { "type": "string", "enum": type_ids },
-        "summary": { "type": "string" },
-        "movePhrase": { "type": "string" },
-        "newTags": { "type": "array", "items": { "type": "string" } },
-    });
-
-    // Omitted rather than emitted empty: an empty enum is a schema no token
-    // satisfies, and llama.cpp zeroes out every candidate rather than failing
-    // loudly. The first notes in a corpus coin their vocabulary instead.
-    if !tag_names.is_empty() {
-        properties["tags"] = json!({
-            "type": "array",
-            "items": { "type": "string", "enum": tag_names },
-        });
-    }
-
+fn classify_schema(type_ids: &[String]) -> Value {
     json!({
         "type": "object",
-        "properties": properties,
+        "properties": {
+            // maxLength is the runaway guard, not the shape. Measured: the
+            // model loops inside an unbounded string until the token ceiling
+            // and the JSON never terminates. The readable cut is `trim_phrase`
+            // and `trim_title`, because the grammar cuts mid-word.
+            "title": { "type": "string", "maxLength": 80 },
+            "role": { "type": "string", "enum": ["position", "evidence", "note"] },
+            "register": { "type": "string", "enum": ["live", "neutral"] },
+            "typeId": { "type": "string", "enum": type_ids },
+            "summary": { "type": "string", "maxLength": 400 },
+            "movePhrase": { "type": "string", "maxLength": 200 },
+            // Free text, and deliberately not an enum of what the corpus
+            // already has. Measured over the sixteen fixtures: once an enum
+            // exists the model never coins again, fills the array by repeating
+            // the one permitted value to maxItems, and picks a listed tag even
+            // when none fit. The vocabulary froze at one tag for the whole
+            // corpus. Reuse is a normalised collision in `db::tags::upsert`.
+            "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 3 },
+        },
         "required": ["title", "role", "register", "typeId", "summary", "movePhrase"],
         "additionalProperties": false,
     })
@@ -118,12 +121,10 @@ pub fn classify(
     provider: &dyn LlmProvider,
     transcript: &str,
     type_ids: &[String],
-    tag_names: &[String],
 ) -> Result<Classification> {
     // 400 truncated a real summary mid-string, and a constrained reply that stops
     // early is unparseable rather than short.
-    let mut ask =
-        Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids, tag_names));
+    let mut ask = Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids));
     ask.max_tokens = 700;
     let reply = provider.ask(ask)?;
 
@@ -139,6 +140,7 @@ pub fn classify(
         parsed.summary = None;
     }
     parsed.title = trim_title(&parsed.title);
+    parsed.move_phrase = trim_phrase(&parsed.move_phrase);
 
     // Normalised here rather than at the database, so what the rest of the
     // pass compares and what is eventually stored are the same string.
@@ -153,11 +155,35 @@ pub fn classify(
         out
     };
     parsed.tags = tidy(parsed.tags);
-    parsed.new_tags = tidy(parsed.new_tags);
-    // A tag the model coined that already exists is a reuse, not new ground.
-    parsed.new_tags.retain(|t| !parsed.tags.contains(t));
+    parsed.tags.retain(|t| grounded(t, transcript));
 
     Ok(parsed)
+}
+
+/// True when the tag's words are actually in the note.
+///
+/// Enforced rather than asked for, because asking failed: measured over the
+/// sixteen fixtures, the model coined "philosophy" and "decision-making" on the
+/// first note and then reused them on all sixteen -- "philosophy" appears in
+/// none of the transcripts and "decision-making" in two. A tag on every note
+/// makes the candidate filter select the whole corpus, which is the same as
+/// having no filter.
+///
+/// The rule is the one `title` already follows -- the speaker's own phrasing --
+/// and the discipline §3.4 applies to quotes. Matching is on a five-character
+/// stem so "index" still finds "indexes"; crude, and wrong in the safe
+/// direction, since a dropped tag costs a connection that might have been
+/// found and a kept one costs a connection that should not exist (§3.2).
+fn grounded(tag: &str, transcript: &str) -> bool {
+    let haystack = transcript.to_lowercase();
+    let mut words = tag.split('-').filter(|w| w.len() > 2).peekable();
+    if words.peek().is_none() {
+        return false;
+    }
+    words.all(|word| {
+        let stem: String = word.chars().take(5).collect();
+        haystack.contains(&stem)
+    })
 }
 
 /// A span, enforced rather than asked for: asked for under twenty words it
@@ -178,6 +204,24 @@ fn trim_quote(quote: &str) -> String {
 fn trim_title(title: &str) -> String {
     const MOST: usize = 4;
     let words: Vec<&str> = title.split_whitespace().collect();
+    if words.len() <= MOST {
+        return words.join(" ");
+    }
+    words[..MOST].join(" ")
+}
+
+/// A move phrase, cut on a word boundary.
+///
+/// Measured: `movePhrase` is an unbounded string and the model loops inside
+/// it -- "for faster reads of data storage systems and databases that use
+/// indexes" repeated until the 700-token ceiling, on three of the first four
+/// fixtures, with the JSON unterminated. A `maxLength` in the grammar stops
+/// the runaway but cuts mid-word and drags in whatever token happens to fit,
+/// CJK included, so the bound is the safety net and the real cut happens
+/// here -- the division of labour `trim_quote` already uses.
+fn trim_phrase(phrase: &str) -> String {
+    const MOST: usize = 14;
+    let words: Vec<&str> = phrase.split_whitespace().collect();
     if words.len() <= MOST {
         return words.join(" ");
     }
@@ -315,6 +359,31 @@ mod tests {
         assert!(said.contains(&cut), "a cut quote must still be in the note");
     }
 
+    /// The model loops inside an unbounded string, so the bound has to leave
+    /// a readable phrase behind rather than a severed word.
+    #[test]
+    fn a_runaway_move_phrase_is_cut_on_a_word_boundary() {
+        let runaway = "updating indexes requires tradeoffs in write performance ".to_string()
+            + "and storage for faster reads of data storage systems and databases "
+            + "that use indexes for faster reads of data storage systems";
+        let cut = trim_phrase(&runaway);
+        assert!(cut.len() < runaway.len(), "a runaway phrase must be cut");
+        assert!(
+            runaway.starts_with(&cut),
+            "the cut keeps a prefix of what the model said"
+        );
+        assert!(
+            cut.split_whitespace().count() >= 4 && !cut.ends_with(' '),
+            "cut on a word boundary, not mid-word: {cut:?}"
+        );
+    }
+
+    #[test]
+    fn a_short_move_phrase_is_left_alone() {
+        let said = "trades one cost for another";
+        assert_eq!(trim_phrase(said), said);
+    }
+
     #[test]
     fn a_short_quote_is_left_alone() {
         assert_eq!(
@@ -355,35 +424,37 @@ mod tests {
         }
     }
 
-    /// Reuse is enforced by the sampler and coining by the prompt, so the
-    /// schema is where reuse has to be provable: an existing tag is an enum
-    /// member, and a token outside the enum is zeroed out before it can be
-    /// sampled.
+    /// The regression this schema exists to prevent. Measured over the
+    /// sixteen fixtures: with the vocabulary offered as an enum the model
+    /// stopped coining entirely from note two onward, filled `tags` by
+    /// repeating the one permitted value to `maxItems`, and the corpus ended
+    /// with a single tag on it. Reuse is `upsert`'s job, not the sampler's.
     #[test]
-    fn existing_tags_are_offered_as_an_enum() {
-        let schema = classify_schema(&["position".into()], &["free-will".into(), "agency".into()]);
-        let tags = &schema["properties"]["tags"]["items"]["enum"];
-        assert_eq!(tags[0], "free-will");
-        assert_eq!(tags[1], "agency");
+    fn the_vocabulary_is_never_offered_as_an_enum() {
+        let schema = classify_schema(&["position".into()]);
         assert!(
-            schema["properties"]["newTags"]["items"]["enum"].is_null(),
-            "new ground must not be constrained to what already exists"
+            schema["properties"]["tags"]["items"]["enum"].is_null(),
+            "an enum of existing tags deadlocks the vocabulary at one tag"
+        );
+        assert!(
+            schema["properties"]["newTags"].is_null(),
+            "one tag field, not a reuse/coin split -- the split had no reader"
         );
     }
 
-    /// An empty corpus has no vocabulary, and an empty enum is a schema no
-    /// token can satisfy -- llama.cpp would zero out every token and the reply
-    /// would never terminate. The field is omitted instead.
+    /// Unbounded strings are how the reply stops being parseable: the model
+    /// loops inside `movePhrase` until the token ceiling and the JSON never
+    /// closes. The bound is the guard; `trim_phrase` makes the cut readable.
     #[test]
-    fn a_corpus_with_no_tags_yet_omits_the_enum() {
-        let schema = classify_schema(&["position".into()], &[]);
-        assert!(schema["properties"]["tags"].is_null());
-        assert!(
-            !schema["properties"]["newTags"].is_null(),
-            "the first notes can still coin"
-        );
-        let required = schema["required"].as_array().unwrap();
-        assert!(!required.iter().any(|f| f == "tags"));
+    fn the_free_text_fields_are_bounded() {
+        let schema = classify_schema(&["position".into()]);
+        for field in ["title", "summary", "movePhrase"] {
+            assert!(
+                schema["properties"][field]["maxLength"].is_number(),
+                "{field} is unbounded and the model will loop inside it"
+            );
+        }
+        assert_eq!(schema["properties"]["tags"]["maxItems"], 3);
     }
 
     #[test]
@@ -391,15 +462,19 @@ mod tests {
         let p = FakeProvider::replying(
             r#"{"title":"our own reasoning","role":"position","register":"neutral",
                 "typeId":"position","summary":"s","movePhrase":"m",
-                "tags":["free-will"],"newTags":["Moral Luck"]}"#,
+                "tags":["Free Will","Moral Luck","free-will"]}"#,
         );
-        let c = classify(&p, "said", &["position".into()], &["free-will".into()]).unwrap();
+        let c = classify(
+            &p,
+            "Free will and moral luck pull against each other here.",
+            &["position".into()],
+        )
+        .unwrap();
 
-        assert_eq!(c.tags, vec!["free-will".to_string()]);
         assert_eq!(
-            c.new_tags,
-            vec!["moral-luck".to_string()],
-            "a coined tag is normalised on the way in, not on the way out"
+            c.tags,
+            vec!["free-will".to_string(), "moral-luck".to_string()],
+            "normalised on the way in, and a repeat of one spelling is one tag"
         );
     }
 
@@ -412,8 +487,57 @@ mod tests {
             r#"{"title":"t","role":"note","register":"neutral","typeId":"note",
                 "summary":"s","movePhrase":"m"}"#,
         );
-        let c = classify(&p, "said", &["note".into()], &["free-will".into()]).unwrap();
-        assert!(c.tags.is_empty() && c.new_tags.is_empty());
+        let c = classify(&p, "said", &["note".into()]).unwrap();
+        assert!(c.tags.is_empty());
+    }
+
+    /// Measured, not supposed: over the sixteen fixtures the model coined
+    /// "philosophy" and "decision-making" on the first note and put them on
+    /// all sixteen. Neither is in the notes.
+    #[test]
+    fn an_ungrounded_tag_is_dropped() {
+        let p = FakeProvider::replying(
+            r#"{"title":"t","role":"position","register":"neutral","typeId":"position",
+                "summary":"s","movePhrase":"m",
+                "tags":["philosophy","hash-tables"]}"#,
+        );
+        let c = classify(
+            &p,
+            "Hash table lookup is O(1) on average, which is the guarantee an index leans on.",
+            &["position".into()],
+        )
+        .unwrap();
+        assert_eq!(c.tags, vec!["hash-tables".to_string()]);
+    }
+
+    /// A five-character stem, so a plural still matches its singular. Crude on
+    /// purpose: the alternative is a stemmer, and being wrong here costs a
+    /// connection rather than a wrong one.
+    #[test]
+    fn grounding_tolerates_a_plural() {
+        let said = "Database indexes trade write performance for faster reads.";
+        assert!(grounded("database-indexes", said));
+        assert!(grounded("index", said));
+        assert!(!grounded("philosophy", said));
+        assert!(!grounded("decision-making", said));
+    }
+
+    /// Reuse is checked against this note, not the note the tag came from.
+    /// Otherwise the first note's vocabulary spreads to every later one, which
+    /// is exactly what was measured.
+    #[test]
+    fn reuse_is_grounded_in_the_note_reusing_it() {
+        let p = FakeProvider::replying(
+            r#"{"title":"t","role":"note","register":"neutral","typeId":"note",
+                "summary":"s","movePhrase":"m","tags":["free-will"]}"#,
+        );
+        let c = classify(
+            &p,
+            "Buy a new charger and send the reimbursement form.",
+            &["note".into()],
+        )
+        .unwrap();
+        assert!(c.tags.is_empty(), "an errand list is not about free will");
     }
 
     #[test]
@@ -427,7 +551,6 @@ mod tests {
             &p,
             "I don't think free will requires...",
             &["position".into()],
-            &[],
         )
         .unwrap();
 
@@ -446,7 +569,7 @@ mod tests {
                 "typeId":"position","summary":"Reflects on a relationship that ended.",
                 "movePhrase":"states a loss"}"#,
         );
-        let c = classify(&p, "...", &["position".into()], &[]).unwrap();
+        let c = classify(&p, "...", &["position".into()]).unwrap();
 
         assert_eq!(c.register, Register::Live);
         assert!(
@@ -461,7 +584,7 @@ mod tests {
             r#"{"title":"a list","role":"note","register":"neutral","typeId":"note",
                 "summary":"","movePhrase":"records errands"}"#,
         );
-        assert!(classify(&p, "...", &["note".into()], &[])
+        assert!(classify(&p, "...", &["note".into()])
             .unwrap()
             .summary
             .is_none());
@@ -476,7 +599,7 @@ mod tests {
                 "summary":"s","movePhrase":"m"}"#,
         );
         let types = vec!["position".to_string(), "wondering".to_string()];
-        let c = classify(&p, "...", &types, &[]).unwrap();
+        let c = classify(&p, "...", &types).unwrap();
 
         assert_eq!(c.type_id, "wondering");
         let schema = p.last_schema().unwrap();
@@ -513,7 +636,7 @@ mod tests {
     #[test]
     fn unreadable_output_is_an_error_not_a_panic() {
         let p = FakeProvider::replying("not json at all");
-        assert!(classify(&p, "...", &["position".into()], &[]).is_err());
+        assert!(classify(&p, "...", &["position".into()]).is_err());
         assert!(ask_about(&p, &entry("x"), "hint").is_err());
     }
 }

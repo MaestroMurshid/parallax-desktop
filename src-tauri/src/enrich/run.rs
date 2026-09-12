@@ -50,10 +50,10 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
     let type_ids = db::entries::type_ids(conn)?;
-    // The vocabulary the corpus already has, offered to the model as an enum:
-    // reuse is what makes two notes about one idea ever meet.
-    let known: Vec<String> = db::tags::all(conn)?.into_iter().map(|t| t.name).collect();
-    let classification = super::classify(provider, &entry.transcript, &type_ids, &known)?;
+    // The vocabulary is deliberately not sent. Offered as an enum it stopped
+    // the model coining at all and froze the corpus at one tag; reuse happens
+    // below, where `upsert` folds a repeated name into the existing row.
+    let classification = super::classify(provider, &entry.transcript, &type_ids)?;
     db::entries::set_classification(
         conn,
         entry_id,
@@ -68,8 +68,7 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     // Tagging is not allowed to cost the classification that already landed:
     // an untagged note is connected to nothing, which is recoverable, while a
     // failed pass would lose the filing too.
-    let mut names = classification.tags.clone();
-    names.extend(classification.new_tags.iter().cloned());
+    let names = classification.tags.clone();
     if let Err(e) =
         db::tags::upsert(conn, &names).and_then(|ids| db::tags::set_for_entry(conn, entry_id, &ids))
     {
@@ -198,7 +197,7 @@ mod tests {
         let (conn, id) = corpus(SAID, 5_000);
         let tagged = CLASSIFY.replace(
             r#""movePhrase":"trades one cost for another""#,
-            r#""movePhrase":"trades one cost for another","newTags":["Database Indexes","trade-offs"]"#,
+            r#""movePhrase":"trades one cost for another","tags":["Indexes","Write Performance"]"#,
         );
         let provider = ScriptedProvider::with(&[&tagged]);
 
@@ -211,26 +210,27 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            vec!["database-indexes".to_string(), "trade-offs".into()]
+            vec!["indexes".to_string(), "write-performance".into()]
         );
     }
 
-    /// The reuse half, end to end: the second note is offered the first note's
-    /// vocabulary and joining it is what makes the two candidates for a
-    /// connection at all.
+    /// The reuse half, end to end. The second note is never shown the first
+    /// note's vocabulary -- offering it as an enum froze the corpus at one tag
+    /// -- so reuse is two notes arriving at the same word and `upsert` folding
+    /// them onto one row. That fold is what makes them candidates at all.
     #[test]
     fn a_second_note_joins_the_vocabulary_rather_than_doubling_it() {
         let (conn, first) = corpus(SAID, 5_000);
         let coined = CLASSIFY.replace(
             r#""movePhrase":"trades one cost for another""#,
-            r#""movePhrase":"trades one cost for another","newTags":["database-indexes"]"#,
+            r#""movePhrase":"trades one cost for another","tags":["indexes"]"#,
         );
         run(&conn, &ScriptedProvider::with(&[&coined]), &first).unwrap();
 
         let second = db::create::create(
             &conn,
             db::create::NewEntry {
-                transcript: "Another note about the same thing.".into(),
+                transcript: "More about indexes, months later.".into(),
                 duration_ms: 5_000,
                 fingerprint: vec![],
                 parent_entry_id: None,
@@ -242,7 +242,7 @@ mod tests {
         .id;
         let reused = CLASSIFY.replace(
             r#""movePhrase":"trades one cost for another""#,
-            r#""movePhrase":"trades one cost for another","tags":["database-indexes"]"#,
+            r#""movePhrase":"trades one cost for another","tags":["indexes"]"#,
         );
         run(&conn, &ScriptedProvider::with(&[&reused]), &second).unwrap();
 

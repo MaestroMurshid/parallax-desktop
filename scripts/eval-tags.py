@@ -18,8 +18,12 @@ corpus really grows -- early notes seed the vocabulary later ones are offered.
     python scripts/eval-tags.py
 
 The prompt and the type list are read out of the Rust rather than copied, so
-this measures what ships. `normalise` is reimplemented here and is the one
-thing that can drift -- keep it matching db/tags.rs.
+this measures what ships. `normalise` and `grounded` are reimplemented here and
+are the things that can drift -- keep them matching db/tags.rs and enrich/mod.rs.
+
+The last number is the one that decides anything: of the edges a human authored
+in the fixture, how many does the filter still surface? A pair that shares no
+tag is never compared, so a dropped edge is a connection lost for good.
 """
 
 import itertools
@@ -65,26 +69,34 @@ def normalise(name):
     return "".join(out)
 
 
-def schema(type_ids, tag_names):
-    """Mirrors classify_schema, including the empty-vocabulary case: an empty
-    enum is a schema no token satisfies, so the field is omitted instead."""
-    properties = {
-        "title": {"type": "string"},
-        "role": {"type": "string", "enum": ["position", "evidence", "note"]},
-        "register": {"type": "string", "enum": ["live", "neutral"]},
-        "typeId": {"type": "string", "enum": type_ids},
-        "summary": {"type": "string"},
-        "movePhrase": {"type": "string"},
-        "newTags": {"type": "array", "items": {"type": "string"}},
-    }
-    if tag_names:
-        properties["tags"] = {
-            "type": "array",
-            "items": {"type": "string", "enum": tag_names},
-        }
+def grounded(tag, transcript):
+    """Mirrors enrich::grounded. A tag whose words are not in the note is
+    dropped: measured, the model coined "philosophy" and "decision-making" on
+    the first fixture and put them on all sixteen, and neither is in the text.
+    Five-character stem so "index" still finds "indexes"."""
+    haystack = transcript.lower()
+    words = [w for w in tag.split("-") if len(w) > 2]
+    return bool(words) and all(w[:5] in haystack for w in words)
+
+
+def schema(type_ids):
+    """Mirrors classify_schema. The vocabulary is deliberately not offered:
+    measured, an enum of existing tags stopped the model coining from note two
+    onward and froze the corpus at one tag. Reuse happens in db::tags::upsert,
+    by normalised collision."""
     return {
         "type": "object",
-        "properties": properties,
+        "properties": {
+            "title": {"type": "string", "maxLength": 80},
+            "role": {"type": "string", "enum": ["position", "evidence", "note"]},
+            "register": {"type": "string", "enum": ["live", "neutral"]},
+            "typeId": {"type": "string", "enum": type_ids},
+            "summary": {"type": "string", "maxLength": 400},
+            # Bounded because the model loops inside an unbounded string until
+            # the token ceiling and the JSON never terminates.
+            "movePhrase": {"type": "string", "maxLength": 200},
+            "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+        },
         "required": ["title", "role", "register", "typeId", "summary", "movePhrase"],
         "additionalProperties": False,
     }
@@ -110,39 +122,34 @@ def ask(system, user, json_schema):
         URL, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}
     )
     got = json.load(urllib.request.urlopen(req, timeout=300))
-    return json.loads(got["choices"][0]["message"]["content"])
+    choice = got["choices"][0]
+    if choice.get("finish_reason") == "length":
+        # Worth failing loudly rather than skipping: a truncated reply in the
+        # app is an unparseable classification, not a missing tag.
+        raise RuntimeError("reply hit the token ceiling -- the grammar is unbounded somewhere")
+    return json.loads(choice["message"]["content"])
 
 
 def main():
-    notes = json.loads(CORPUS.read_text(encoding="utf-8"))["entries"]
+    corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+    notes = corpus["entries"]
     notes.sort(key=lambda e: e["createdAt"])
     system = prompt("const CLASSIFY_SYSTEM")
 
-    vocabulary = []  # normalised, in the order the corpus coined them
     per_note = {}
-
     for note in notes:
-        reply = ask(system, note["transcript"], schema(["position", "evidence", "note"], vocabulary))
+        reply = ask(system, note["transcript"], schema(["position", "evidence", "note"]))
 
-        # Mirrors classify(): normalise both fields, drop duplicates, and fold a
-        # coined tag that already exists back into reuse.
-        reused = []
+        # Mirrors classify(): normalise, drop duplicates, drop what the note
+        # does not actually say.
+        said = note["transcript"]
+        keys = []
         for name in reply.get("tags", []):
             key = normalise(name)
-            if key and key not in reused:
-                reused.append(key)
-        coined = []
-        for name in reply.get("newTags", []):
-            key = normalise(name)
-            if key and key not in reused and key not in coined:
-                coined.append(key)
-
-        per_note[note["id"]] = reused + coined
-        for key in coined:
-            if key not in vocabulary:
-                vocabulary.append(key)
-
-        print(f"  {note['id']:<34} reused {reused}  new {coined}")
+            if key and key not in keys and grounded(key, said):
+                keys.append(key)
+        per_note[note["id"]] = keys
+        print(f"  {note['id']:<34} {keys}")
 
     counts = {}
     for keys in per_note.values():
@@ -151,16 +158,30 @@ def main():
 
     total = len(notes)
     pairs = list(itertools.combinations(per_note, 2))
-    shared = [(a, b) for a, b in pairs if set(per_note[a]) & set(per_note[b])]
+    shared = {frozenset(p) for p in pairs if set(per_note[p[0]]) & set(per_note[p[1]])}
     biggest = max(counts.items(), key=lambda kv: kv[1]) if counts else ("none", 0)
     once = sum(1 for n in counts.values() if n == 1)
 
-    print(f"\n{total} notes, {len(counts)} tags, {sum(counts.values())} assignments")
+    print()
+    print(f"{total} notes, {len(counts)} tags, {sum(counts.values())} assignments")
     print(f"tags used once: {once} of {len(counts)}")
     print(f"largest tag: {biggest[0]} on {biggest[1]} of {total} notes")
     print(f"pairs sharing a tag: {len(shared)} of {len(pairs)}")
     for key, n in sorted(counts.items(), key=lambda kv: -kv[1]):
         print(f"  {n:>2}  {key}")
+
+    # The number that decides it. `pairs sharing a tag` is a proxy chosen
+    # against invented thresholds; the corpus carries authored edges, and a
+    # pair the filter drops is never judged and is lost for good.
+    truth = {frozenset((e["a"], e["b"])) for e in corpus.get("edges", [])}
+    kept = truth & shared
+    if truth:
+        print()
+        print(f"authored edges surfaced: {len(kept)} of {len(truth)}")
+        for edge in sorted(truth - kept, key=sorted):
+            a, b = sorted(edge)
+            print(f"  MISSED  {a} + {b}")
+            print(f"          {per_note.get(a)}  vs  {per_note.get(b)}")
 
     share = len(shared) / len(pairs) if pairs else 0
     faults = []
@@ -170,6 +191,8 @@ def main():
         faults.append(f"too connected: {share:.0%} of pairs share a tag, filter narrows little")
     if share < HEALTHY_SHARE_MIN:
         faults.append(f"drift: only {share:.0%} of pairs share a tag, little will connect")
+    if truth and len(kept) < len(truth) / 2:
+        faults.append(f"the filter loses real connections: {len(kept)}/{len(truth)} authored edges survive")
 
     print()
     for fault in faults:
