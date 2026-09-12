@@ -4,8 +4,10 @@
 //! called on demand from the UI.
 
 pub mod candidates;
+pub mod connect;
 pub mod gate;
 pub mod invoke;
+pub mod propose;
 pub mod run;
 
 use crate::error::{Error, Result};
@@ -202,7 +204,7 @@ fn grounded(tag: &str, transcript: &str) -> bool {
 /// A span, enforced rather than asked for: asked for under twenty words it
 /// returned twenty-four and thirty-six. Cutting on a word boundary keeps a
 /// verbatim substring verbatim, so the anchor still resolves.
-fn trim_quote(quote: &str) -> String {
+pub(super) fn trim_quote(quote: &str) -> String {
     const MOST: usize = 20;
     let words: Vec<&str> = quote.split_whitespace().collect();
     if words.len() <= MOST {

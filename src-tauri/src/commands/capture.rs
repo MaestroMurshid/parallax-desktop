@@ -115,6 +115,11 @@ pub async fn stop_recording(
     Ok(entry)
 }
 
+/// One model call per candidate, so this is the cost of a capture. Eight is
+/// the number Task 10 settled on: enough that a real connection is usually in
+/// the set, few enough that the pass stays behind a single recording.
+const PROPOSE_CAP: usize = 8;
+
 /// Enrichment runs after the entry is safe on disk, never before. It is allowed
 /// to be slow, absent or wrong, and none of that may cost a recording (§9.4).
 ///
@@ -142,6 +147,17 @@ fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
         {
             eprintln!("embedding failed for {entry_id}: {e}");
         }
+        // After embedding, because candidates are ordered by cosine and this
+        // note's own vector has to exist for that to mean anything. And before
+        // the settled event, or the indicator clears while the judge is still
+        // working -- one model call per candidate is the slowest part of the
+        // whole pass.
+        if let Err(e) = state.with_reasoning(|provider| {
+            crate::enrich::propose::propose(&state.db(), provider, &entry_id, PROPOSE_CAP)
+        }) {
+            eprintln!("proposing failed for {entry_id}: {e}");
+        }
+
         match done {
             // No binary or no model yet: the question arrives when one lands.
             Ok(None) => {}

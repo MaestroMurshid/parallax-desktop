@@ -90,6 +90,27 @@ pub fn list_proposed_for(conn: &Connection, entry_id: &str) -> Result<Vec<Edge>>
 /// already connected that way keeps the edge it has. Returning the argument
 /// regardless would hand back an id for a row that was never written, and every
 /// later accept or dismiss against it would silently do nothing.
+/// Whether these two are already connected, in either direction, under any
+/// relation and any status.
+///
+/// Two traps in one query. The table's `UNIQUE (entry_a, entry_b, relation)`
+/// does not stop the same pair being proposed again under a *different*
+/// relation, so the constraint cannot be the check. And pair order is not
+/// normalised anywhere -- (a,b) and (b,a) are one connection -- so asking in
+/// one direction only would re-propose everything the other way round.
+///
+/// Dismissed counts. Dismissals are kept precisely so the app does not nag,
+/// and with the vocabulary invisible this is the only correction the user has.
+pub fn between(conn: &Connection, x: &str, y: &str) -> Result<bool> {
+    let found: i64 = conn.query_row(
+        "SELECT count(*) FROM edges
+         WHERE (entry_a = ?1 AND entry_b = ?2) OR (entry_a = ?2 AND entry_b = ?1)",
+        params![x, y],
+        |row| row.get(0),
+    )?;
+    Ok(found > 0)
+}
+
 pub fn insert(conn: &Connection, edge: &Edge) -> Result<Edge> {
     let written = conn.execute(
         "INSERT OR IGNORE INTO edges
@@ -160,6 +181,52 @@ mod tests {
             status: EdgeStatus::Proposed,
             created_at: "2024-01-02T00:00:00Z".into(),
         }
+    }
+
+    #[test]
+    fn two_notes_with_nothing_between_them_are_not_connected() {
+        let conn = open_in_memory().unwrap();
+        seed_entries(&conn);
+        assert!(!between(&conn, "a", "b").unwrap());
+    }
+
+    /// Pair order is not normalised anywhere, so asking one way round only
+    /// would re-propose every connection in the other direction.
+    #[test]
+    fn the_same_pair_the_other_way_round_is_the_same_connection() {
+        let conn = open_in_memory().unwrap();
+        seed_entries(&conn);
+        insert(&conn, &edge()).unwrap();
+        assert!(between(&conn, "a", "b").unwrap());
+        assert!(between(&conn, "b", "a").unwrap());
+    }
+
+    /// `UNIQUE (entry_a, entry_b, relation)` does not stop the same pair being
+    /// proposed again under a different relation, so the constraint cannot be
+    /// the check -- which is the whole reason this function exists.
+    #[test]
+    fn a_different_relation_on_one_pair_is_still_that_pair() {
+        let conn = open_in_memory().unwrap();
+        seed_entries(&conn);
+        let mut e = edge();
+        e.relation = Relation::Extends;
+        insert(&conn, &e).unwrap();
+        assert!(between(&conn, "a", "b").unwrap());
+    }
+
+    /// Dismissals are kept so the app does not nag, and with the vocabulary
+    /// invisible this is the only correction the user has.
+    #[test]
+    fn a_dismissed_pair_still_counts_as_connected() {
+        let conn = open_in_memory().unwrap();
+        seed_entries(&conn);
+        let mut e = edge();
+        e.status = EdgeStatus::Dismissed;
+        insert(&conn, &e).unwrap();
+        assert!(
+            between(&conn, "a", "b").unwrap(),
+            "a dismissed pair must never be proposed again"
+        );
     }
 
     #[test]
