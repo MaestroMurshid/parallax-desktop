@@ -22,29 +22,39 @@ pub struct LlamaEmbedder {
 }
 
 impl LlamaEmbedder {
+    /// The arguments, as a value, so the flags this depends on can be asserted
+    /// without spawning anything. `--embedding` is not a preference: without it
+    /// the server answers 501 to every embedding request, and `/health` still
+    /// says yes -- so a silent removal would look alive and fail at use.
+    fn spawn_args(model: &PathBuf, port: u16) -> Vec<String> {
+        vec![
+            "-m".into(),
+            model.to_string_lossy().into_owned(),
+            "--port".into(),
+            port.to_string(),
+            "--no-webui".into(),
+            "--embedding".into(),
+            // Mean over the token vectors, which is what these models were
+            // trained against. The default comes from the model's metadata and
+            // is not the same across the three that are offered.
+            "--pooling".into(),
+            "mean".into(),
+            // On the CPU deliberately. It is a 22M-137M parameter model and
+            // runs in milliseconds there, while the 4GB card is the scarce
+            // thing the reasoning model is already waiting for.
+            "-ngl".into(),
+            "0".into(),
+            // No -c: the three models have trained context windows from 256 to
+            // 8192, and naming one number here would silently truncate the
+            // long-context model that was chosen precisely for it.
+        ]
+    }
+
     pub fn spawn(binary: &PathBuf, model: &PathBuf, model_id: &str) -> Result<Self> {
         let port = crate::llm::llama_server::free_port()?;
 
         let child = Command::new(binary)
-            .arg("-m")
-            .arg(model)
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--no-webui")
-            // Mean over the token vectors, which is what these models were
-            // trained against. The default depends on the model's metadata and
-            // is not the same across the three that are offered.
-            .arg("--embedding")
-            .arg("--pooling")
-            .arg("mean")
-            // On the CPU deliberately. It is a 22M-137M parameter model and
-            // runs in milliseconds there, while the 4GB card is the scarce
-            // thing the reasoning model is already waiting for.
-            .arg("-ngl")
-            .arg("0")
-            // No -c: the three models have different trained context windows,
-            // 256 to 8192, and naming one number here would silently truncate
-            // the long-context model that was chosen precisely for it.
+            .args(Self::spawn_args(model, port))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -72,15 +82,27 @@ impl LlamaEmbedder {
             .unwrap_or(false)
     }
 
+    /// Ready means "can embed", not "is alive".
+    ///
+    /// `/health` answers yes on a server started without `--embedding`, and on
+    /// one loaded with a generative model, so waiting on it alone lets a
+    /// process that can never embed report itself started -- and every call
+    /// after it fails somewhere far from the cause. One real embedding is the
+    /// cheap way to find out here instead.
     fn wait_until_ready(&self, budget: Duration) -> Result<()> {
         let deadline = Instant::now() + budget;
-        while Instant::now() < deadline {
-            if self.ready() {
-                return Ok(());
-            }
+        while Instant::now() < deadline && !self.ready() {
             std::thread::sleep(Duration::from_millis(100));
         }
-        Err(Error::Other("the embedder did not become ready".into()))
+        if !self.ready() {
+            return Err(Error::Other("the embedder did not start in time".into()));
+        }
+        self.embed("ready?").map_err(|e| {
+            Error::Other(format!(
+                "the embedder started but cannot embed, so every note would fail rather than this: {e}"
+            ))
+        })?;
+        Ok(())
     }
 
     pub fn stop(&self) {
@@ -157,6 +179,31 @@ fn mean(rows: &[Value]) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The flags are load-bearing and this runs in the ordinary suite, unlike
+    /// the spawning test below. Without `--embedding` the server answers 501
+    /// to every request while `/health` still says yes, so its removal has to
+    /// be caught here rather than by whoever next remembers `--ignored`.
+    #[test]
+    fn the_arguments_carry_the_flags_the_endpoint_depends_on() {
+        let args = LlamaEmbedder::spawn_args(&PathBuf::from("m.gguf"), 1234);
+        assert!(args.contains(&"--embedding".to_string()), "{args:?}");
+
+        let pooling = args.iter().position(|a| a == "--pooling").expect("pooling");
+        assert_eq!(
+            args[pooling + 1],
+            "mean",
+            "the three models pool differently"
+        );
+
+        let ngl = args.iter().position(|a| a == "-ngl").expect("-ngl");
+        assert_eq!(args[ngl + 1], "0", "it must not compete for the card");
+
+        assert!(
+            !args.iter().any(|a| a == "-c"),
+            "a fixed context would silently truncate the 8192-token model: {args:?}"
+        );
+    }
 
     /// Spawns the real binary against a real model, because this is the part
     /// unit tests cannot reach: the flags, the endpoint, and the shape of what
