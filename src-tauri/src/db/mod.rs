@@ -8,6 +8,7 @@ pub mod sample;
 pub mod search;
 pub mod settings;
 pub mod tags;
+pub mod vectors;
 
 use crate::error::Result;
 use rusqlite::Connection;
@@ -18,7 +19,7 @@ const SCHEMA: &str = include_str!("schema.sql");
 /// Bumped whenever `schema.sql` changes shape. `user_version` is a SQLite
 /// integer stored in the file header, so the database says which migration it
 /// is on without a table of its own.
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -77,6 +78,21 @@ fn migrate(conn: &Connection) -> Result<()> {
         // Generated on every capture since enrichment landed and discarded for
         // want of somewhere to put it.
         let _ = conn.execute_batch("ALTER TABLE entries ADD COLUMN move_phrase TEXT;");
+    }
+    if current < 5 {
+        // Pure CREATE, safe to be interrupted by: migrations here are not
+        // transactional. Existing notes have no vector until something
+        // backfills them, and `similar` reads that as no candidates.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS entry_vectors (
+                 entry_id   TEXT PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE,
+                 model      TEXT NOT NULL,
+                 dims       INTEGER NOT NULL,
+                 vec        BLOB NOT NULL,
+                 created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_entry_vectors_model ON entry_vectors(model);",
+        )?;
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -176,7 +192,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 10);
+        assert_eq!(tables, 11);
 
         // Running it again must not throw: migrate is called on every open.
         migrate(&conn).unwrap();

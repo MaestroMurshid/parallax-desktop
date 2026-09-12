@@ -150,6 +150,19 @@ CREATE TABLE entry_tags (
     PRIMARY KEY (entry_id, tag_id)
 );
 
+-- One vector per note. Tags were meant to be the candidate filter and could
+-- not be: measured, 28 names over 16 notes, 28 used once, 0 of 12 authored
+-- edges surfaced. `model` is stored beside the vector because two embedding
+-- models share no space, and a corpus embedded by one must not be ranked
+-- against the other.
+CREATE TABLE entry_vectors (
+    entry_id   TEXT PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE,
+    model      TEXT NOT NULL,
+    dims       INTEGER NOT NULL,
+    vec        BLOB NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -164,3 +177,5 @@ CREATE INDEX idx_edges_a           ON edges(entry_a);
 CREATE INDEX idx_edges_b           ON edges(entry_b);
 -- By tag, not by entry: the lookup asks "who else carries this tag".
 CREATE INDEX idx_entry_tags_tag    ON entry_tags(tag_id);
+-- The scan filters by model before it reads a single vector.
+CREATE INDEX idx_entry_vectors_model ON entry_vectors(model);
