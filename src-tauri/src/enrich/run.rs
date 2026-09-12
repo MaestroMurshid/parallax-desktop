@@ -113,6 +113,18 @@ mod tests {
     const SAID: &str = "Indexes trade write performance for faster reads, \
         and that tradeoff is usually worth it for a read-heavy table.";
 
+    /// Span offsets are UTF-16 units, so an assertion about them has to slice
+    /// the way the frontend does. Slicing `SAID` as bytes happens to agree
+    /// because the fixture is ASCII, which is exactly why it misleads -- the
+    /// unit regression it looks like it would catch is caught by
+    /// `an_anchor_is_measured_in_utf16_units` instead.
+    fn js_slice(s: &str, start: u32, end: u32) -> String {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        let lo = (start as usize).min(units.len());
+        let hi = (end as usize).min(units.len()).max(lo);
+        String::from_utf16_lossy(&units[lo..hi])
+    }
+
     fn question(quote: &str) -> String {
         format!(
             r#"{{"text":"Where does that stop holding?","quote":{}}}"#,
@@ -145,10 +157,7 @@ mod tests {
         let questions = db::questions::list_for(&conn, &id).unwrap();
         assert_eq!(questions.len(), 1);
         let span = questions[0].span.as_ref().unwrap();
-        assert_eq!(
-            &SAID[span.start as usize..span.end as usize],
-            "faster reads"
-        );
+        assert_eq!(js_slice(SAID, span.start, span.end), "faster reads");
     }
 
     /// The shape of the JSON proves nothing about where the words came from.
