@@ -183,7 +183,7 @@ impl LlmProvider for LlamaServer {
     }
 }
 
-fn free_port() -> Result<u16> {
+pub(crate) fn free_port() -> Result<u16> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     Ok(listener.local_addr()?.port())
 }

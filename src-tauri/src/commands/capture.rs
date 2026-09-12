@@ -132,6 +132,16 @@ fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
         let _ = app.emit("entry://enriching", &entry_id);
         let done = state
             .with_reasoning(|provider| crate::enrich::run::run(&state.db(), provider, &entry_id));
+
+        // Separate from enrichment and after it, because it is ranking rather
+        // than eligibility: topics already decided who this note can be
+        // compared against, and the vector only orders them. An absent or
+        // failing embedder therefore costs ordering and no connections at all.
+        if let Err(e) = state
+            .with_embedder(|embedder| crate::embed::embed_now(&state.db(), embedder, &entry_id))
+        {
+            eprintln!("embedding failed for {entry_id}: {e}");
+        }
         match done {
             // No binary or no model yet: the question arrives when one lands.
             Ok(None) => {}

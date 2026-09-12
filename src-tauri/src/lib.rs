@@ -1,7 +1,8 @@
 pub mod audio;
 pub mod commands;
 pub mod db;
-pub mod enrich;
+pub mod embed;
+mod enrich;
 pub mod error;
 pub mod llm;
 pub mod model;

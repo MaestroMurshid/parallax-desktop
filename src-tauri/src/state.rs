@@ -45,6 +45,11 @@ pub struct AppState {
     /// Started on first use and kept, because loading 2.5GB per question is
     /// the difference between the question existing and not.
     pub llama: Mutex<Option<crate::llm::llama_server::LlamaServer>>,
+    /// Its own process: a generative llama-server refuses the embedding
+    /// endpoint outright, and `--embedding` disables generation, so the two
+    /// cannot share one. Tens of megabytes on the CPU, so keeping it costs
+    /// little and starting it per capture would cost a second every time.
+    pub embedder: Mutex<Option<crate::embed::llama::LlamaEmbedder>>,
 }
 
 impl AppState {
@@ -58,6 +63,7 @@ impl AppState {
             discarded: Mutex::new(None),
             llama_dir: Mutex::new(None),
             llama: Mutex::new(None),
+            embedder: Mutex::new(None),
         })
     }
 
@@ -149,6 +155,45 @@ impl AppState {
         f(server).map(Some)
     }
 
+    /// Runs `f` against the embedder, starting it if it is not up.
+    ///
+    /// `Ok(None)` whenever there is no embedder to run -- no binary, no model
+    /// chosen, or the file not downloaded yet. That is an ordinary state, not
+    /// a failure: topics propose candidates on their own and cosine only
+    /// reorders them, so an absent embedder costs ranking and nothing else.
+    pub fn with_embedder<T>(
+        &self,
+        f: impl FnOnce(&dyn crate::embed::Embedder) -> Result<T>,
+    ) -> Result<Option<T>> {
+        let Some(binary) = self.llama_binary() else {
+            return Ok(None);
+        };
+        let settings = db::settings::get(&self.db())?;
+        let Some(id) = settings.embedding_model_id else {
+            return Ok(None);
+        };
+        let Some(model) = self.embedding_model(Some(&id)) else {
+            return Ok(None);
+        };
+
+        let mut slot = self.embedder.lock().unwrap_or_else(|p| p.into_inner());
+        // Restarted when the chosen model changes, or the vectors it writes
+        // would be compared against a space they do not belong to.
+        if slot
+            .as_ref()
+            .is_none_or(|e| !e.ready() || crate::embed::Embedder::model_id(e) != id)
+        {
+            if let Some(old) = slot.take() {
+                old.stop();
+            }
+            *slot = Some(crate::embed::llama::LlamaEmbedder::spawn(
+                &binary, &model, &id,
+            )?);
+        }
+        let embedder = slot.as_ref().expect("just started");
+        f(embedder).map(Some)
+    }
+
     /// Unlinks a recording, and only ever one inside the corpus.
     ///
     /// A stored path is data; an imported one is data from a stranger. Reads
@@ -190,6 +235,14 @@ impl AppState {
         // never runs -- which is how a llama-server child got orphaned before.
         if let Some(server) = self.llama.lock().unwrap_or_else(|p| p.into_inner()).take() {
             server.stop();
+        }
+        if let Some(embedder) = self
+            .embedder
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+        {
+            embedder.stop();
         }
         // A recording in flight is dropped, which stops the stream. Nothing is
         // written: an app being quit mid-sentence did not ask for a note.

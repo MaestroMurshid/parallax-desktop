@@ -65,6 +65,24 @@ pub fn get(conn: &Connection, entry_id: &str) -> Result<Option<(String, Vec<f32>
     Ok(found.map(|(model, blob)| (model, decode(&blob))))
 }
 
+/// Entries this model has not embedded, oldest first.
+///
+/// Keyed on the model, not merely on absence: switching embedding model makes
+/// every existing vector unusable -- they share no space -- so the ones
+/// written by the old model must come back through here rather than sit there
+/// looking done.
+pub fn missing(conn: &Connection, model: &str, limit: usize) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT e.id FROM entries e
+         LEFT JOIN entry_vectors v ON v.entry_id = e.id AND v.model = ?1
+         WHERE v.entry_id IS NULL
+         ORDER BY e.created_at ASC, e.id ASC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![model, limit as i64], |row| row.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 /// The notes most like this one, best first.
 ///
 /// Only ever compares vectors written by the same model: two embeddings from
