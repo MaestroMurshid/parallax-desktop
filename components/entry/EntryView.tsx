@@ -80,6 +80,10 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   const reopenEntry = useApp((s) => s.reopenEntry);
   const [resolving, setResolving] = useState(false);
   const [resolutionDraft, setResolutionDraft] = useState('');
+  const correctTranscript = useApp((s) => s.correctTranscript);
+  const [correcting, setCorrecting] = useState(false);
+  const [correctionDraft, setCorrectionDraft] = useState('');
+  const [savingCorrection, setSavingCorrection] = useState(false);
   const [probing, setProbing] = useState<string | null>(null);
   const [selection, setSelection] = useState<Span | null>(null);
   const [selectAt, setSelectAt] = useState<{ x: number; y: number } | null>(null);
@@ -95,6 +99,14 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   useEffect(() => () => {
     if (armTimer.current) clearTimeout(armTimer.current);
   }, []);
+
+  // Correction is per-note and never survives the panel moving to another one:
+  // a draft left open would otherwise be shown over, and saved onto, whichever
+  // note you opened next.
+  useEffect(() => {
+    setCorrecting(false);
+    setCorrectionDraft('');
+  }, [id]);
 
   if (!entry) return null;
 
@@ -153,7 +165,76 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
       </header>
 
       <div className={styles.columns}>
-        {/* Transcript first and largest. Nothing renders above it (§6.1). */}
+        {/* Transcript first and largest. Nothing renders above it (§6.1).
+            Read-only unless a correction is deliberately opened: the note is
+            the verbatim record of what was said, and the one edit it takes is
+            fixing what the transcription misheard. */}
+        {correcting ? (
+          <div className={styles.correction}>
+            <p className={styles.correctionNote}>
+              Correcting what the transcription <em>heard</em>. These are your words as you said
+              them — fix the misheard ones, don&rsquo;t rewrite the thought.
+            </p>
+            <textarea
+              className={`${styles.correctionField} selectable`}
+              autoFocus
+              rows={Math.min(18, Math.max(6, Math.ceil(correctionDraft.length / 72)))}
+              value={correctionDraft}
+              spellCheck
+              onChange={(e) => setCorrectionDraft(e.target.value)}
+              onKeyDown={(e) => {
+                // Escape is stopped here or the window handler closes the whole
+                // overlay (app/page.tsx) and takes the draft with it.
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  setCorrecting(false);
+                  setCorrectionDraft('');
+                }
+                // Deliberately no Enter-to-save, unlike the resolution field:
+                // speech runs to paragraphs and a newline is a legitimate part
+                // of a transcript, so Enter has to mean Enter here.
+              }}
+            />
+            <p className={styles.correctionCost}>
+              Highlights and questions re-find their own words. Any that no longer appear stop
+              being highlighted — the questions themselves are kept.
+            </p>
+            <div className={styles.resolveActions}>
+              <button
+                type="button"
+                className={styles.resolveLink}
+                onClick={() => {
+                  setCorrecting(false);
+                  setCorrectionDraft('');
+                }}
+              >
+                esc
+              </button>
+              <button
+                type="button"
+                className={styles.resolveSave}
+                // Unchanged is not a correction, and blank is a delete wearing
+                // one's clothes — Rust refuses it either way.
+                disabled={
+                  savingCorrection ||
+                  !correctionDraft.trim() ||
+                  correctionDraft === entry.transcript
+                }
+                onClick={() => {
+                  setSavingCorrection(true);
+                  void correctTranscript(entry.id, correctionDraft)
+                    .then(() => {
+                      setCorrecting(false);
+                      setCorrectionDraft('');
+                    })
+                    .finally(() => setSavingCorrection(false));
+                }}
+              >
+                {savingCorrection ? 'saving…' : 'Save correction'}
+              </button>
+            </div>
+          </div>
+        ) : (
         <article
           className={`${styles.transcript} selectable`}
           onMouseUp={(ev) => {
@@ -185,11 +266,27 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
             </span>
           ))}
         </article>
+        )}
 
         {/* Secondary column, smaller and dimmer, so the tidy version never wins (§1.1). */}
         <div className={styles.side}>
           {entry.summary && <p className={styles.summary}>{entry.summary}</p>}
           <p className={styles.type}>{typeLabel(entry, resolveTypes(customTypes))}</p>
+          {/* Quiet, and named for the only thing it does. A prominent "edit"
+              here would invite rewriting the thought, which is the one change
+              a commonplace book cannot take. */}
+          {!correcting && (
+            <button
+              type="button"
+              className={styles.correctOpen}
+              onClick={() => {
+                setCorrectionDraft(entry.transcript);
+                setCorrecting(true);
+              }}
+            >
+              misheard?
+            </button>
+          )}
         </div>
       </div>
 

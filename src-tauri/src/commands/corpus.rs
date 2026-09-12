@@ -83,6 +83,24 @@ pub fn resolve_entry(state: State<AppState>, entry_id: String, text: String) -> 
     db::entries::get(&conn, &entry_id)?.ok_or_else(|| Error::NotFound(entry_id))
 }
 
+/// The only edit a note takes: fixing what the speech-to-text heard wrong. Not
+/// a general editor -- a commonplace book is worth having because the note is
+/// the verbatim record, and a note you can rewrite is a note you cannot cite.
+///
+/// Returns the entry rather than `()` so the caller re-reads the spans this
+/// rewrote. Correcting the text re-anchors every span, question and action item
+/// on it, which the frontend has no way to recompute for itself.
+#[tauri::command]
+pub fn correct_transcript(
+    state: State<AppState>,
+    entry_id: String,
+    transcript: String,
+) -> Result<Entry> {
+    let conn = state.db();
+    db::entries::correct_transcript(&conn, &entry_id, &transcript)?;
+    db::entries::get(&conn, &entry_id)?.ok_or_else(|| Error::NotFound(entry_id))
+}
+
 #[tauri::command]
 pub fn reopen_entry(state: State<AppState>, entry_id: String) -> Result<Entry> {
     let conn = state.db();

@@ -1,0 +1,118 @@
+/* Recessed against --surface in both themes, and separated by the same hairline
+   the pills use, so it reads as chrome rather than as a second document. Its
+   own clearance for the floating top bar and the status/action pills. */
+.sidebar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 208px;
+  height: 100%;
+  padding: calc(var(--chrome-top) + 4px) 8px var(--chrome-bottom);
+  background: var(--dimmed-bg);
+  border-right: 1px solid var(--edge);
+  overflow-y: auto;
+}
+
+.group {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.item:hover {
+  background: var(--edge);
+}
+
+.item:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: -1px;
+}
+
+/* Selection is carried by weight and colour rather than a fill, so the sidebar
+   still has somewhere to put :hover — a filled row that also highlights on
+   hover stops saying which one is selected. */
+.item[aria-pressed='true'] .label {
+  color: var(--title);
+}
+
+.item[aria-pressed='true'] .count {
+  color: var(--edge-label);
+}
+
+.label {
+  flex: 1 1 auto;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--meta);
+}
+
+.views {
+  margin-top: auto;
+  padding: 16px 10px 2px;
+  border-top: 1px solid var(--edge);
+}
+
+.heading {
+  display: block;
+  margin-bottom: 7px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.06em;
+  color: var(--meta);
+}
+
+.viewRow {
+  display: flex;
+  gap: 2px;
+}
+
+.view {
+  flex: 1 1 0;
+  padding: 5px 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.view:hover {
+  color: var(--title);
+}
+
+.view:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: -1px;
+}
+
+/* The one control in the sidebar whose state is not "what am I looking at" but
+   "what surface am I in", so it gets the outlined treatment the filters refuse. */
+.view[aria-pressed='true'] {
+  border-color: var(--edge-control);
+  color: var(--title);
+}

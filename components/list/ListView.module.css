@@ -1,0 +1,120 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* The top bar and the status/action pills float (position: absolute, z-index 4)
+   rather than taking part in layout, so the scroll area buys its own clearance
+   from the same tokens they are positioned with. Scrolling lives here and not
+   on the page: globals.css keeps body at overflow: hidden for the canvas. */
+.list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 0;
+  padding: calc(var(--chrome-top) + 4px) 0 var(--chrome-bottom);
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 13px 22px 15px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--edge);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.row:hover {
+  background: var(--dimmed-bg);
+}
+
+/* Inset so the ring sits inside the hairline instead of doubling it. Not shared
+   with :hover — a focused row and a row under the cursor are different facts,
+   and a keyboard user needs to see which one Enter will open. */
+.row:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: -1px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* Family, weight and tracking arrive per-role from the classification registry
+   (ListView.tsx), so only size and colour are set here. */
+.title {
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--size-body);
+  color: var(--title);
+}
+
+/* §8's reserved shape: a filled circle is the unanswered question and nothing
+   else in the app may be one. */
+.open {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-1px);
+}
+
+.role {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.05em;
+  color: var(--meta);
+}
+
+.meta {
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+/* Two lines, then it stops. A third would start to compete with the transcript
+   itself, which is the thing the row exists to send you to (§1.1). */
+.excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--size-meta);
+  line-height: 1.55;
+  color: var(--edge-label);
+}
+
+.empty {
+  padding: calc(var(--chrome-top) + 24px) 24px var(--chrome-bottom);
+  max-width: 46ch;
+}
+
+.emptyBody {
+  margin: 0;
+  font-size: var(--size-body);
+  line-height: 1.65;
+  color: var(--meta);
+}
+
+.emptyTerm {
+  font-family: var(--font-mono);
+  font-size: var(--size-meta);
+  letter-spacing: 0.05em;
+  color: var(--title);
+}

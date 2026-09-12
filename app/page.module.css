@@ -16,6 +16,15 @@
   overflow: hidden;
 }
 
+/* The list is the way in, so it occupies the same slot the canvas does rather
+   than floating over it: swapping views must not look like opening a panel. */
+.listArea {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 /* Its own transparent Tauri window; the panel positions itself inside it. */
 .panelWindow {
   position: relative;

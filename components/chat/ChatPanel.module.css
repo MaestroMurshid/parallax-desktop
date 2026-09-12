@@ -1,0 +1,267 @@
+/* Anchored left, not right: opening a result puts the entry sheet up on the
+   right (EntryView.module.css), and a recall panel that its own results cover
+   is a panel you can only use once. */
+.sheet {
+  position: absolute;
+  top: var(--chrome-top);
+  left: var(--pill-inset);
+  bottom: var(--chrome-bottom);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  max-width: calc(100vw - var(--pill-inset) * 2);
+  padding: 20px 22px 14px;
+  overflow: hidden; /* the result list scrolls, the frame does not */
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: var(--pill-radius);
+  box-shadow: var(--pill-shadow);
+  animation: panelSlideIn 190ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.meta,
+.close {
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.close {
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.close:hover {
+  color: var(--title);
+}
+
+.close:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 3px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* A real label, not a placeholder standing in for one: the placeholder here is
+   an example question and disappears the moment you start typing. */
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.05em;
+  color: var(--meta);
+}
+
+.field {
+  width: 100%;
+  padding: 7px 9px;
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: var(--size-body);
+  color: var(--title);
+}
+
+.field::placeholder {
+  color: var(--meta);
+}
+
+.field:focus-visible {
+  outline: none;
+  border-color: var(--stroke-hub);
+}
+
+.field:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Empty between questions, and it keeps its line: a count that shoves the
+   results down as it appears is a count nobody reads. */
+.status {
+  min-height: 1.2em;
+  margin: 14px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.05em;
+  color: var(--meta);
+}
+
+/* What was actually put to the corpus. Without it "no matches" is unreadable —
+   you cannot tell whether your question was understood or just discarded. */
+.searched {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: baseline;
+  margin: 8px 0 0;
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+.term {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--meta);
+}
+
+.empty {
+  margin: 16px 0 0;
+  max-width: 44ch;
+  font-size: var(--size-meta);
+  line-height: 1.65;
+  color: var(--meta);
+}
+
+.list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 14px -22px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  padding: 11px 22px 13px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--edge);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.row:hover {
+  background: var(--surface);
+}
+
+/* The footer rule already closes the list; a second hairline under the last row
+   reads as an empty row that failed to render. */
+.list li:last-child .row {
+  border-bottom: none;
+}
+
+/* Inset so the ring sits inside the hairline instead of doubling it, and kept
+   off :hover — which row Enter will open is a different fact from which row the
+   cursor is over. */
+.row:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: -1px;
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rowTitle {
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--size-body);
+  color: var(--title);
+}
+
+.rowDate {
+  flex: none;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+/* The record itself, so it reads at transcript weight rather than as caption
+   text — this is the answer, not a label on one. */
+.passage {
+  font-size: var(--size-meta);
+  line-height: 1.6;
+  color: var(--edge-label);
+}
+
+.matched {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.05em;
+  color: var(--meta);
+}
+
+/* Accent belongs to the unanswered-question dot alone (§8), so a match is a
+   raised chip mixed from the stroke tokens instead. */
+.mark {
+  background: color-mix(in srgb, var(--stroke-ordinary) 32%, var(--dimmed-bg));
+  color: var(--title);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.note {
+  flex: none;
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--edge);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--meta);
+}
+
+@keyframes panelSlideIn {
+  from {
+    transform: translateX(-14px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Motion is otherwise reserved for live audio (§8), so it goes away on request. */
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+/* WCAG 2.2 target size: a bare text button, so the hit area is grown with a
+   centred pseudo-element instead of padding — nothing reflows. */
+.close::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(calc(100% + 8px), 24px);
+  height: max(calc(100% + 10px), 24px);
+}

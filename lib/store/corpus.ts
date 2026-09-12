@@ -37,6 +37,15 @@ export interface CorpusSlice {
    */
   relayout(): Promise<void>;
   deleteEntry(id: string): Promise<void>;
+  /**
+   * Fixes a mis-transcription. The only edit a note takes — it is the verbatim
+   * record of what was said, so there is no append and no rewrite.
+   *
+   * Takes the entry the bridge returns rather than patching the transcript
+   * locally: the correction re-anchors spans and drops the ones whose words are
+   * gone, and none of that is derivable here.
+   */
+  correctTranscript(id: string, transcript: string): Promise<void>;
   /** §6.3 — user-declared only, and the text is the point, not the flag. */
   resolveEntry(id: string, text: string): Promise<void>;
   reopenEntry(id: string): Promise<void>;
@@ -194,6 +203,32 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
   async deleteEntry(id) {
     await getBridge().deleteEntry(id);
     await get().loadCorpus();
+  },
+
+  async correctTranscript(id, transcript) {
+    const bridge = getBridge();
+    get().upsertEntry(await bridge.correctTranscript(id, transcript));
+
+    // The same correction re-anchored every question on this entry, and a
+    // question's span is what the panel quotes back. `listQuestions` is the only
+    // call that returns the whole history — `getQuestion` gives the oldest open
+    // one — so without it the answered and dismissed ones keep quoting the text
+    // that was just fixed.
+    const all = await bridge.listQuestions?.();
+    const questions = new Map(get().questions);
+    if (all) {
+      questions.set(
+        id,
+        all.filter((q) => q.entryId === id),
+      );
+    } else {
+      // No way to re-read them, so the spans in hand are the ones the old text
+      // produced and every one of them now indexes the wrong words. Dropping
+      // the anchor loses a highlight; keeping it quotes the user back a
+      // sentence they never said, which is the worse of the two.
+      questions.set(id, (questions.get(id) ?? []).map((q) => ({ ...q, span: null })));
+    }
+    set({ questions });
   },
 
   async resolveEntry(id, text) {

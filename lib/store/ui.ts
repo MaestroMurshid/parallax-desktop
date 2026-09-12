@@ -4,8 +4,19 @@ import type { AppState, Mutators } from './index';
 /** §9.1 — one page with panels, not routes. Overlays are client state. */
 export type Overlay = 'none' | 'entry' | 'tasks' | 'settings' | 'onboarding';
 export type Theme = 'system' | 'light' | 'dark';
+/**
+ * The list is the way in. The graph is not intuitive on first contact, so it
+ * stays available rather than primary — the premise is still a commonplace
+ * book you think into, and a list is how anyone already reads one.
+ */
+export type View = 'list' | 'canvas';
 
 export interface UiSlice {
+  view: View;
+  setView(v: View): void;
+  /** Retrieval against dated transcripts. It recalls; it never writes (§8). */
+  chatOpen: boolean;
+  setChatOpen(v: boolean): void;
   overlay: Overlay;
   theme: Theme;
   setTheme(t: Theme): void;
@@ -56,6 +67,10 @@ export interface UiSlice {
 }
 
 export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set) => ({
+  view: 'list',
+  setView: (view) => set({ view }),
+  chatOpen: false,
+  setChatOpen: (chatOpen) => set({ chatOpen }),
   overlay: 'none',
   theme: 'light',
   setTheme: (theme) => set({ theme }),

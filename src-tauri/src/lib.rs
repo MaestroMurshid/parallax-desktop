@@ -2,7 +2,10 @@ pub mod audio;
 pub mod commands;
 pub mod db;
 pub mod embed;
-mod enrich;
+// Public for `tests/end_to_end.rs`, which drives the enrichment pass directly.
+// It was private, so that whole file had stopped compiling and none of those
+// tests had been running.
+pub mod enrich;
 pub mod error;
 pub mod llm;
 pub mod mdx;
@@ -191,6 +194,7 @@ pub fn run() {
             commands::corpus::delete_entry,
             commands::corpus::resolve_entry,
             commands::corpus::reopen_entry,
+            commands::corpus::correct_transcript,
             commands::corpus::import_corpus,
             commands::enrichment::get_question,
             commands::enrichment::ask_question,

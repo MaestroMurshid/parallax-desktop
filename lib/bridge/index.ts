@@ -57,6 +57,19 @@ export interface Bridge {
   /** Removes one entry and any edges touching it. Children are orphaned, not
    *  deleted — an answer is still something you said (§6.2). */
   deleteEntry(id: string): Promise<void>;
+  /**
+   * Fixes what the speech-to-text heard wrong. The *only* edit a note takes:
+   * a note is the verbatim record of what was said, so there is no append and
+   * no rewrite — a note you can reword is a note you cannot cite.
+   *
+   * Returns the entry because the correction re-anchors it. Spans, questions
+   * and action items are keyed on offsets into the transcript, so Rust re-finds
+   * each one by its stored quote and drops the spans whose words are genuinely
+   * gone; the caller must take the entry that comes back rather than patching
+   * the transcript locally and keeping the old offsets. Rejects a blank
+   * transcript — emptying a note is a delete, not a correction.
+   */
+  correctTranscript(entryId: string, transcript: string): Promise<Entry>;
 
   // -- search ---------------------------------------------------------------
   /**

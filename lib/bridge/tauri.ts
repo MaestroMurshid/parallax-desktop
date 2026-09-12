@@ -77,6 +77,10 @@ export class TauriBridge implements Bridge {
     return invoke('delete_entry', { id });
   }
 
+  correctTranscript(entryId: string, transcript: string): Promise<Entry> {
+    return invoke('correct_transcript', { entryId, transcript });
+  }
+
   // -- search ---------------------------------------------------------------
 
   searchEntries(query: string): Promise<SearchHit[]> {

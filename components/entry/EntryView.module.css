@@ -761,3 +761,55 @@
     opacity: 0.7;
   }
 }
+
+/* Correction, not editing. The field sits exactly where the transcript was and
+   in the same face, so what you are working on still reads as the record
+   rather than as a new document. */
+.correction {
+  display: block;
+}
+
+.correctionNote,
+.correctionCost {
+  margin: 0 0 10px;
+  font-size: var(--size-meta);
+  line-height: 1.5;
+  color: var(--meta);
+}
+
+.correctionCost {
+  margin: 8px 0 0;
+  color: var(--edge-label);
+}
+
+.correctionField {
+  width: 100%;
+  resize: vertical;
+  padding: 9px 11px;
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 7px;
+  color: var(--title);
+  font-family: var(--font-serif);
+  font-size: var(--size-body);
+  line-height: 1.7;
+}
+
+/* Deliberately the quietest control in the panel (sec 1.1). */
+.correctOpen {
+  display: block;
+  margin-top: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.correctOpen:hover {
+  color: var(--title);
+}

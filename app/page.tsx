@@ -11,6 +11,9 @@ import PlayerPill from '@/components/chrome/PlayerPill';
 import StatusBar from '@/components/chrome/StatusBar';
 import TopBar from '@/components/chrome/TopBar';
 import EntryView from '@/components/entry/EntryView';
+import ChatPanel from '@/components/chat/ChatPanel';
+import ListView, { type RoleFilter } from '@/components/list/ListView';
+import Sidebar from '@/components/list/Sidebar';
 import Onboarding from '@/components/onboarding/Onboarding';
 import CapturePanel from '@/components/panel/CapturePanel';
 import TypedComposer from '@/components/panel/TypedComposer';
@@ -44,6 +47,10 @@ export default function Page() {
   const overlay = useApp((s) => s.overlay);
   const composing = useApp((s) => s.composing);
   const captureState = useApp((s) => s.captureState);
+  const view = useApp((s) => s.view);
+  // Local to the page: a filter is a way of looking, not a fact about the
+  // corpus, and it should not survive a reload the way stored state would.
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const setComposing = useApp((s) => s.setComposing);
 
   useEffect(() => {
@@ -168,8 +175,12 @@ export default function Page() {
       // pointer-free twin (§5.4).
       const el = e.target as HTMLElement | null;
       const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+      // Both of the single-key shortcuts below act on the canvas, and `typing`
+      // only excludes text controls -- a focused row in the list is neither,
+      // so tabbing through notes and pressing `f` moved the field underneath.
+      const onCanvas = state.view === 'canvas';
       if (
-        e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey && !typing &&
+        e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey && !typing && onCanvas &&
         state.overlay === 'entry' && state.selectedEntryId && !state.connectSource
       ) {
         e.preventDefault();
@@ -178,7 +189,7 @@ export default function Page() {
       }
       // F brings every note on screen — the only way back for one stranded
       // past the edge, since §5.1 rules out re-laying out to rescue it.
-      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !typing) {
+      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !typing && onCanvas) {
         e.preventDefault();
         state.fitAll();
         return;
@@ -227,18 +238,45 @@ export default function Page() {
     <main className={styles.main}>
       <TopBar />
 
-      <div className={styles.canvasArea}>
-        <Canvas />
-        {loaded && !hasEntries && settings && <EmptyState hotkey={settings.hotkey} />}
-        {loaded && hasEntries && <SparseNotice />}
+      {view === 'list' ? (
+        <div className={styles.listArea}>
+          {/* An empty corpus gets the empty state in either view: it is the only
+              place the sample is offered, and the list is now the way in. The
+              list's own empty copy is for a filter that matched nothing. */}
+          {loaded && !hasEntries && settings ? (
+            <EmptyState hotkey={settings.hotkey} />
+          ) : (
+            <>
+              <Sidebar filter={roleFilter} onFilterChange={setRoleFilter} />
+              <ListView filter={roleFilter} />
+            </>
+          )}
+        </div>
+      ) : null}
 
-        {overlay === 'entry' && settings && <EntryView hotkey={settings.hotkey} />}
-        {overlay === 'tasks' && <TaskList />}
-        {overlay === 'settings' && settings && <SettingsPanel settings={settings} onChange={setSettings} />}
-        <CapturePanel />
-        <ConnectPicker />
-        <RelationPicker />
+      <div className={styles.canvasArea} hidden={view !== 'canvas'}>
+        <Canvas />
+        {loaded && !hasEntries && settings && view === 'canvas' && (
+          <EmptyState hotkey={settings.hotkey} />
+        )}
+        {loaded && hasEntries && view === 'canvas' && <SparseNotice />}
+
       </div>
+
+      {/* Outside the canvas container on purpose. Hiding that container to show
+          the list also collapsed everything inside it, so opening a note from a
+          list row produced a sheet with no width and no height. An overlay
+          belongs to the window, not to whichever view is underneath it. */}
+      {overlay === 'entry' && settings && <EntryView hotkey={settings.hotkey} />}
+      {overlay === 'tasks' && <TaskList />}
+      {overlay === 'settings' && settings && <SettingsPanel settings={settings} onChange={setSettings} />}
+      <CapturePanel />
+      <ConnectPicker />
+      <RelationPicker />
+
+      {/* Mounted rather than conditional, so a question and its results survive
+          being closed and reopened -- recall you have to retype is not recall. */}
+      <ChatPanel />
 
       {composing && <TypedComposer onClose={() => setComposing(false)} />}
 

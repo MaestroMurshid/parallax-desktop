@@ -254,6 +254,14 @@ pub fn delete(conn: &Connection, id: &str) -> Result<()> {
 /// than being trusted. A span whose text is gone is marked stale instead of
 /// silently pointing at whatever now occupies those offsets.
 pub fn correct_transcript(conn: &Connection, id: &str, transcript: &str) -> Result<()> {
+    // Blanking a note is deletion wearing a correction's clothes: it empties the
+    // verbatim record and stales every anchor on it, with no audit trail and no
+    // undo. Delete is the verb that admits to doing that.
+    if transcript.trim().is_empty() {
+        return Err(crate::error::Error::Other(
+            "a correction cannot empty the note".to_string(),
+        ));
+    }
     let n = conn.execute(
         "UPDATE entries SET transcript = ?2, corrected_at = ?3 WHERE id = ?1",
         params![id, transcript, chrono::Utc::now().to_rfc3339()],
@@ -267,21 +275,30 @@ pub fn correct_transcript(conn: &Connection, id: &str, transcript: &str) -> Resu
     Ok(())
 }
 
-/// Where a quote went, given where it used to be.
+/// Where a quote went, given where it used to be. Returns UTF-16 offsets.
 ///
 /// A quote can occur more than once, and taking the first hit collapses every
 /// row that shares that text onto the same place -- which would move an
 /// attributed span onto the user's own words and let a probe push on someone
 /// else's sentence (§3.3). The occurrence nearest the old offset is the one
 /// that belongs to this row.
-fn nearest_occurrence(transcript: &str, quote: &str, was_at: i64) -> Option<usize> {
+///
+/// The conversion is the point of returning a pair rather than a start: every
+/// offset column counts UTF-16, `match_indices` and `len` count bytes, and a
+/// single em dash above the quote was enough to re-anchor every row below it
+/// two units past its own words. `was_at` arrives from the database in UTF-16,
+/// so the candidates are converted before the comparison and not after -- the
+/// two units disagree about distance, which is what picks the occurrence.
+fn nearest_occurrence(transcript: &str, quote: &str, was_at: i64) -> Option<(i64, i64)> {
     if quote.is_empty() {
         return None;
     }
+    let width = quote.encode_utf16().count() as i64;
     transcript
         .match_indices(quote)
-        .map(|(at, _)| at)
-        .min_by_key(|at| (*at as i64 - was_at).abs())
+        .map(|(at, _)| crate::text::byte_to_utf16(transcript, at) as i64)
+        .min_by_key(|at| (*at - was_at).abs())
+        .map(|at| (at, at + width))
 }
 
 fn reanchor_spans(conn: &Connection, entry_id: &str, transcript: &str) -> Result<()> {
@@ -295,10 +312,10 @@ fn reanchor_spans(conn: &Connection, entry_id: &str, transcript: &str) -> Result
 
     for (id, quote, was_at) in rows {
         match nearest_occurrence(transcript, &quote, was_at) {
-            Some(at) => {
+            Some((at, end)) => {
                 conn.execute(
                     "UPDATE spans SET start_offset = ?2, end_offset = ?3, stale = 0 WHERE id = ?1",
-                    params![id, at as i64, (at + quote.len()) as i64],
+                    params![id, at, end],
                 )?;
             }
             None => {
@@ -326,9 +343,9 @@ fn reanchor_questions(conn: &Connection, entry_id: &str, transcript: &str) -> Re
 
     for (id, quote, was_at) in rows {
         match nearest_occurrence(transcript, &quote, was_at) {
-            Some(at) => conn.execute(
+            Some((at, end)) => conn.execute(
                 "UPDATE questions SET span_start = ?2, span_end = ?3 WHERE id = ?1",
-                params![id, at as i64, (at + quote.len()) as i64],
+                params![id, at, end],
             )?,
             None => conn.execute(
                 "UPDATE questions SET span_start = NULL, span_end = NULL WHERE id = ?1",
@@ -351,9 +368,9 @@ fn reanchor_action_items(conn: &Connection, entry_id: &str, transcript: &str) ->
 
     for (id, quote, was_at) in rows {
         match nearest_occurrence(transcript, &quote, was_at) {
-            Some(at) => conn.execute(
+            Some((at, end)) => conn.execute(
                 "UPDATE action_items SET span_start = ?2, span_end = ?3, stale = 0 WHERE id = ?1",
-                params![id, at as i64, (at + quote.len()) as i64],
+                params![id, at, end],
             )?,
             None => conn.execute(
                 "UPDATE action_items SET stale = 1 WHERE id = ?1",
@@ -479,6 +496,15 @@ fn audio_by_entry(
     Ok(out)
 }
 
+/// Stale spans stay in SQLite and stop at this boundary. A span exists to mark
+/// a region of the transcript; once a correction loses its words, its offsets
+/// are the last place they were and index nothing, so handing them over would
+/// paint "someone else said this" across whatever moved into that place.
+///
+/// Dropping it here rather than deleting the row also keeps the damage local:
+/// an export carries spans and `insert` re-derives `quoted_text` from whatever
+/// offsets arrive, so a dangling span that survived this far would come back
+/// from a round trip attributing words nobody said.
 fn spans_by_entry(
     conn: &Connection,
     scope: &str,
@@ -486,7 +512,7 @@ fn spans_by_entry(
 ) -> Result<HashMap<String, Vec<Span>>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT entry_id, start_offset, end_offset, attributed FROM spans
-         WHERE {scope} ORDER BY id"
+         WHERE {scope} AND stale = 0 ORDER BY id"
     ))?;
     let rows = stmt.query_map(param, |row| {
         Ok((
@@ -822,6 +848,96 @@ mod tests {
             )
             .unwrap();
         assert_eq!(kept, 1, "stale, not deleted");
+    }
+
+    /// Every offset column counts UTF-16 units; `match_indices` counts bytes.
+    /// One em dash above the quote is enough to separate them, and a corrected
+    /// note is exactly where non-ASCII shows up -- the user is fixing the
+    /// transcript by hand, in a text field that produces real punctuation.
+    #[test]
+    fn reanchoring_stores_utf16_offsets_not_byte_offsets() {
+        let conn = open_in_memory().unwrap();
+        let said = "Observability — not logging — is the clam here.";
+        let mut e = entry("e1", "2024-01-01T00:00:00Z", false);
+        e.transcript = said.into();
+        let at = crate::text::byte_to_utf16(said, said.find("logging").unwrap());
+        e.spans = vec![Span {
+            start: at,
+            end: at + 7,
+            attributed: true,
+        }];
+        e.action_items = vec![];
+        insert(&conn, &e).unwrap();
+
+        // A typo below the span: the quote does not move, so any drift is the
+        // units, not the edit.
+        let fixed = said.replace("clam", "claim");
+        correct_transcript(&conn, "e1", &fixed).unwrap();
+
+        let span = &get(&conn, "e1").unwrap().unwrap().spans[0];
+        assert_eq!(
+            quoted(&fixed, span),
+            "logging",
+            "the highlight landed somewhere other than the words it stores"
+        );
+    }
+
+    /// Marking a span stale in SQLite and then handing the frontend its old
+    /// offsets anyway is the dangling pointer the stale flag exists to stop:
+    /// the panel highlights by offset, so a stale span that reaches the wire
+    /// paints "someone else said this" over whatever moved into its place.
+    #[test]
+    fn a_stale_span_does_not_reach_the_wire() {
+        let conn = open_in_memory().unwrap();
+        let mut e = entry("e1", "2024-01-01T00:00:00Z", false);
+        e.transcript = "Indexes trade writes for reads.".into();
+        e.spans = vec![
+            Span {
+                start: 0,
+                end: 7,
+                attributed: true,
+            },
+            Span {
+                start: 8,
+                end: 13,
+                attributed: true,
+            },
+        ];
+        insert(&conn, &e).unwrap();
+
+        // "Indexes" survives the correction; "trade" does not.
+        correct_transcript(&conn, "e1", "Indexes are the whole argument.").unwrap();
+
+        let spans = &get(&conn, "e1").unwrap().unwrap().spans;
+        assert_eq!(spans.len(), 1, "the lost anchor must not be handed over");
+        assert_eq!(
+            quoted("Indexes are the whole argument.", &spans[0]),
+            "Indexes"
+        );
+
+        let kept: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM spans WHERE entry_id = 'e1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, 2, "dropped from the wire, still in the record");
+    }
+
+    /// Blanking a note is deletion wearing a correction's clothes: it empties
+    /// the verbatim record and stales every anchor on it. Delete says so.
+    #[test]
+    fn a_correction_cannot_empty_the_note() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("e1", "2024-02-03T10:21:00.000Z", false)).unwrap();
+
+        assert!(correct_transcript(&conn, "e1", "   ").is_err());
+        assert_eq!(
+            get(&conn, "e1").unwrap().unwrap().transcript,
+            "Indexes trade write performance for faster reads.",
+            "a refused correction must not have written anything"
+        );
     }
 
     #[test]

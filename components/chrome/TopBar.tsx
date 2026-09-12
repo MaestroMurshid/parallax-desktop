@@ -41,6 +41,8 @@ export default function TopBar() {
   const openEntry = useApp((s) => s.openEntry);
   const overlay = useApp((s) => s.overlay);
   const setOverlay = useApp((s) => s.setOverlay);
+  const chatOpen = useApp((s) => s.chatOpen);
+  const setChatOpen = useApp((s) => s.setChatOpen);
   const taskCount = useApp((s) => s.actionItems.filter((a) => !a.done).length);
 
   // Close the results panel on an outside click; Escape is handled separately.
@@ -149,6 +151,16 @@ export default function TopBar() {
       </div>
 
       <div className={styles.right}>
+        {/* Not an overlay, so it does not take the slot the entry sheet wants:
+            recall is something you do *while* reading a note, not instead. */}
+        <button
+          type="button"
+          className={styles.textButton}
+          aria-pressed={chatOpen}
+          onClick={() => setChatOpen(!chatOpen)}
+        >
+          recall
+        </button>
         <button
           type="button"
           className={styles.textButton}

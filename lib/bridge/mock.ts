@@ -310,6 +310,67 @@ export class MockBridge implements Bridge {
     }
   }
 
+  /**
+   * Mirrors db::entries::correct_transcript, re-anchoring included. A mock that
+   * just swapped the text would show the browser a corrected note with every
+   * highlight still where it was, which is the one thing about this path worth
+   * seeing before it is native.
+   *
+   * The quote is read off the old transcript rather than stored alongside the
+   * span; for a single correction that is the same thing. JS indexes UTF-16
+   * already, so unlike the Rust there is no conversion here.
+   */
+  async correctTranscript(entryId: string, transcript: string): Promise<Entry> {
+    const entry = this.entries.get(entryId);
+    if (!entry) throw new Error(`No entry ${entryId}`);
+    // Emptying a note is a delete wearing a correction's clothes.
+    if (!transcript.trim()) throw new Error('a correction cannot empty the note');
+
+    const moved = (span: Span): number | null =>
+      nearestOccurrence(transcript, entry.transcript.slice(span.start, span.end), span.start);
+
+    // A span whose words are gone is dropped rather than left pointing at
+    // whatever took their place; Rust marks the row stale and withholds it.
+    const spans = entry.spans.flatMap((span) => {
+      const at = moved(span);
+      if (at === null) return [];
+      return [{ ...span, start: at, end: at + (span.end - span.start) }];
+    });
+
+    // An action item survives with its tick either way — only its anchor can go
+    // stale, and the list renders by text, not by offset.
+    const retarget = (item: ActionItem): ActionItem => {
+      const at = moved(item.span);
+      return at === null
+        ? item
+        : { ...item, span: { ...item.span, start: at, end: at + (item.span.end - item.span.start) } };
+    };
+    const actionItems = entry.actionItems.map(retarget);
+
+    const next: Entry = { ...entry, transcript, spans, actionItems };
+    this.entries.set(entryId, next);
+    this.actionItems = this.actionItems.map((a) => (a.entryId === entryId ? retarget(a) : a));
+
+    // A question is never dropped by a correction, answered or not: it is the
+    // record of something the app actually asked. It loses a highlight, not its
+    // existence.
+    const asked = this.questions.get(entryId);
+    if (asked) {
+      this.questions.set(
+        entryId,
+        asked.map((q) => {
+          if (!q.span) return q;
+          const at = moved(q.span);
+          return at === null
+            ? { ...q, span: null }
+            : { ...q, span: { ...q.span, start: at, end: at + (q.span.end - q.span.start) } };
+        }),
+      );
+    }
+
+    return next;
+  }
+
   async moveEntry(id: string, x: number, y: number): Promise<Entry> {
     const entry = this.entries.get(id);
     if (!entry) throw new Error(`No entry ${id}`);
@@ -569,6 +630,14 @@ export class MockBridge implements Bridge {
     };
     this.questions.set(entryId, [...(this.questions.get(entryId) ?? []), question]);
     return question;
+  }
+
+  /** The whole history, answered and dismissed included — `getQuestion` returns
+   *  only the oldest open one, so anything rebuilt from it silently drops the
+   *  rest (§3.4). The native bridge has always had this; the mock going without
+   *  it meant a corrected note kept quoting the text it had just fixed. */
+  async listQuestions(): Promise<Question[]> {
+    return [...this.questions.values()].flat();
   }
 
   async dismissQuestion(entryId: string, questionId: string): Promise<void> {
@@ -834,6 +903,21 @@ export class MockBridge implements Bridge {
     this.actionItems = this.actionItems.filter((a) => this.entries.has(a.entryId));
     this.saveOverrides();
   }
+}
+
+/**
+ * Where a quote went, given where it used to be. The occurrence nearest the old
+ * offset, never the first: a phrase said twice would otherwise collapse both
+ * anchors onto the same place, moving an attributed span onto the user's own
+ * words and letting a probe push on someone else's sentence (§3.3).
+ */
+function nearestOccurrence(text: string, quote: string, wasAt: number): number | null {
+  if (!quote) return null;
+  let best: number | null = null;
+  for (let at = text.indexOf(quote); at !== -1; at = text.indexOf(quote, at + 1)) {
+    if (best === null || Math.abs(at - wasAt) < Math.abs(best - wasAt)) best = at;
+  }
+  return best;
 }
 
 function readOverrides(): Record<string, { x: number; y: number }> {
