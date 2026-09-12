@@ -94,7 +94,10 @@ pub fn compose(
         span: Some(span),
         answered: false,
         dismissed: false,
-        provider_name: provider.name(),
+        // Which move produced it, carried where the panel already looks.
+        // `Question` has no probe field and the fixture backend has always put
+        // it here, so this keeps one wire shape rather than adding a column.
+        provider_name: format!("{} · {}", provider.name(), probe.id()),
         created_at: chrono::Utc::now().to_rfc3339(),
     })
 }
@@ -249,6 +252,60 @@ mod tests {
 
     /// §3.4 -- a quote the note does not contain cannot be checked, so the
     /// question does not exist. The shape of the JSON proves nothing.
+    /// Which move produced a question is the only way to tell a boundary probe
+    /// from a steelman after the fact, and `Question` has no field for it --
+    /// the fixture backend puts it in `providerName`, and the panel renders
+    /// that. Rust dropped it, so natively every question read "llama-server"
+    /// and §3.2's tiers were invisible in the one place they are observable.
+    #[test]
+    fn a_question_says_which_probe_produced_it() {
+        let (conn, id) = corpus();
+        let provider = ScriptedProvider::with(&[&reply("faster reads")]);
+
+        let question = ask(&conn, &provider, &id, Some(Probe::Steelman), None).unwrap();
+        assert_eq!(
+            question.provider_name,
+            format!("{} · steelman", provider.name())
+        );
+    }
+
+    /// Asking again rotates, and the fourth ask on a position reaches a heavy
+    /// probe nobody named. §3.2 hands the invoked path to the user because the
+    /// risk is theirs to take; arriving at a steelman by pressing the same
+    /// button three times is not the same as choosing one. Pinned rather than
+    /// endorsed -- if the order changes, that is a decision, not a drift.
+    #[test]
+    fn repeated_asking_walks_the_whole_tier_ladder() {
+        let (conn, id) = corpus();
+        let replies = vec![reply("faster reads"); 5];
+        let provider =
+            ScriptedProvider::with(&replies.iter().map(String::as_str).collect::<Vec<_>>());
+
+        let mut walked = Vec::new();
+        for _ in 0..5 {
+            let question = ask(&conn, &provider, &id, None, None).unwrap();
+            walked.push(
+                question
+                    .provider_name
+                    .rsplit(" · ")
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+            );
+        }
+
+        assert_eq!(
+            walked,
+            vec![
+                "boundary",
+                "disconfirming",
+                "steelman",
+                "munchhausen",
+                "feynman"
+            ]
+        );
+    }
+
     #[test]
     fn an_unanchored_question_does_not_land() {
         let (conn, id) = corpus();
