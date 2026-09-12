@@ -14,13 +14,18 @@ use tauri::{Emitter, Manager, State};
 /// away" while recording and "leave it" once stopped is a muscle-memory trap.
 pub const UNDO_WINDOW_MS: u64 = 60_000;
 
+/// Takes the calling window, because the take belongs to it until it ends: the
+/// hotkey is global and routes the stop back to whoever started it.
 #[tauri::command]
-pub fn start_recording(state: State<AppState>) -> Result<()> {
+pub fn start_recording(window: tauri::Window, state: State<AppState>) -> Result<()> {
     let mut slot = state.recording.lock().unwrap_or_else(|p| p.into_inner());
     if slot.is_some() {
         return Err(Error::Other("already recording".into()));
     }
-    *slot = Some(recorder::start()?);
+    *slot = Some(crate::state::InFlight {
+        take: recorder::start()?,
+        owner: window.label().to_string(),
+    });
     Ok(())
 }
 
@@ -34,7 +39,7 @@ pub fn recording_level(state: State<AppState>) -> f32 {
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .as_ref()
-        .map(|r| r.level())
+        .map(|r| r.take.level())
         .unwrap_or(0.0)
 }
 
@@ -53,7 +58,7 @@ pub async fn partial_transcript(state: State<'_, AppState>) -> Result<String> {
     let samples = {
         let slot = state.recording.lock().unwrap_or_else(|p| p.into_inner());
         match slot.as_ref() {
-            Some(recording) => recording.samples(),
+            Some(in_flight) => in_flight.take.samples(),
             None => return Ok(String::new()),
         }
     };
@@ -100,7 +105,8 @@ pub async fn stop_recording(
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .take()
-        .ok_or_else(|| Error::Other("not recording".into()))?;
+        .ok_or_else(|| Error::Other("not recording".into()))?
+        .take;
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();
@@ -257,7 +263,8 @@ pub fn discard_recording(state: State<AppState>) -> Result<()> {
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .take()
-        .ok_or_else(|| Error::Other("not recording".into()))?;
+        .ok_or_else(|| Error::Other("not recording".into()))?
+        .take;
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();

@@ -35,13 +35,36 @@ const PANEL_MARGIN: f64 = 16.0;
 /// recording is actually under way, so the two can never come apart: a webview
 /// that is slow to start, or throws before it reaches the recorder, used to
 /// leave an empty transparent window on screen swallowing clicks.
+/// Which window a hotkey press belongs to.
+///
+/// A recording belongs to the window that started it until it ends. Routing on
+/// focus alone sent the *stop* to whichever window happened to be focused, and
+/// that window's store reads idle, so it called start instead; Rust refused it
+/// as "already recording" and the take could no longer be stopped from the
+/// keyboard at all. Focus decides only who takes a *new* recording.
+fn hotkey_target(recording_owner: Option<&str>, canvas_focused: bool) -> &'static str {
+    match recording_owner {
+        Some(PANEL) => PANEL,
+        // Anything else in flight belongs to the canvas: those are the only
+        // two windows, and an unknown label is safer sent to the one the user
+        // can see.
+        Some(_) => MAIN,
+        None if canvas_focused => MAIN,
+        None => PANEL,
+    }
+}
+
 fn on_hotkey(app: &AppHandle) {
     let in_canvas = app
         .get_webview_window(MAIN)
         .and_then(|w| w.is_focused().ok())
         .unwrap_or(false);
 
-    let target = if in_canvas { MAIN } else { PANEL };
+    let owner = app
+        .try_state::<state::AppState>()
+        .and_then(|state| state.recording_owner());
+
+    let target = hotkey_target(owner.as_deref(), in_canvas);
     let _ = app.emit_to(target, "capture://hotkey", ());
 }
 
@@ -245,4 +268,25 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug: start in the canvas, click away, press the hotkey. The stop
+    /// went to the panel, which thought nothing was recording.
+    #[test]
+    fn a_recording_is_stopped_by_the_window_that_started_it() {
+        assert_eq!(hotkey_target(Some(MAIN), false), MAIN);
+        assert_eq!(hotkey_target(Some(PANEL), true), PANEL);
+    }
+
+    /// Focus still decides who takes a new one -- capture happens where you
+    /// are looking (§4).
+    #[test]
+    fn with_nothing_in_flight_focus_decides() {
+        assert_eq!(hotkey_target(None, true), MAIN);
+        assert_eq!(hotkey_target(None, false), PANEL);
+    }
 }

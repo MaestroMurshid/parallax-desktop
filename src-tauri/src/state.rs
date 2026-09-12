@@ -18,6 +18,16 @@ pub struct Discarded {
     pub at: std::time::Instant,
 }
 
+/// A take and the window it belongs to.
+///
+/// The owner rides with the recording rather than in a field beside it, so the
+/// two cannot disagree: a stale owner would route the stop to a window that
+/// is not recording, which is the bug this exists to fix.
+pub struct InFlight {
+    pub take: Recording,
+    pub owner: String,
+}
+
 pub struct AppState {
     /// One connection behind a lock. SQLite serialises writes anyway, and the
     /// commands are short; a pool would buy nothing at this scale.
@@ -27,7 +37,7 @@ pub struct AppState {
     pub root: PathBuf,
     /// At most one recording at a time -- there is one microphone and one
     /// hotkey, and a second concurrent take has no meaning.
-    pub recording: Mutex<Option<Recording>>,
+    pub recording: Mutex<Option<InFlight>>,
     pub discarded: Mutex<Option<Discarded>>,
     /// Where the bundled llama-server sits. `None` in a dev build that has not
     /// fetched it; an explicit setting still overrides either way.
@@ -59,6 +69,15 @@ impl AppState {
         self.conn
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The window a take belongs to, or `None` when nothing is recording.
+    pub fn recording_owner(&self) -> Option<String> {
+        self.recording
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|in_flight| in_flight.owner.clone())
     }
 
     pub fn audio_dir(&self) -> PathBuf {
