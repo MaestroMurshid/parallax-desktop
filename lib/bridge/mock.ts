@@ -722,30 +722,61 @@ export class MockBridge implements Bridge {
   }
 
   async importCorpus(data: CorpusImport, mode: ImportMode): Promise<void> {
-    if (mode === 'replace') {
-      this.entries.clear();
-      this.edges = [];
-      this.questions.clear();
-      this.actionItems = [];
-      this.overrides = {};
-      this.saveOverrides();
-    }
+    // Referential check first, against nothing mutated yet (mirrors
+    // `db::import::validate`): an answer whose parent is in neither the file
+    // nor — for a merge, which keeps the existing corpus — what is already
+    // here is a broken file, not a connection to drop. Thrown before any
+    // local variable below is even built, so a bad file cannot leave the
+    // corpus half replaced.
+    const arriving = new Set(data.entries.map((e) => e.id));
+    const kept = mode === 'merge' ? new Set(this.entries.keys()) : new Set<string>();
     for (const e of data.entries) {
-      if (mode === 'merge' && this.entries.has(e.id)) continue;
-      this.entries.set(e.id, e);
+      if (e.parentEdge !== null && !arriving.has(e.parentEdge) && !kept.has(e.parentEdge)) {
+        throw new Error(`entry ${e.id} answers ${e.parentEdge}, which the import does not contain`);
+      }
     }
-    const known = new Set(this.edges.map((e) => e.id));
+
+    // Everything below is a local variable until the last block: nothing on
+    // `this` is touched until the whole payload has been accepted, so a
+    // failure above (or a throw during a step that has no local variant
+    // left to add) leaves the live corpus exactly as it was. This is defect
+    // (b) — replace used to clear `this.*` before `data` had been examined.
+    const entries = mode === 'replace' ? new Map<string, Entry>() : new Map(this.entries);
+    for (const e of data.entries) {
+      if (mode === 'merge' && entries.has(e.id)) continue;
+      entries.set(e.id, e);
+    }
+
+    const edges = mode === 'replace' ? [] : [...this.edges];
+    const knownEdges = new Set(edges.map((e) => e.id));
     for (const edge of data.edges) {
-      if (known.has(edge.id)) continue;
-      if (!this.entries.has(edge.entryA) || !this.entries.has(edge.entryB)) continue;
-      this.edges.push(edge);
+      // An edge naming an entry that landed nowhere is a broken export, not a
+      // connection — dropped rather than refusing the whole import, same as
+      // the Rust importer does with the same problem.
+      if (knownEdges.has(edge.id)) continue;
+      if (!entries.has(edge.entryA) || !entries.has(edge.entryB)) continue;
+      edges.push(edge);
+      knownEdges.add(edge.id);
     }
+
+    const questions = mode === 'replace' ? new Map<string, Question[]>() : new Map(this.questions);
     for (const q of data.questions) {
-      if (mode === 'merge' && this.questions.has(q.entryId)) continue;
-      if (this.entries.has(q.entryId)) this.questions.set(q.entryId, [q]);
+      if (mode === 'merge' && questions.has(q.entryId)) continue;
+      if (entries.has(q.entryId)) questions.set(q.entryId, [q]);
     }
-    // Action items live on the entry, so the flat list is rebuilt rather than merged.
-    this.actionItems = [...this.entries.values()].flatMap((e) => e.actionItems ?? []);
+
+    // Action items live on the entry, so the flat list is rebuilt rather than
+    // merged. `actionItems` is required and type-checked by `parseImport` now,
+    // so this no longer needs `?? []` to survive an entry that skipped validation.
+    const actionItems = [...entries.values()].flatMap((e) => e.actionItems);
+    const overrides = mode === 'replace' ? {} : this.overrides;
+
+    this.entries = entries;
+    this.edges = edges;
+    this.questions = questions;
+    this.actionItems = actionItems;
+    this.overrides = overrides;
+    if (mode === 'replace') this.saveOverrides();
   }
 
   async clearSampleCorpus(): Promise<void> {
