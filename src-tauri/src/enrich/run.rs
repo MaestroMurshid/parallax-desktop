@@ -59,6 +59,7 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
         classification.register,
         &classification.type_id,
         classification.summary.as_deref(),
+        Some(classification.move_phrase.as_str()),
     )?;
 
     // Re-read: the gates below read role and register, which only just changed.

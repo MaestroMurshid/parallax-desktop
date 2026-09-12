@@ -150,6 +150,7 @@ mod tests {
             Register::Neutral,
             "position",
             None,
+            None,
         )
         .unwrap();
     }

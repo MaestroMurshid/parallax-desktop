@@ -391,9 +391,14 @@ pub fn set_classification(
     register: Register,
     type_id: &str,
     summary: Option<&str>,
+    // §7.1 -- what the note does with its subject removed. Stored but not on
+    // the wire: machinery for finding two notes making the same move, not
+    // something the panel renders.
+    move_phrase: Option<&str>,
 ) -> Result<()> {
     let changed = conn.execute(
-        "UPDATE entries SET title = ?2, role = ?3, register = ?4, type_id = ?5, summary = ?6
+        "UPDATE entries SET title = ?2, role = ?3, register = ?4, type_id = ?5, summary = ?6,
+         move_phrase = ?7
          WHERE id = ?1",
         params![
             id,
@@ -401,7 +406,8 @@ pub fn set_classification(
             role_str(role),
             register_str(register),
             type_id,
-            summary
+            summary,
+            move_phrase
         ],
     )?;
     if changed == 0 {
@@ -661,6 +667,33 @@ mod tests {
         let conn = open_in_memory().unwrap();
         assert!(resolve(&conn, "nobody", "done").is_err());
         assert!(reopen(&conn, "nobody").is_err());
+    }
+
+    /// Generated on every capture since enrichment landed and thrown away for
+    /// want of a column. It is stored and deliberately not on the wire.
+    #[test]
+    fn classification_stores_the_move_phrase() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("e1", "2024-02-03T10:21:00.000Z", false)).unwrap();
+
+        set_classification(
+            &conn,
+            "e1",
+            "indexes trade writes",
+            Role::Evidence,
+            Register::Neutral,
+            "evidence",
+            Some("a summary"),
+            Some("trades one cost for another"),
+        )
+        .unwrap();
+
+        let stored: Option<String> = conn
+            .query_row("SELECT move_phrase FROM entries WHERE id = 'e1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("trades one cost for another"));
     }
 
     #[test]

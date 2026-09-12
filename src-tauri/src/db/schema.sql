@@ -36,6 +36,11 @@ CREATE TABLE entries (
     local_only          INTEGER NOT NULL DEFAULT 0,
     is_sample           INTEGER NOT NULL DEFAULT 0,
 
+    -- What the note does as a move, with its subject removed, so two notes
+    -- about different things can be seen making the same one (§7.1). Tags
+    -- find topical pairs; this is the signal they structurally cannot find.
+    move_phrase         TEXT,
+
     -- The audio is the record; the transcript is a derivation of it and may be
     -- corrected toward accuracy. Nothing is versioned -- the recording is
     -- already the ground truth to check against.
@@ -126,6 +131,25 @@ CREATE TABLE types (
     created_at TEXT    NOT NULL
 );
 
+-- Tags are internal machinery, never a surface (the user judges proposed
+-- connections, not the vocabulary underneath). `name` is stored normalised,
+-- and is not the primary key: normalisation may change, and a renamed tag
+-- must not orphan every note filed under it.
+CREATE TABLE tags (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+);
+
+-- The inverted index. A note carries several tags and a tag carries several
+-- notes, so finding candidates reads only the rows for this note's handful of
+-- tags -- which is what makes proposal cost independent of corpus size.
+CREATE TABLE entry_tags (
+    entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    tag_id   TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (entry_id, tag_id)
+);
+
 CREATE TABLE settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -138,3 +162,5 @@ CREATE INDEX idx_actions_entry     ON action_items(entry_id);
 CREATE INDEX idx_questions_entry   ON questions(entry_id);
 CREATE INDEX idx_edges_a           ON edges(entry_a);
 CREATE INDEX idx_edges_b           ON edges(entry_b);
+-- By tag, not by entry: the lookup asks "who else carries this tag".
+CREATE INDEX idx_entry_tags_tag    ON entry_tags(tag_id);

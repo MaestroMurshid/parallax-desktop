@@ -7,6 +7,7 @@ pub mod questions;
 pub mod sample;
 pub mod search;
 pub mod settings;
+pub mod tags;
 
 use crate::error::Result;
 use rusqlite::Connection;
@@ -17,7 +18,7 @@ const SCHEMA: &str = include_str!("schema.sql");
 /// Bumped whenever `schema.sql` changes shape. `user_version` is a SQLite
 /// integer stored in the file header, so the database says which migration it
 /// is on without a table of its own.
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -56,6 +57,26 @@ fn migrate(conn: &Connection) -> Result<()> {
     }
     if current < 3 {
         spans_to_utf16(conn)?;
+    }
+    if current < 4 {
+        // Pure CREATE/ALTER: migrations here are not transactional, and each
+        // of these is individually safe to be interrupted by.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS tags (
+                 id         TEXT PRIMARY KEY,
+                 name       TEXT NOT NULL UNIQUE,
+                 created_at TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS entry_tags (
+                 entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+                 tag_id   TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                 PRIMARY KEY (entry_id, tag_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON entry_tags(tag_id);",
+        )?;
+        // Generated on every capture since enrichment landed and discarded for
+        // want of somewhere to put it.
+        let _ = conn.execute_batch("ALTER TABLE entries ADD COLUMN move_phrase TEXT;");
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -155,7 +176,41 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 8);
+        assert_eq!(tables, 10);
+
+        // Running it again must not throw: migrate is called on every open.
+        migrate(&conn).unwrap();
+    }
+
+    /// An install that predates tagging has to open and gain the tables, not
+    /// be told to start again. The column is added separately because a
+    /// migration here is not transactional -- the tables may land and the
+    /// ALTER may not.
+    #[test]
+    fn version_four_adds_tagging_to_an_existing_corpus() {
+        let conn = open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO entries (id, transcript, created_at, x, y, role, register,
+             type_id, resolved, title, duration_ms, unfinished, local_only, is_sample)
+             VALUES ('e1', 'said', '2024-01-01T00:00:00Z', 0, 0, 'position', 'neutral',
+             'position', 0, 't', 40000, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+
+        conn.execute_batch("DROP TABLE entry_tags; DROP TABLE tags;")
+            .unwrap();
+        conn.pragma_update(None, "user_version", 3).unwrap();
+        migrate(&conn).unwrap();
+
+        let ids = crate::db::tags::upsert(&conn, &["free-will".to_string()]).unwrap();
+        crate::db::tags::set_for_entry(&conn, "e1", &ids).unwrap();
+        assert_eq!(crate::db::tags::for_entry(&conn, "e1").unwrap().len(), 1);
+
+        let version: i32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
 
         // Running it again must not throw: migrate is called on every open.
         migrate(&conn).unwrap();
