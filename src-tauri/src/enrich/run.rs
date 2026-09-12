@@ -41,6 +41,35 @@ pub fn anchor(entry: &Entry, quote: &str) -> Option<Span> {
     (!borrowed).then_some(span)
 }
 
+/// Anchors as themselves, topics folded onto the shelf that already exists.
+///
+/// Kept out of `run` because it must not be able to fail the pass: an untagged
+/// note is connected to nothing, which is recoverable, while a failed pass
+/// would lose the filing too.
+fn file_under(conn: &Connection, entry_id: &str, c: &super::Classification) -> Result<()> {
+    let shelves: Vec<String> = db::tags::all(conn)?
+        .into_iter()
+        .filter(|t| t.kind == db::tags::Kind::Topic)
+        .map(|t| t.name)
+        .collect();
+    // Folded against this note's own accepted topics as well as the corpus's,
+    // or two names for one shelf on a single note both land: measured, the
+    // model returned `databases` and `database-performance` together.
+    let mut shelves = shelves;
+    let mut topics: Vec<String> = Vec::new();
+    for wanted in &c.topics {
+        let onto = db::tags::fold_topic(&shelves, wanted);
+        if !topics.contains(&onto) {
+            shelves.push(onto.clone());
+            topics.push(onto);
+        }
+    }
+
+    let mut ids = db::tags::upsert(conn, &c.anchors, db::tags::Kind::Anchor)?;
+    ids.extend(db::tags::upsert(conn, &topics, db::tags::Kind::Topic)?);
+    db::tags::set_for_entry(conn, entry_id, &ids)
+}
+
 /// Classify the entry, then ask one question if the gates allow it.
 ///
 /// The entry is already saved before this runs, so every failure here costs
@@ -68,10 +97,7 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     // Tagging is not allowed to cost the classification that already landed:
     // an untagged note is connected to nothing, which is recoverable, while a
     // failed pass would lose the filing too.
-    let names = classification.tags.clone();
-    if let Err(e) =
-        db::tags::upsert(conn, &names).and_then(|ids| db::tags::set_for_entry(conn, entry_id, &ids))
-    {
+    if let Err(e) = file_under(conn, entry_id, &classification) {
         eprintln!("tagging failed for {entry_id}: {e}");
     }
 
@@ -197,7 +223,7 @@ mod tests {
         let (conn, id) = corpus(SAID, 5_000);
         let tagged = CLASSIFY.replace(
             r#""movePhrase":"trades one cost for another""#,
-            r#""movePhrase":"trades one cost for another","tags":["Indexes","Write Performance"]"#,
+            r#""movePhrase":"trades one cost for another","anchors":["Indexes","Write Performance"],"topics":["Databases"]"#,
         );
         let provider = ScriptedProvider::with(&[&tagged]);
 
@@ -210,20 +236,26 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            vec!["indexes".to_string(), "write-performance".into()]
+            vec![
+                "indexes".to_string(),
+                "write-performance".into(),
+                "databases".into()
+            ],
+            "anchors first, then the shelf it is filed under"
         );
     }
 
-    /// The reuse half, end to end. The second note is never shown the first
-    /// note's vocabulary -- offering it as an enum froze the corpus at one tag
-    /// -- so reuse is two notes arriving at the same word and `upsert` folding
-    /// them onto one row. That fold is what makes them candidates at all.
+    /// The reuse half, end to end, and the fold with it. The second note is
+    /// never shown the first note's vocabulary -- offering it as an enum froze
+    /// the corpus at one tag -- so it arrives at "Database Systems" on its own.
+    /// `fold_topic` puts that on the shelf that already exists rather than
+    /// beside it, which is the only reason the two become candidates.
     #[test]
     fn a_second_note_joins_the_vocabulary_rather_than_doubling_it() {
         let (conn, first) = corpus(SAID, 5_000);
         let coined = CLASSIFY.replace(
             r#""movePhrase":"trades one cost for another""#,
-            r#""movePhrase":"trades one cost for another","tags":["indexes"]"#,
+            r#""movePhrase":"trades one cost for another","topics":["databases"]"#,
         );
         run(&conn, &ScriptedProvider::with(&[&coined]), &first).unwrap();
 
@@ -242,20 +274,47 @@ mod tests {
         .id;
         let reused = CLASSIFY.replace(
             r#""movePhrase":"trades one cost for another""#,
-            r#""movePhrase":"trades one cost for another","tags":["indexes"]"#,
+            r#""movePhrase":"trades one cost for another","topics":["Database Systems"]"#,
         );
         run(&conn, &ScriptedProvider::with(&[&reused]), &second).unwrap();
 
+        let shelves: Vec<String> = db::tags::all(&conn)
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.kind == db::tags::Kind::Topic)
+            .map(|t| t.name)
+            .collect();
         assert_eq!(
-            db::tags::all(&conn).unwrap().len(),
-            1,
-            "the tag was doubled"
+            shelves,
+            vec!["databases".to_string()],
+            "database-systems was shelved beside databases instead of on it"
         );
         assert_eq!(
             db::tags::sharing(&conn, &second).unwrap(),
             vec![(first, 1)],
             "the two notes are not candidates for each other"
         );
+    }
+
+    /// Found by running the eval, not by reading the code: the model returned
+    /// `databases` and `database-performance` for one note, and folding only
+    /// against the corpus let both land as separate shelves.
+    #[test]
+    fn two_names_for_one_shelf_on_one_note_fold_together() {
+        let (conn, id) = corpus(SAID, 5_000);
+        let reply = CLASSIFY.replace(
+            r#""movePhrase":"trades one cost for another""#,
+            r#""movePhrase":"trades one cost for another","topics":["Databases","Database Performance"]"#,
+        );
+        run(&conn, &ScriptedProvider::with(&[&reply]), &id).unwrap();
+
+        let shelves: Vec<String> = db::tags::for_entry(&conn, &id)
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.kind == db::tags::Kind::Topic)
+            .map(|t| t.name)
+            .collect();
+        assert_eq!(shelves, vec!["databases".to_string()]);
     }
 
     /// A short note is not pushed on, and classification still runs.

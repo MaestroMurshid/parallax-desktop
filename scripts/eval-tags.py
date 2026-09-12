@@ -69,11 +69,29 @@ def normalise(name):
     return "".join(out)
 
 
+def head(name):
+    """Mirrors db::tags::fold_topic's head-word stem. Folding on the head word
+    rather than any shared word is what keeps `ai-systems` out of
+    `distributed-systems`, which an earlier any-word rule merged."""
+    for w in name.split("-"):
+        if len(w) > 2:
+            return w[:5]
+    return ""
+
+
+def fold_topic(existing, candidate):
+    want = head(candidate)
+    if not want:
+        return candidate
+    for e in existing:
+        if head(e) == want:
+            return e
+    return candidate
+
+
 def grounded(tag, transcript):
-    """Mirrors enrich::grounded. A tag whose words are not in the note is
-    dropped: measured, the model coined "philosophy" and "decision-making" on
-    the first fixture and put them on all sixteen, and neither is in the text.
-    Five-character stem so "index" still finds "indexes"."""
+    """Mirrors enrich::grounded. Anchors only -- a topic is the shelf and is
+    routinely absent from the note, which is exactly why it can collide."""
     haystack = transcript.lower()
     words = [w for w in tag.split("-") if len(w) > 2]
     return bool(words) and all(w[:5] in haystack for w in words)
@@ -81,9 +99,10 @@ def grounded(tag, transcript):
 
 def schema(type_ids):
     """Mirrors classify_schema. The vocabulary is deliberately not offered:
-    measured, an enum of existing tags stopped the model coining from note two
-    onward and froze the corpus at one tag. Reuse happens in db::tags::upsert,
-    by normalised collision."""
+    an enum of existing tags stopped the model coining from note two onward and
+    froze the corpus at one tag. Two fields, because one cannot do both jobs --
+    an anchor grounded in the note's words is too specific to collide, and a
+    topic broad enough to collide is absent from the note."""
     return {
         "type": "object",
         "properties": {
@@ -95,7 +114,8 @@ def schema(type_ids):
             # Bounded because the model loops inside an unbounded string until
             # the token ceiling and the JSON never terminates.
             "movePhrase": {"type": "string", "maxLength": 200},
-            "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+            "anchors": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+            "topics": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
         },
         "required": ["title", "role", "register", "typeId", "summary", "movePhrase"],
         "additionalProperties": False,
@@ -136,20 +156,35 @@ def main():
     notes.sort(key=lambda e: e["createdAt"])
     system = prompt("const CLASSIFY_SYSTEM")
 
-    per_note = {}
+    anchors, topics, shelves = {}, {}, []
     for note in notes:
         reply = ask(system, note["transcript"], schema(["position", "evidence", "note"]))
-
-        # Mirrors classify(): normalise, drop duplicates, drop what the note
-        # does not actually say.
         said = note["transcript"]
-        keys = []
-        for name in reply.get("tags", []):
+
+        a = []
+        for name in reply.get("anchors", []):
             key = normalise(name)
-            if key and key not in keys and grounded(key, said):
-                keys.append(key)
-        per_note[note["id"]] = keys
-        print(f"  {note['id']:<34} {keys}")
+            if key and key not in a and grounded(key, said):
+                a.append(key)
+        t = []
+        for name in reply.get("topics", []):
+            key = normalise(name)
+            if not key or key in a:
+                continue
+            # Against this note's own topics too, or two names for one shelf
+            # on a single note both land.
+            key = fold_topic(shelves + t, key)
+            if key not in t:
+                t.append(key)
+                if key not in shelves:
+                    shelves.append(key)
+
+        anchors[note["id"]], topics[note["id"]] = a, t
+        print(f"  {note['id']:<34} anchors={a}")
+        print(f"  {'':<34} topics ={t}")
+
+    # Candidates come from topics alone: anchors are grounded and never collide.
+    per_note = topics
 
     counts = {}
     for keys in per_note.values():
@@ -166,7 +201,12 @@ def main():
     print(f"{total} notes, {len(counts)} tags, {sum(counts.values())} assignments")
     print(f"tags used once: {once} of {len(counts)}")
     print(f"largest tag: {biggest[0]} on {biggest[1]} of {total} notes")
-    print(f"pairs sharing a tag: {len(shared)} of {len(pairs)}")
+    print(f"pairs sharing a topic: {len(shared)} of {len(pairs)}")
+    anchor_pairs = [
+        (a, b) for a, b in pairs if set(anchors[a]) & set(anchors[b])
+    ]
+    print(f"pairs sharing an anchor: {len(anchor_pairs)} of {len(pairs)}"
+          "   (expected ~0 -- anchors are not a retrieval key)")
     for key, n in sorted(counts.items(), key=lambda kv: -kv[1]):
         print(f"  {n:>2}  {key}")
 

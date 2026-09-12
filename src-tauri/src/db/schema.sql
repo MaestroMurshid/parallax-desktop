@@ -135,9 +135,13 @@ CREATE TABLE types (
 -- connections, not the vocabulary underneath). `name` is stored normalised,
 -- and is not the primary key: normalisation may change, and a renamed tag
 -- must not orphan every note filed under it.
+-- `kind` is the whole design. An anchor is grounded in the note's own words
+-- and never collides; a topic is broad, may be ungrounded, and is the only
+-- thing candidates are drawn from. One field could not do both.
 CREATE TABLE tags (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL UNIQUE,
+    kind       TEXT NOT NULL DEFAULT 'anchor',
     created_at TEXT NOT NULL
 );
 

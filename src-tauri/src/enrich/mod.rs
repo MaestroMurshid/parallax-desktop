@@ -24,12 +24,16 @@ pub struct Classification {
     /// What the entry *does*, independent of its subject. §7.1 -- the thing
     /// that finds two notes making the same move in different vocabulary.
     pub move_phrase: String,
-    /// What the note is about, in the note's own words. One field, not a
-    /// reuse/coin pair: offering the existing vocabulary as an enum stopped
-    /// the model coining at all, so reuse is decided in code by normalised
-    /// collision in `db::tags::upsert` instead of by the sampler.
+    /// Specific and grounded in the note's own words. Measured: anchors share
+    /// 0 of 120 pairs, so they are never a retrieval key -- they are what the
+    /// note is about, for the reader and for the MDX frontmatter.
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub anchors: Vec<String>,
+    /// Broad, and deliberately allowed to be ungrounded: the shelf a librarian
+    /// would file the note under. This is the only field candidates come from,
+    /// at 20 of 120 pairs and 6 of 12 authored edges.
+    #[serde(default)]
+    pub topics: Vec<String>,
 }
 
 const CLASSIFY_SYSTEM: &str = "\
@@ -71,21 +75,19 @@ movePhrase: what the note does as a move, with its subject removed, so that two
 notes about different things can be recognised as doing the same thing. Say it
 as a verb phrase about an unnamed claim.
 
-tags: two or three. A tag is what another note would have to be about for the
-two to be worth reading together -- the subject, not the opinion about it.
+anchors: two or three. What this note is specifically about, in the speaker's
+own words -- the thing it argues about, the system it describes, the mechanism
+it turns on. Use words that are actually in the note, and be precise:
+hash-table-lookup, write-amplification, sunk-cost. An anchor whose words are
+not in the note is discarded.
 
-Take the tag from the speaker's own phrasing, the way the title is. Use words
-that are actually in the note to name what it is about: the topic it argues
-about, the system it describes, the thing it is a list of. A tag whose words
-are not in the note is discarded.
-
-A tag that could sit on a note about almost anything is wrong. Whole fields of
-study, whole activities and whole habits of mind are all too broad to be tags,
-however well they describe the note.
-
-Name the note as squarely as you can and do not worry whether other notes have
-been named the same way. Two notes about one subject are expected to arrive at
-the same words on their own.";
+topics: one or two, and these are the opposite. A topic is the broad field a
+librarian would shelve this note under, so that a note about b-trees and a note
+about lock contention end up on the same shelf. It does not have to appear in
+the note: a note about hash table lookup has the topic databases even if the
+word database is never said. Prefer the ordinary, obvious name for the field.
+Do not invent a topic narrower than the field, and do not reach for one so
+broad it would fit any note at all.";
 
 /// The type list is built from the registry at call time, so a user-defined
 /// type becomes a value the model may return -- and constrained decoding makes
@@ -104,13 +106,13 @@ fn classify_schema(type_ids: &[String]) -> Value {
             "typeId": { "type": "string", "enum": type_ids },
             "summary": { "type": "string", "maxLength": 400 },
             "movePhrase": { "type": "string", "maxLength": 200 },
-            // Free text, and deliberately not an enum of what the corpus
-            // already has. Measured over the sixteen fixtures: once an enum
-            // exists the model never coins again, fills the array by repeating
-            // the one permitted value to maxItems, and picks a listed tag even
-            // when none fit. The vocabulary froze at one tag for the whole
-            // corpus. Reuse is a normalised collision in `db::tags::upsert`.
-            "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 3 },
+            // Neither is an enum of what the corpus already has. Measured:
+            // once an enum exists the model never coins again, fills the array
+            // by repeating the one permitted value to maxItems, and picks a
+            // listed value even when none fit. The vocabulary froze at one tag
+            // across the whole corpus.
+            "anchors": { "type": "array", "items": { "type": "string" }, "maxItems": 3 },
+            "topics": { "type": "array", "items": { "type": "string" }, "maxItems": 2 },
         },
         "required": ["title", "role", "register", "typeId", "summary", "movePhrase"],
         "additionalProperties": false,
@@ -154,8 +156,12 @@ pub fn classify(
         }
         out
     };
-    parsed.tags = tidy(parsed.tags);
-    parsed.tags.retain(|t| grounded(t, transcript));
+    parsed.anchors = tidy(parsed.anchors);
+    parsed.topics = tidy(parsed.topics);
+    // Anchors only. A topic is the shelf, and the shelf's name is routinely
+    // absent from the note -- which is the entire reason it can collide.
+    parsed.anchors.retain(|t| grounded(t, transcript));
+    parsed.topics.retain(|t| !parsed.anchors.contains(t));
 
     Ok(parsed)
 }
@@ -454,15 +460,16 @@ mod tests {
                 "{field} is unbounded and the model will loop inside it"
             );
         }
-        assert_eq!(schema["properties"]["tags"]["maxItems"], 3);
+        assert_eq!(schema["properties"]["anchors"]["maxItems"], 3);
+        assert_eq!(schema["properties"]["topics"]["maxItems"], 2);
     }
 
     #[test]
-    fn tags_are_parsed_and_normalised() {
+    fn anchors_are_parsed_and_normalised() {
         let p = FakeProvider::replying(
             r#"{"title":"our own reasoning","role":"position","register":"neutral",
                 "typeId":"position","summary":"s","movePhrase":"m",
-                "tags":["Free Will","Moral Luck","free-will"]}"#,
+                "anchors":["Free Will","Moral Luck","free-will"]}"#,
         );
         let c = classify(
             &p,
@@ -472,7 +479,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            c.tags,
+            c.anchors,
             vec!["free-will".to_string(), "moral-luck".to_string()],
             "normalised on the way in, and a repeat of one spelling is one tag"
         );
@@ -488,7 +495,7 @@ mod tests {
                 "summary":"s","movePhrase":"m"}"#,
         );
         let c = classify(&p, "said", &["note".into()]).unwrap();
-        assert!(c.tags.is_empty());
+        assert!(c.anchors.is_empty() && c.topics.is_empty());
     }
 
     /// Measured, not supposed: over the sixteen fixtures the model coined
@@ -499,7 +506,7 @@ mod tests {
         let p = FakeProvider::replying(
             r#"{"title":"t","role":"position","register":"neutral","typeId":"position",
                 "summary":"s","movePhrase":"m",
-                "tags":["philosophy","hash-tables"]}"#,
+                "anchors":["philosophy","hash-tables"],"topics":["databases"]}"#,
         );
         let c = classify(
             &p,
@@ -507,7 +514,12 @@ mod tests {
             &["position".into()],
         )
         .unwrap();
-        assert_eq!(c.tags, vec!["hash-tables".to_string()]);
+        assert_eq!(c.anchors, vec!["hash-tables".to_string()]);
+        assert_eq!(
+            c.topics,
+            vec!["databases".to_string()],
+            "a topic is the shelf and is not required to be in the note"
+        );
     }
 
     /// A five-character stem, so a plural still matches its singular. Crude on
@@ -529,7 +541,7 @@ mod tests {
     fn reuse_is_grounded_in_the_note_reusing_it() {
         let p = FakeProvider::replying(
             r#"{"title":"t","role":"note","register":"neutral","typeId":"note",
-                "summary":"s","movePhrase":"m","tags":["free-will"]}"#,
+                "summary":"s","movePhrase":"m","anchors":["free-will"]}"#,
         );
         let c = classify(
             &p,
@@ -537,7 +549,10 @@ mod tests {
             &["note".into()],
         )
         .unwrap();
-        assert!(c.tags.is_empty(), "an errand list is not about free will");
+        assert!(
+            c.anchors.is_empty(),
+            "an errand list is not about free will"
+        );
     }
 
     #[test]

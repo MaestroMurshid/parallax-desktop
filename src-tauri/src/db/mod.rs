@@ -19,7 +19,7 @@ const SCHEMA: &str = include_str!("schema.sql");
 /// Bumped whenever `schema.sql` changes shape. `user_version` is a SQLite
 /// integer stored in the file header, so the database says which migration it
 /// is on without a table of its own.
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -93,6 +93,13 @@ fn migrate(conn: &Connection) -> Result<()> {
              );
              CREATE INDEX IF NOT EXISTS idx_entry_vectors_model ON entry_vectors(model);",
         )?;
+    }
+    if current < 6 {
+        // Existing tags were coined under the one-field design and are
+        // grounded in their notes' words, so they are anchors. They will not
+        // make candidates, which is what the measurement already said of them.
+        let _ =
+            conn.execute_batch("ALTER TABLE tags ADD COLUMN kind TEXT NOT NULL DEFAULT 'anchor';");
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -219,7 +226,12 @@ mod tests {
         conn.pragma_update(None, "user_version", 3).unwrap();
         migrate(&conn).unwrap();
 
-        let ids = crate::db::tags::upsert(&conn, &["free-will".to_string()]).unwrap();
+        let ids = crate::db::tags::upsert(
+            &conn,
+            &["free-will".to_string()],
+            crate::db::tags::Kind::Topic,
+        )
+        .unwrap();
         crate::db::tags::set_for_entry(&conn, "e1", &ids).unwrap();
         assert_eq!(crate::db::tags::for_entry(&conn, "e1").unwrap().len(), 1);
 
