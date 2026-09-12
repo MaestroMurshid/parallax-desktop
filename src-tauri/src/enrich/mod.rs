@@ -3,6 +3,7 @@
 //! Enrichment generates and stores; `get_question` only reads. Nothing here is
 //! called on demand from the UI.
 
+pub mod candidates;
 pub mod gate;
 pub mod invoke;
 pub mod run;
