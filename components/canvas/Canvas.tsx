@@ -180,6 +180,9 @@ export default function Canvas() {
       if (!entry) return;
       const { width, height } = entry.contentRect;
       renderer.resize(width, height);
+      // The fit action is invoked from the bottom strip, which has no ref to
+      // this element; this is the only place the canvas's real size is known.
+      useApp.getState().setViewport(width, height);
     });
     observer.observe(host);
 

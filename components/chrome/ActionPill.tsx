@@ -19,6 +19,7 @@ export default function ActionPill() {
   const composing = useApp((s) => s.composing);
   const setComposing = useApp((s) => s.setComposing);
   const relayout = useApp((s) => s.relayout);
+  const fitAll = useApp((s) => s.fitAll);
 
   const [menu, setMenu] = useState<Menu>(null);
   const [armed, setArmed] = useState(false);
@@ -157,6 +158,18 @@ export default function ActionPill() {
         title="Pull linked notes together without overlapping any titles"
       >
         {tidying ? 'tidying' : 'tidy'}
+      </button>
+
+      {/* The camera's only escape hatch (§5.1): a note off-screen can be
+          brought back by moving the view, never by re-solving the field. */}
+      <button
+        type="button"
+        className={styles.action}
+        disabled={count === 0}
+        onClick={() => fitAll()}
+        title="Bring every note on screen"
+      >
+        fit
       </button>
 
       <button

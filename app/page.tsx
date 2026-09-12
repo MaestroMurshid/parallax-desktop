@@ -176,6 +176,13 @@ export default function Page() {
         state.setConnectSource(state.selectedEntryId);
         return;
       }
+      // F brings every note on screen — the only way back for one stranded
+      // past the edge, since §5.1 rules out re-laying out to rescue it.
+      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !typing) {
+        e.preventDefault();
+        state.fitAll();
+        return;
+      }
       if (e.key === 'Escape') {
         if (state.connectSource) state.setConnectSource(null);
         else if (state.composing) state.setComposing(false);
