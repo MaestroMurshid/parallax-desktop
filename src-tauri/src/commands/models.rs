@@ -73,6 +73,27 @@ fn catalogue() -> Vec<ModelInfo> {
             2_500_000_000,
             7_500_000_000,
         ),
+        embedding(
+            "bge-small-en-v1.5",
+            "BGE small",
+            "33M",
+            36_806_944,
+            "https://huggingface.co/CompendiumLabs/bge-small-en-v1.5-gguf/resolve/main/bge-small-en-v1.5-q8_0.gguf",
+        ),
+        embedding(
+            "all-minilm-l6-v2",
+            "MiniLM L6",
+            "22M",
+            25_008_064,
+            "https://huggingface.co/second-state/All-MiniLM-L6-v2-Embedding-GGUF/resolve/main/all-MiniLM-L6-v2-Q8_0.gguf",
+        ),
+        embedding(
+            "nomic-embed-text-v1.5",
+            "Nomic embed",
+            "137M",
+            146_146_432,
+            "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
+        ),
         qwen(
             "qwen3-8b-q4",
             "Qwen3 8B",
@@ -116,6 +137,26 @@ fn qwen(id: &str, name: &str, params: &str, repo: &str, size_bytes: u64, ram: u6
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Measured on the sixteen fixtures, in the architecture that ships -- inside
+/// the topic shelf, capped at eight -- all three score identically. They
+/// differ only in context window, which is what decides a long spoken note: MiniLM
+/// truncates at 256 tokens, bge at 512, nomic at 8192, and truncation is
+/// silent. So this is a size-against-length choice, not a quality ladder.
+fn embedding(id: &str, name: &str, params: &str, size_bytes: u64, url: &str) -> ModelInfo {
+    model(
+        id,
+        ModelKind::Embedding,
+        name,
+        params,
+        "Q8_0",
+        size_bytes,
+        // It runs on the CPU beside everything else and is measured in tens of
+        // megabytes, so any machine that can transcribe can hold it.
+        2_000_000_000,
+        url,
+    )
+}
+
 fn model(
     id: &str,
     kind: ModelKind,

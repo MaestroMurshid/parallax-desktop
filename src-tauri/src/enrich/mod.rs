@@ -157,7 +157,13 @@ pub fn classify(
         }
         out
     };
-    parsed.anchors = tidy(parsed.anchors);
+    parsed.anchors = tidy(
+        parsed
+            .anchors
+            .into_iter()
+            .map(|a| trim_anchor(&a))
+            .collect(),
+    );
     parsed.topics = tidy(parsed.topics);
     // Anchors only. A topic is the shelf, and the shelf's name is routinely
     // absent from the note -- which is the entire reason it can collide.
@@ -215,6 +221,21 @@ fn trim_title(title: &str) -> String {
         return words.join(" ");
     }
     words[..MOST].join(" ")
+}
+
+/// An anchor is a name, not a sentence.
+///
+/// Measured: asked for short noun phrases the model returned
+/// `trade-write-performance-and-storage-for-faster-reads` and
+/// `information-isn't-organized-well`. Enforced rather than asked for again,
+/// the way `trim_title` already is -- the prompt had its turn.
+fn trim_anchor(anchor: &str) -> String {
+    const MOST: usize = 3;
+    let words: Vec<&str> = anchor.split('-').filter(|w| !w.is_empty()).collect();
+    if words.len() <= MOST {
+        return words.join("-");
+    }
+    words[..MOST].join("-")
 }
 
 /// A move phrase, cut on a word boundary.
@@ -383,6 +404,31 @@ mod tests {
             cut.split_whitespace().count() >= 4 && !cut.ends_with(' '),
             "cut on a word boundary, not mid-word: {cut:?}"
         );
+    }
+
+    /// The clauses the model actually returned, cut to a name.
+    #[test]
+    fn a_clause_is_cut_to_three_words() {
+        assert_eq!(
+            trim_anchor("trade-write-performance-and-storage-for-faster-reads"),
+            "trade-write-performance"
+        );
+        assert_eq!(
+            trim_anchor("information-isn't-organized-well"),
+            "information-isn't-organized"
+        );
+    }
+
+    #[test]
+    fn an_anchor_already_a_name_is_left_alone() {
+        for name in [
+            "hash-table-lookup",
+            "sunk-cost",
+            "crdts",
+            "write-amplification",
+        ] {
+            assert_eq!(trim_anchor(name), name);
+        }
     }
 
     #[test]

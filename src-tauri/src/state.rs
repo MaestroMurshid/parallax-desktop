@@ -93,6 +93,16 @@ impl AppState {
         path.is_file().then_some(path)
     }
 
+    /// The embedding model, if one was chosen and its file is there.
+    ///
+    /// `None` is an ordinary state, not an error: topics propose candidates on
+    /// their own and cosine only reorders them, so an absent embedder costs
+    /// ranking quality and nothing else.
+    pub fn embedding_model(&self, model_id: Option<&str>) -> Option<PathBuf> {
+        let path = self.models_dir().join(format!("{}.gguf", model_id?));
+        path.is_file().then_some(path)
+    }
+
     /// The llama-server binary, if there is one to find.
     pub fn llama_binary(&self) -> Option<PathBuf> {
         let explicit = db::settings::get(&self.db())

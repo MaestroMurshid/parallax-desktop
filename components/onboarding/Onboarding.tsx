@@ -54,6 +54,7 @@ export default function Onboarding({
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelId, setModelId] = useState<string | null>(null);
   const [transcriptionId, setTranscriptionId] = useState<string | null>(null);
+  const [embeddingId, setEmbeddingId] = useState<string | null>(null);
   const [hotkey, setHotkey] = useState(settings.hotkey);
   // Carried through to start() unchanged; residency is a settings decision,
   // not a first-run one, and it has a control there.
@@ -69,6 +70,16 @@ export default function Onboarding({
       setProfile(p);
       setModels(m);
       setModelId(recommend(m.filter((x) => x.kind === 'reasoning'), p)?.id ?? null);
+      // Not `recommend`: bigger is not better here. Measured on the fixture
+      // corpus, all three score identically inside the topic shelf and differ
+      // only in context window, so the small one is the default and the large
+      // one is for people whose notes run long.
+      setEmbeddingId(
+        settings.embeddingModelId ??
+          m.find((x) => x.kind === 'embedding' && x.id === 'bge-small-en-v1.5')?.id ??
+          m.find((x) => x.kind === 'embedding')?.id ??
+          null,
+      );
       const speech = m.filter((x) => x.kind === 'transcription');
       setTranscriptionId(
         speech.find((x) => x.name === settings.transcriptionModel)?.id ?? speech[1]?.id ?? null,
@@ -100,13 +111,17 @@ export default function Onboarding({
 
   const speechModels = models.filter((m) => m.kind === 'transcription');
   const reasoningModels = models.filter((m) => m.kind === 'reasoning');
+  const embeddingModels = models.filter((m) => m.kind === 'embedding');
+  const embedding = models.find((m) => m.id === embeddingId);
   const speech = models.find((m) => m.id === transcriptionId);
   const reasoning = models.find((m) => m.id === modelId);
   // The download is skipped when the file is already there (`download_model`
   // returns early), so promising one reads as the app about to spend 2.5GB it
   // is not going to spend.
   const modelsAlreadyHere =
-    speech?.state.kind === 'ready' && reasoning?.state.kind === 'ready';
+    speech?.state.kind === 'ready' &&
+    reasoning?.state.kind === 'ready' &&
+    embedding?.state.kind === 'ready';
   const speechProgress = progressOf(speech);
   const reasoningProgress = progressOf(reasoning);
 
@@ -119,13 +134,19 @@ export default function Onboarding({
     if (modelId) {
       await bridge.setSettings({ modelId });
     }
+    if (embeddingId) {
+      await bridge.setSettings({ embeddingModelId: embeddingId });
+    }
     setStep('field');
 
     // Transcription first and alone. It is about 59MB against 2.5GB, so sharing
     // the line means the first notes come back with no transcript at all —
     // which reads as the app being broken rather than as still arriving.
     void (async () => {
-      for (const id of [speech?.id, modelId]) {
+      // Speech first because it gates recording, then the embedder, which is
+      // tens of megabytes against the reasoning model's gigabytes and would
+      // otherwise sit behind it for the whole download.
+      for (const id of [speech?.id, embeddingId, modelId]) {
         if (!id) continue;
         try {
           await bridge.downloadModel(id);
@@ -153,7 +174,7 @@ export default function Onboarding({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [step, capturing, hotkey, modelId, transcriptionId, residency]);
+  }, [step, capturing, hotkey, modelId, transcriptionId, embeddingId, residency]);
 
   return (
     <div className={styles.stage}>
@@ -216,6 +237,20 @@ export default function Onboarding({
               </span>
             </div>
 
+            <div className={styles.node}>
+              <span className={styles.t}>Connections</span>
+              <span className={styles.m}>
+                {embedding ? `${embedding.name} ${embedding.quantization} · ${size(embedding)}` : 'detecting…'}
+                <button type="button" className={styles.change} onClick={() => setAdvanced((v) => !v)}>
+                  {advanced ? 'hide' : 'change'}
+                </button>
+              </span>
+              <span className={styles.helper}>
+                Orders which earlier notes a new one is compared against. Runs on the CPU, and
+                notes still connect without it.
+              </span>
+            </div>
+
             {advanced && (
               <div className={styles.advanced}>
                 <span className={styles.advLabel}>transcription</span>
@@ -239,6 +274,19 @@ export default function Onboarding({
                       type="button"
                       className={m.id === modelId ? styles.optionOn : styles.option}
                       onClick={() => setModelId(m.id)}
+                    >
+                      {m.name} · {size(m)}
+                    </button>
+                  ))}
+                </div>
+                <span className={styles.advLabel}>connections</span>
+                <div className={styles.options}>
+                  {embeddingModels.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={m.id === embeddingId ? styles.optionOn : styles.option}
+                      onClick={() => setEmbeddingId(m.id)}
                     >
                       {m.name} · {size(m)}
                     </button>

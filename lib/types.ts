@@ -226,7 +226,7 @@ export type ModelState =
   | { kind: 'failed'; error: string };
 
 /** Transcription gates recording; reasoning does not (§9.4). */
-export type ModelKind = 'transcription' | 'reasoning';
+export type ModelKind = 'transcription' | 'reasoning' | 'embedding';
 
 export interface ModelInfo {
   id: string;
@@ -270,6 +270,12 @@ export interface Settings {
   /** Global default for the per-entry local-only flag (§9.4). */
   defaultLocalOnly: boolean;
   transcriptionModel: 'tiny' | 'base' | 'small';
+  /**
+   * `null` until chosen. Connections still work without it — topics propose on
+   * their own and cosine only reorders them — so this is an upgrade to the
+   * ordering, never a dependency.
+   */
+  embeddingModelId: string | null;
   /**
    * Under `auto` the reasoning model has first claim on VRAM: it is the one a
    * person is waiting on, while transcription runs at ~35x realtime on CPU.

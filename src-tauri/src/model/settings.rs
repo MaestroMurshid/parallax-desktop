@@ -49,6 +49,10 @@ pub struct Settings {
     pub provider_name: String,
     pub default_local_only: bool,
     pub transcription_model: TranscriptionModel,
+    /// `None` until chosen. Connections still work without it -- topics alone
+    /// propose -- so this is an upgrade to the ordering, never a dependency.
+    #[serde(default)]
+    pub embedding_model_id: Option<String>,
 
     /// Under `Auto` the reasoning model has first claim on VRAM: it is the one
     /// a person is waiting on, while transcription runs at ~35x realtime on CPU.
@@ -70,6 +74,7 @@ impl Default for Settings {
             provider_name: "llama-server".into(),
             default_local_only: false,
             transcription_model: TranscriptionModel::Base,
+            embedding_model_id: None,
             transcription_backend: ComputeBackend::Auto,
             reasoning_backend: ComputeBackend::Auto,
             llama_server_path: None,
@@ -93,6 +98,10 @@ pub struct SystemProfile {
 pub enum ModelKind {
     Transcription,
     Reasoning,
+    /// Sentence vectors, which are what let two notes about one idea meet
+    /// without having chosen the same words. Local unconditionally, tiny, and
+    /// on the CPU -- it never competes with reasoning for the card.
+    Embedding,
 }
 
 /// Internally tagged on `kind`, kebab-case — the one non-obvious
