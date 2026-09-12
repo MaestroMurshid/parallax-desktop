@@ -5,6 +5,7 @@ pub mod embed;
 mod enrich;
 pub mod error;
 pub mod llm;
+pub mod mdx;
 pub mod model;
 pub mod scene;
 pub mod state;
