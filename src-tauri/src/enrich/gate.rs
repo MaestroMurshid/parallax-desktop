@@ -325,6 +325,143 @@ mod tests {
 
     /// An attributed span longer than the transcript must not underflow into
     /// a huge number and read as fully covered by accident.
+    /// The gates above are a port, and every other test here checks the port
+    /// against itself -- rename or re-tier a probe in `classification.ts` and
+    /// nothing in Rust goes red. This reads the contract itself, so the drift
+    /// that matters is the one it catches.
+    ///
+    /// Only the probe inventory and tiers are parsed. The role rules are one
+    /// line of TypeScript each and extracting them would be a parser, not a
+    /// test; they are covered case by case above.
+    mod against_the_typescript_contract {
+        use super::*;
+
+        const CONTRACT: &str = include_str!("../../../lib/scene/classification.ts");
+
+        /// `{ id: 'boundary', ..., tier: 'safe' }` -> ("boundary", "safe"), for
+        /// the probe table only. The type table above it has a `tier` too,
+        /// which is why the `hint` field is what identifies a probe row.
+        fn probes_in_the_contract() -> Vec<(String, String)> {
+            CONTRACT
+                .lines()
+                .filter(|line| line.contains("hint:") && line.contains("tier:"))
+                .map(|line| {
+                    let field = |name: &str| {
+                        let at = line.find(name).unwrap_or_else(|| {
+                            panic!("no {name} in probe row: {line}");
+                        }) + name.len();
+                        let rest = &line[at..];
+                        let open = rest.find("'").expect("quoted value") + 1;
+                        let close = rest[open..].find("'").expect("closing quote") + open;
+                        rest[open..close].to_string()
+                    };
+                    (field("id:"), field("tier:"))
+                })
+                .collect()
+        }
+
+        #[test]
+        fn the_contract_is_parseable_at_all() {
+            let found = probes_in_the_contract();
+            assert_eq!(found.len(), 5, "parsed {found:?}");
+            assert!(found
+                .iter()
+                .all(|(_, tier)| tier == "safe" || tier == "heavy"));
+        }
+
+        /// A probe added or renamed on one side and not the other.
+        #[test]
+        fn every_probe_in_the_contract_exists_in_rust_and_no_others() {
+            let mut from_contract: Vec<String> = probes_in_the_contract()
+                .into_iter()
+                .map(|(id, _)| {
+                    assert!(
+                        Probe::from_id(&id).is_some(),
+                        "{id} is in classification.ts and not in Rust"
+                    );
+                    id
+                })
+                .collect();
+            from_contract.sort();
+
+            let mut from_rust: Vec<String> = [
+                Probe::Boundary,
+                Probe::Disconfirming,
+                Probe::Steelman,
+                Probe::Munchhausen,
+                Probe::Feynman,
+            ]
+            .iter()
+            .map(|p| p.id().to_string())
+            .collect();
+            from_rust.sort();
+
+            assert_eq!(from_contract, from_rust);
+        }
+
+        /// §3.2's tiers, which is the asymmetry the whole gate exists to hold:
+        /// what opens on its own must be exactly what the contract calls safe.
+        /// Feynman is heavy and still fires unprompted on *evidence*, because
+        /// it takes no stance -- the documented exception, asserted as one.
+        #[test]
+        fn a_position_opens_with_exactly_the_contracts_safe_probes() {
+            let contract = probes_in_the_contract();
+            let mut expected: Vec<String> = contract
+                .iter()
+                .filter(|(_, tier)| tier == "safe")
+                .map(|(id, _)| id.clone())
+                .collect();
+            expected.sort();
+
+            let mut actual: Vec<String> =
+                automatic_probes(&entry(Role::Position, Register::Neutral, 120_000))
+                    .iter()
+                    .map(|p| p.id().to_string())
+                    .collect();
+            actual.sort();
+
+            assert_eq!(actual, expected);
+
+            let heavy: Vec<String> = contract
+                .iter()
+                .filter(|(_, tier)| tier == "heavy")
+                .map(|(id, _)| id.clone())
+                .collect();
+            assert!(
+                heavy.contains(&"feynman".to_string()),
+                "the exception moved"
+            );
+            let automatic_on_evidence =
+                automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000));
+            assert_eq!(
+                automatic_on_evidence
+                    .iter()
+                    .map(|p| p.id())
+                    .collect::<Vec<_>>(),
+                vec!["feynman"]
+            );
+        }
+
+        /// Asking reaches everything the contract knows about, and nothing more.
+        #[test]
+        fn an_invited_position_reaches_every_probe_in_the_contract() {
+            let mut expected: Vec<String> = probes_in_the_contract()
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
+            expected.sort();
+
+            let mut actual: Vec<String> =
+                invoked_probes(&entry(Role::Position, Register::Neutral, 120_000))
+                    .iter()
+                    .map(|p| p.id().to_string())
+                    .collect();
+            actual.sort();
+
+            assert_eq!(actual, expected);
+        }
+    }
+
     #[test]
     fn a_span_beyond_the_transcript_does_not_underflow() {
         let mut e = entry(Role::Position, Register::Neutral, 120_000);
