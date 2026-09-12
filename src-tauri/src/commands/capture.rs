@@ -295,3 +295,92 @@ pub async fn undo_discard(state: State<'_, AppState>) -> Result<Option<Entry>> {
     // question are still lost here -- the staging slot does not carry them.
     Ok(Some(finish(&state, pcm, duration_ms, None, None)?))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `finish` takes its PCM as an argument precisely so this needs no
+    /// microphone. A few hundred samples stand in for a take.
+    fn a_take() -> Vec<f32> {
+        (0..800).map(|i| (i as f32 * 0.02).sin() * 0.4).collect()
+    }
+
+    fn corpus(tag: &str) -> (AppState, std::path::PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("parallax-capture-{tag}-{}", uuid::Uuid::new_v4()));
+        let state = AppState::open(root.clone()).expect("a corpus");
+        (state, root)
+    }
+
+    /// §9.4 -- the audio is the record and the transcript is derived from it, so
+    /// a corpus with no speech model installed still keeps the take. This is the
+    /// state every install is in before the first download finishes.
+    #[test]
+    fn a_take_lands_with_no_speech_model_installed() {
+        let (state, root) = corpus("no-model");
+
+        let entry = finish(&state, a_take(), 4_200, None, None).expect("the take landed");
+
+        assert_eq!(entry.transcript, "", "no model, so nothing was transcribed");
+        assert_eq!(entry.duration_ms, 4_200);
+        let wav = root.join(entry.audio_path.as_ref().expect("a recording"));
+        assert!(wav.is_file(), "the recording is not on disk");
+        assert!(
+            std::fs::metadata(&wav).unwrap().len() > 0,
+            "the recording is empty"
+        );
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The whole reason staging comes first. A recording cannot be re-made, so
+    /// anything that fails after the microphone stops has to leave it
+    /// recoverable -- the four defects fixed on 10 September were all this
+    /// shape. Failure is induced by putting a file where the audio directory
+    /// belongs: `wav::write` calls `create_dir_all` first, so simply deleting
+    /// the directory is not a failure at all -- it is recreated.
+    #[test]
+    fn a_failure_after_the_microphone_stops_still_leaves_the_take() {
+        let (state, root) = corpus("staged");
+        let audio = state.audio_dir();
+        std::fs::remove_dir_all(&audio).expect("no audio directory");
+        std::fs::write(&audio, b"not a directory").expect("a file in its place");
+
+        let failed = finish(&state, a_take(), 4_200, None, None);
+        assert!(failed.is_err(), "writing the WAV should have failed");
+
+        {
+            let slot = state.discarded.lock().unwrap_or_else(|p| p.into_inner());
+            let staged = slot.as_ref().expect("the take was not staged");
+            assert_eq!(staged.pcm.len(), a_take().len(), "the take was truncated");
+            assert_eq!(staged.duration_ms, 4_200);
+        }
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Staging is a safety net, not a second copy kept forever: once the entry
+    /// is durable the slot is released, so an undo cannot resurrect a take that
+    /// is already on the canvas.
+    #[test]
+    fn a_landed_take_is_no_longer_staged() {
+        let (state, root) = corpus("released");
+
+        finish(&state, a_take(), 4_200, None, None).expect("the take landed");
+
+        assert!(
+            state
+                .discarded
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_none(),
+            "the staging slot outlived the entry"
+        );
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
