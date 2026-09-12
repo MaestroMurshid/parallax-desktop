@@ -24,6 +24,15 @@ pub struct Classification {
     /// What the entry *does*, independent of its subject. §7.1 -- the thing
     /// that finds two notes making the same move in different vocabulary.
     pub move_phrase: String,
+    /// Vocabulary the corpus already has. Grammar-locked to it, so a
+    /// near-duplicate spelling is not merely discouraged but unsamplable.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// New ground. Unconstrained, because a corpus that can only reuse its
+    /// first few notes' tags files everything under them and the candidate
+    /// filter stops filtering.
+    #[serde(default, rename = "newTags")]
+    pub new_tags: Vec<String>,
 }
 
 const CLASSIFY_SYSTEM: &str = "\
@@ -63,22 +72,43 @@ raw is worse than nothing.
 
 movePhrase: what the note does as a move, with its subject removed, so that two
 notes about different things can be recognised as doing the same thing. Say it
-as a verb phrase about an unnamed claim.";
+as a verb phrase about an unnamed claim.
+
+tags and newTags: three to five in total, across both. A tag is what another
+note would have to be about for the two to be worth reading together -- the
+subject, not the opinion about it. Put a tag in tags when it is already listed
+there and it fits. Put it in newTags when the note is about something the list
+does not cover; that is an ordinary answer, not a failure to match. Do not
+stretch a listed tag to cover a note it only loosely touches, and do not add a
+tag so broad that half of any corpus would carry it.";
 
 /// The type list is built from the registry at call time, so a user-defined
 /// type becomes a value the model may return -- and constrained decoding makes
 /// returning one that does not exist structurally impossible.
-fn classify_schema(type_ids: &[String]) -> Value {
+fn classify_schema(type_ids: &[String], tag_names: &[String]) -> Value {
+    let mut properties = json!({
+        "title": { "type": "string" },
+        "role": { "type": "string", "enum": ["position", "evidence", "note"] },
+        "register": { "type": "string", "enum": ["live", "neutral"] },
+        "typeId": { "type": "string", "enum": type_ids },
+        "summary": { "type": "string" },
+        "movePhrase": { "type": "string" },
+        "newTags": { "type": "array", "items": { "type": "string" } },
+    });
+
+    // Omitted rather than emitted empty: an empty enum is a schema no token
+    // satisfies, and llama.cpp zeroes out every candidate rather than failing
+    // loudly. The first notes in a corpus coin their vocabulary instead.
+    if !tag_names.is_empty() {
+        properties["tags"] = json!({
+            "type": "array",
+            "items": { "type": "string", "enum": tag_names },
+        });
+    }
+
     json!({
         "type": "object",
-        "properties": {
-            "title": { "type": "string" },
-            "role": { "type": "string", "enum": ["position", "evidence", "note"] },
-            "register": { "type": "string", "enum": ["live", "neutral"] },
-            "typeId": { "type": "string", "enum": type_ids },
-            "summary": { "type": "string" },
-            "movePhrase": { "type": "string" },
-        },
+        "properties": properties,
         "required": ["title", "role", "register", "typeId", "summary", "movePhrase"],
         "additionalProperties": false,
     })
@@ -88,10 +118,12 @@ pub fn classify(
     provider: &dyn LlmProvider,
     transcript: &str,
     type_ids: &[String],
+    tag_names: &[String],
 ) -> Result<Classification> {
     // 400 truncated a real summary mid-string, and a constrained reply that stops
     // early is unparseable rather than short.
-    let mut ask = Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids));
+    let mut ask =
+        Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids, tag_names));
     ask.max_tokens = 700;
     let reply = provider.ask(ask)?;
 
@@ -107,6 +139,24 @@ pub fn classify(
         parsed.summary = None;
     }
     parsed.title = trim_title(&parsed.title);
+
+    // Normalised here rather than at the database, so what the rest of the
+    // pass compares and what is eventually stored are the same string.
+    let tidy = |names: Vec<String>| -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for name in names {
+            let key = crate::db::tags::normalise(&name);
+            if !key.is_empty() && !out.contains(&key) {
+                out.push(key);
+            }
+        }
+        out
+    };
+    parsed.tags = tidy(parsed.tags);
+    parsed.new_tags = tidy(parsed.new_tags);
+    // A tag the model coined that already exists is a reuse, not new ground.
+    parsed.new_tags.retain(|t| !parsed.tags.contains(t));
+
     Ok(parsed)
 }
 
@@ -305,6 +355,67 @@ mod tests {
         }
     }
 
+    /// Reuse is enforced by the sampler and coining by the prompt, so the
+    /// schema is where reuse has to be provable: an existing tag is an enum
+    /// member, and a token outside the enum is zeroed out before it can be
+    /// sampled.
+    #[test]
+    fn existing_tags_are_offered_as_an_enum() {
+        let schema = classify_schema(&["position".into()], &["free-will".into(), "agency".into()]);
+        let tags = &schema["properties"]["tags"]["items"]["enum"];
+        assert_eq!(tags[0], "free-will");
+        assert_eq!(tags[1], "agency");
+        assert!(
+            schema["properties"]["newTags"]["items"]["enum"].is_null(),
+            "new ground must not be constrained to what already exists"
+        );
+    }
+
+    /// An empty corpus has no vocabulary, and an empty enum is a schema no
+    /// token can satisfy -- llama.cpp would zero out every token and the reply
+    /// would never terminate. The field is omitted instead.
+    #[test]
+    fn a_corpus_with_no_tags_yet_omits_the_enum() {
+        let schema = classify_schema(&["position".into()], &[]);
+        assert!(schema["properties"]["tags"].is_null());
+        assert!(
+            !schema["properties"]["newTags"].is_null(),
+            "the first notes can still coin"
+        );
+        let required = schema["required"].as_array().unwrap();
+        assert!(!required.iter().any(|f| f == "tags"));
+    }
+
+    #[test]
+    fn tags_are_parsed_and_normalised() {
+        let p = FakeProvider::replying(
+            r#"{"title":"our own reasoning","role":"position","register":"neutral",
+                "typeId":"position","summary":"s","movePhrase":"m",
+                "tags":["free-will"],"newTags":["Moral Luck"]}"#,
+        );
+        let c = classify(&p, "said", &["position".into()], &["free-will".into()]).unwrap();
+
+        assert_eq!(c.tags, vec!["free-will".to_string()]);
+        assert_eq!(
+            c.new_tags,
+            vec!["moral-luck".to_string()],
+            "a coined tag is normalised on the way in, not on the way out"
+        );
+    }
+
+    /// The model may answer with neither field, and older replies carry
+    /// neither. Missing is not an error -- an untagged note simply connects to
+    /// nothing until it is tagged.
+    #[test]
+    fn a_reply_with_no_tags_is_not_an_error() {
+        let p = FakeProvider::replying(
+            r#"{"title":"t","role":"note","register":"neutral","typeId":"note",
+                "summary":"s","movePhrase":"m"}"#,
+        );
+        let c = classify(&p, "said", &["note".into()], &["free-will".into()]).unwrap();
+        assert!(c.tags.is_empty() && c.new_tags.is_empty());
+    }
+
     #[test]
     fn a_classification_is_parsed() {
         let p = FakeProvider::replying(
@@ -316,6 +427,7 @@ mod tests {
             &p,
             "I don't think free will requires...",
             &["position".into()],
+            &[],
         )
         .unwrap();
 
@@ -334,7 +446,7 @@ mod tests {
                 "typeId":"position","summary":"Reflects on a relationship that ended.",
                 "movePhrase":"states a loss"}"#,
         );
-        let c = classify(&p, "...", &["position".into()]).unwrap();
+        let c = classify(&p, "...", &["position".into()], &[]).unwrap();
 
         assert_eq!(c.register, Register::Live);
         assert!(
@@ -349,7 +461,7 @@ mod tests {
             r#"{"title":"a list","role":"note","register":"neutral","typeId":"note",
                 "summary":"","movePhrase":"records errands"}"#,
         );
-        assert!(classify(&p, "...", &["note".into()])
+        assert!(classify(&p, "...", &["note".into()], &[])
             .unwrap()
             .summary
             .is_none());
@@ -364,7 +476,7 @@ mod tests {
                 "summary":"s","movePhrase":"m"}"#,
         );
         let types = vec!["position".to_string(), "wondering".to_string()];
-        let c = classify(&p, "...", &types).unwrap();
+        let c = classify(&p, "...", &types, &[]).unwrap();
 
         assert_eq!(c.type_id, "wondering");
         let schema = p.last_schema().unwrap();
@@ -401,7 +513,7 @@ mod tests {
     #[test]
     fn unreadable_output_is_an_error_not_a_panic() {
         let p = FakeProvider::replying("not json at all");
-        assert!(classify(&p, "...", &["position".into()]).is_err());
+        assert!(classify(&p, "...", &["position".into()], &[]).is_err());
         assert!(ask_about(&p, &entry("x"), "hint").is_err());
     }
 }

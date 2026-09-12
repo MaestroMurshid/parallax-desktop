@@ -50,7 +50,10 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
     let type_ids = db::entries::type_ids(conn)?;
-    let classification = super::classify(provider, &entry.transcript, &type_ids)?;
+    // The vocabulary the corpus already has, offered to the model as an enum:
+    // reuse is what makes two notes about one idea ever meet.
+    let known: Vec<String> = db::tags::all(conn)?.into_iter().map(|t| t.name).collect();
+    let classification = super::classify(provider, &entry.transcript, &type_ids, &known)?;
     db::entries::set_classification(
         conn,
         entry_id,
@@ -61,6 +64,17 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
         classification.summary.as_deref(),
         Some(classification.move_phrase.as_str()),
     )?;
+
+    // Tagging is not allowed to cost the classification that already landed:
+    // an untagged note is connected to nothing, which is recoverable, while a
+    // failed pass would lose the filing too.
+    let mut names = classification.tags.clone();
+    names.extend(classification.new_tags.iter().cloned());
+    if let Err(e) =
+        db::tags::upsert(conn, &names).and_then(|ids| db::tags::set_for_entry(conn, entry_id, &ids))
+    {
+        eprintln!("tagging failed for {entry_id}: {e}");
+    }
 
     // Re-read: the gates below read role and register, which only just changed.
     let entry = db::entries::get(conn, entry_id)?
@@ -175,6 +189,73 @@ mod tests {
         // Classification still stuck: it succeeded before the question failed.
         let entry = db::entries::get(&conn, &id).unwrap().unwrap();
         assert_eq!(entry.title, "indexes trade writes");
+    }
+
+    /// The capture path has to actually persist what the classifier returned,
+    /// or the vocabulary never grows and nothing is ever a candidate.
+    #[test]
+    fn a_capture_lands_its_tags() {
+        let (conn, id) = corpus(SAID, 5_000);
+        let tagged = CLASSIFY.replace(
+            r#""movePhrase":"trades one cost for another""#,
+            r#""movePhrase":"trades one cost for another","newTags":["Database Indexes","trade-offs"]"#,
+        );
+        let provider = ScriptedProvider::with(&[&tagged]);
+
+        run(&conn, &provider, &id).unwrap();
+
+        let names: Vec<String> = db::tags::for_entry(&conn, &id)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["database-indexes".to_string(), "trade-offs".into()]
+        );
+    }
+
+    /// The reuse half, end to end: the second note is offered the first note's
+    /// vocabulary and joining it is what makes the two candidates for a
+    /// connection at all.
+    #[test]
+    fn a_second_note_joins_the_vocabulary_rather_than_doubling_it() {
+        let (conn, first) = corpus(SAID, 5_000);
+        let coined = CLASSIFY.replace(
+            r#""movePhrase":"trades one cost for another""#,
+            r#""movePhrase":"trades one cost for another","newTags":["database-indexes"]"#,
+        );
+        run(&conn, &ScriptedProvider::with(&[&coined]), &first).unwrap();
+
+        let second = db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: "Another note about the same thing.".into(),
+                duration_ms: 5_000,
+                fingerprint: vec![],
+                parent_entry_id: None,
+                local_only: None,
+                typed: true,
+            },
+        )
+        .unwrap()
+        .id;
+        let reused = CLASSIFY.replace(
+            r#""movePhrase":"trades one cost for another""#,
+            r#""movePhrase":"trades one cost for another","tags":["database-indexes"]"#,
+        );
+        run(&conn, &ScriptedProvider::with(&[&reused]), &second).unwrap();
+
+        assert_eq!(
+            db::tags::all(&conn).unwrap().len(),
+            1,
+            "the tag was doubled"
+        );
+        assert_eq!(
+            db::tags::sharing(&conn, &second).unwrap(),
+            vec![(first, 1)],
+            "the two notes are not candidates for each other"
+        );
     }
 
     /// A short note is not pushed on, and classification still runs.
