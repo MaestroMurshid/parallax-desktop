@@ -4,7 +4,9 @@ import type { ActionItem, Edge, Entry, Question, Span } from '@/lib/types';
 
 const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 
-function save(filename: string, mime: string, body: string): void {
+/** A browser download. Only the mock uses it: in the app a download from the
+ *  webview saved silently to Downloads, so exports there go through a dialog. */
+export function save(filename: string, mime: string, body: string): void {
   const url = URL.createObjectURL(new Blob([body], { type: mime }));
   const a = document.createElement('a');
   a.href = url;
@@ -24,7 +26,7 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', {
  * summary goes underneath and marked as generated, never above and never
  * instead.
  */
-export function exportTranscripts(entries: Entry[]): void {
+export function transcriptsMarkdown(entries: Entry[]): string {
   const ordered = [...entries].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const parts = ordered.map((e) => {
     const head = `## ${e.title}\n\n_${dateFmt.format(new Date(e.createdAt))}_\n\n${e.transcript}\n`;
@@ -32,11 +34,12 @@ export function exportTranscripts(entries: Entry[]): void {
     const res = e.resolutionText ? `\n> resolved: ${e.resolutionText}\n` : '';
     return head + tail + res;
   });
-  save(`transcripts-${stamp()}.md`, 'text/markdown', `# Transcripts\n\n${parts.join('\n---\n\n')}`);
+  return `# Transcripts\n\n${parts.join('\n---\n\n')}`;
 }
 
-/** Everything needed to restore, including what the Markdown export drops. */
-export function exportJson(entries: Entry[], edges: Edge[], questions: Question[]): void {
+/** The mock's stand-in for the archive: a browser cannot zip without a
+ *  library, and this shape is what the app's upload still reads. */
+export function saveCorpusJson(entries: Entry[], edges: Edge[], questions: Question[]): void {
   const body = JSON.stringify(
     { version: 1, exportedAt: new Date().toISOString(), entries, edges, questions },
     null,

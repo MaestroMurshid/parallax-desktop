@@ -81,6 +81,14 @@ pub fn import(conn: &Connection, data: &CorpusImport, mode: ImportMode) -> Resul
         super::questions::insert(&tx, question, &entry.transcript)?;
     }
 
+    // A path the incoming entries still use is not orphaned, however many rows
+    // pointed at it before. Replacing a corpus with its own export deleted
+    // every recording it restored without this.
+    if !orphaned.is_empty() {
+        let kept: HashSet<String> = audio_paths(&tx)?.into_iter().collect();
+        orphaned.retain(|path| !kept.contains(path));
+    }
+
     tx.commit()?;
     Ok(orphaned)
 }

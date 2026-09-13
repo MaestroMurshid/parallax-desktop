@@ -8,10 +8,11 @@
 
 use super::{corpus, Note};
 use crate::db::import::{CorpusImport, ImportMode};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use rusqlite::Connection;
 use serde::Serialize;
-use std::path::Path;
+use std::io::{Read, Write};
+use std::path::{Component, Path};
 
 pub const NOTES_DIR: &str = "notes";
 pub const AUDIO_DIR: &str = "audio";
@@ -33,28 +34,179 @@ pub struct Written {
     pub missing_audio: usize,
 }
 
+fn zipped(e: zip::result::ZipError) -> Error {
+    Error::Other(format!("the archive could not be read or written: {e}"))
+}
+
+/// A recording's file name, if it is one: a single plain component, so
+/// nothing a stranger's archive names can land outside `audio/`.
+fn recording_name(name: &str) -> Option<&str> {
+    let mut parts = Path::new(name).components();
+    match (parts.next(), parts.next()) {
+        (Some(Component::Normal(one)), None) => one.to_str(),
+        _ => None,
+    }
+}
+
 /// Writes the whole corpus to `out`.
+///
+/// Through a `.part` file renamed at the end, so a failure halfway leaves
+/// nothing at the chosen path that looks like a finished backup.
 pub fn write(conn: &Connection, root: &Path, out: &Path, with_audio: bool) -> Result<Written> {
-    let _ = (conn, root, out, with_audio);
-    todo!()
+    write_notes(&corpus::export(conn)?, root, out, with_audio)
+}
+
+/// The writing half alone, so a caller can read the corpus under its lock and
+/// then write -- recordings can be hundreds of megabytes, and nothing should
+/// wait on a database lock while they copy.
+pub fn write_notes(notes: &[Note], root: &Path, out: &Path, with_audio: bool) -> Result<Written> {
+    let partial = out.with_extension("part");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&partial)?);
+    let text = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    // Audio is already dense; deflating it costs time and saves nothing.
+    let stored = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Stored);
+
+    let mut written = Written { notes: 0, audio: 0, missing_audio: 0 };
+    let result = (|| -> Result<()> {
+        for note in notes {
+            zip.start_file(format!("{NOTES_DIR}/{}", corpus::filename(note)), text)
+                .map_err(zipped)?;
+            zip.write_all(super::render(note)?.as_bytes())?;
+            written.notes += 1;
+
+            let Some(relative) = note.entry.audio_path.as_deref().filter(|_| with_audio) else {
+                continue;
+            };
+            let name = relative
+                .strip_prefix(&format!("{AUDIO_DIR}/"))
+                .and_then(recording_name);
+            match name.map(|n| (n, std::fs::read(root.join(AUDIO_DIR).join(n)))) {
+                Some((n, Ok(bytes))) => {
+                    zip.start_file(format!("{AUDIO_DIR}/{n}"), stored).map_err(zipped)?;
+                    zip.write_all(&bytes)?;
+                    written.audio += 1;
+                }
+                // A note whose file is gone still exports; it says so rather
+                // than failing a backup over one recording.
+                _ => written.missing_audio += 1,
+            }
+        }
+        zip.finish().map_err(zipped)?;
+        Ok(())
+    })();
+
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&partial);
+        return Err(e);
+    }
+    std::fs::rename(&partial, out)?;
+    Ok(written)
 }
 
 /// Reads an upload: an archive this app wrote, or a JSON export from before.
+///
+/// Every note is parsed before this returns, and one that does not parse
+/// refuses the file by name -- nothing is written on the strength of a file
+/// that is only partly readable.
 pub fn read(path: &Path) -> Result<Contents> {
-    let _ = path;
-    todo!()
+    let is_json = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    if is_json {
+        return from_json(&std::fs::read_to_string(path)?);
+    }
+
+    let mut archive = zip::ZipArchive::new(std::fs::File::open(path)?).map_err(zipped)?;
+    let mut contents = Contents::default();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(zipped)?;
+        if file.is_dir() {
+            continue;
+        }
+        // `enclosed_name` already refuses absolute paths and `..`.
+        let Some(inside) = file.enclosed_name() else {
+            continue;
+        };
+        let inside = inside.to_string_lossy().replace('\\', "/");
+
+        if inside.ends_with(".mdx") {
+            let mut text = String::new();
+            file.read_to_string(&mut text)?;
+            let note = super::parse(&text)
+                .map_err(|e| Error::Other(format!("{inside} could not be read: {e}")))?;
+            contents.notes.push(note);
+        } else if let Some(name) = inside
+            .strip_prefix(&format!("{AUDIO_DIR}/"))
+            .and_then(recording_name)
+        {
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes)?;
+            contents.audio.push((name.to_string(), bytes));
+        }
+    }
+    if contents.notes.is_empty() {
+        return Err(Error::Other("there are no notes in this file".into()));
+    }
+    Ok(contents)
+}
+
+/// A JSON export, regrouped into the notes the archive path restores, so both
+/// uploads go through one restore. Edges ride with the note they leave and
+/// questions with the note they ask about, exactly as `corpus::export` groups
+/// them.
+fn from_json(text: &str) -> Result<Contents> {
+    let data: CorpusImport = serde_json::from_str(text)?;
+    if data.entries.is_empty() {
+        return Err(Error::Other("there are no notes in this file".into()));
+    }
+    let notes = data
+        .entries
+        .iter()
+        .map(|entry| Note {
+            edges: data.edges.iter().filter(|e| e.entry_a == entry.id).cloned().collect(),
+            questions: data.questions.iter().filter(|q| q.entry_id == entry.id).cloned().collect(),
+            anchors: Vec::new(),
+            topics: Vec::new(),
+            entry: entry.clone(),
+        })
+        .collect();
+    Ok(Contents { notes, audio: Vec::new() })
 }
 
 /// Restores the notes, then puts their recordings where the notes expect them.
 /// Returns the audio paths a replace orphaned, for the caller to unlink.
+///
+/// Recordings go down after the notes commit: a restore that failed would
+/// otherwise leave files behind that no note points at.
 pub fn restore(
     conn: &Connection,
     root: &Path,
     contents: &Contents,
     mode: ImportMode,
 ) -> Result<Vec<String>> {
-    let _ = (conn, root, contents, mode, corpus::restore, CorpusImport::default);
-    todo!()
+    let orphaned = corpus::restore(conn, &contents.notes, mode)?;
+
+    let audio_dir = root.join(AUDIO_DIR);
+    if !contents.audio.is_empty() {
+        std::fs::create_dir_all(&audio_dir)?;
+    }
+    for (name, bytes) in &contents.audio {
+        // Checked again here rather than trusted from `read`: `Contents` is a
+        // public type, and the rule is about what reaches the disk.
+        let Some(name) = recording_name(name) else {
+            continue;
+        };
+        let target = audio_dir.join(name);
+        // Merge keeps the copy you have, recording included.
+        if mode == ImportMode::Merge && target.exists() {
+            continue;
+        }
+        std::fs::write(target, bytes)?;
+    }
+    Ok(orphaned)
 }
 
 #[cfg(test)]

@@ -176,9 +176,14 @@ pub fn run() {
                 })
                 .build(),
         )
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             show_capture,
             hide_capture,
+            commands::archive::export_archive,
+            commands::archive::export_transcripts,
+            commands::archive::pick_upload,
+            commands::archive::apply_upload,
             commands::corpus::list_entries,
             commands::capture::start_recording,
             commands::capture::stop_recording,

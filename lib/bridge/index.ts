@@ -218,6 +218,35 @@ export interface Bridge {
 
   /** Restores a previously exported corpus. 'merge' keeps existing ids. */
   importCorpus(data: CorpusImport, mode: ImportMode): Promise<void>;
+
+  // -- export and upload ---------------------------------------------------
+  /** The corpus as one zip of MDX notes, with the recordings when asked for.
+   *  Asks where to save it; null when that is cancelled. */
+  exportArchive(withAudio: boolean): Promise<Exported | null>;
+  /** Saves Markdown the page rendered, asking where; null when cancelled. */
+  exportTranscripts(markdown: string): Promise<string | null>;
+  /** Asks for a file and reads it without applying it, so the merge-or-replace
+   *  choice can say what it holds. null when cancelled; rejects on a file that
+   *  does not read. */
+  pickUpload(): Promise<UploadPreview | null>;
+  /** Applies what pickUpload read. */
+  applyUpload(mode: ImportMode): Promise<void>;
+}
+
+export interface Exported {
+  path: string;
+  notes: number;
+  audio: number;
+  /** Notes whose recording was not on disk to put in. */
+  missingAudio: number;
+}
+
+export interface UploadPreview {
+  fileName: string;
+  notes: number;
+  edges: number;
+  questions: number;
+  recordings: number;
 }
 
 let instance: Bridge | null = null;

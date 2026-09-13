@@ -60,6 +60,8 @@ export interface CorpusSlice {
   /** Wipes the corpus, sample or not. What the status bar's `clear` means. */
   clearAll(): Promise<void>;
   importCorpus(data: CorpusImport, mode: ImportMode): Promise<void>;
+  /** Applies the upload the bridge already read, then reloads. */
+  applyUpload(mode: ImportMode): Promise<void>;
 
   // -- derived, memo-free because they are O(edges) over a few hundred items --
   /** Layers behind an entry's rings (§6.2). Children never get their own blob. */
@@ -278,6 +280,11 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
 
   async importCorpus(data, mode) {
     await getBridge().importCorpus(data, mode);
+    await get().loadCorpus();
+  },
+
+  async applyUpload(mode) {
+    await getBridge().applyUpload(mode);
     await get().loadCorpus();
   },
 

@@ -69,6 +69,8 @@ pub struct AppState {
     /// would otherwise append its own question, since `questions` has no
     /// uniqueness constraint the way edges do.
     pub enriching: Mutex<std::collections::HashSet<String>>,
+    /// An upload read and waiting for its merge-or-replace answer.
+    pub pending_upload: Mutex<Option<crate::mdx::archive::Contents>>,
 }
 
 impl AppState {
@@ -89,6 +91,7 @@ impl AppState {
             embedder: Mutex::new(None),
             downloads: crate::model::download::Gate::new(),
             enriching: Mutex::new(std::collections::HashSet::new()),
+            pending_upload: Mutex::new(None),
         })
     }
 

@@ -22,10 +22,13 @@ import { placeEntry, type PlacedNode } from '@/lib/scene/placement';
 import { titleSizeForDuration, wrapTitle } from '@/lib/scene/lexicon';
 import { hash32, mockVector, rng } from '@/lib/scene/vector';
 import { loadSeedCorpus } from '@/fixtures/load';
+import { parseImport, save, saveCorpusJson } from '@/lib/corpus-io';
 import type {
   Bridge,
   CorpusImport,
+  Exported,
   ImportMode,
+  UploadPreview,
   NewEntryDraft,
   SampleLoad,
   SearchHit,
@@ -1057,6 +1060,53 @@ ${entry.transcript}
     for (const [id] of this.questions) if (!this.entries.has(id)) this.questions.delete(id);
     this.actionItems = this.actionItems.filter((a) => this.entries.has(a.entryId));
     this.saveOverrides();
+  }
+
+  // -- export and upload ---------------------------------------------------
+  // A browser has no save dialog and no zip, so the mock keeps the old
+  // behaviour: a JSON download, and a file input for upload.
+
+  private pendingUpload: CorpusImport | null = null;
+
+  async exportArchive(): Promise<Exported | null> {
+    saveCorpusJson([...this.entries.values()], this.edges, [...this.questions.values()].flat());
+    return { path: 'your downloads folder', notes: this.entries.size, audio: 0, missingAudio: 0 };
+  }
+
+  async exportTranscripts(markdown: string): Promise<string | null> {
+    save(`transcripts-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown', markdown);
+    return 'your downloads folder';
+  }
+
+  pickUpload(): Promise<UploadPreview | null> {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json,.json';
+      input.addEventListener('cancel', () => resolve(null));
+      input.addEventListener('change', async () => {
+        const file = input.files?.[0];
+        if (!file) return resolve(null);
+        const parsed = parseImport(await file.text());
+        if ('error' in parsed) return reject(new Error(parsed.error));
+        this.pendingUpload = parsed;
+        resolve({
+          fileName: file.name,
+          notes: parsed.entries.length,
+          edges: parsed.edges.length,
+          questions: parsed.questions.length,
+          recordings: 0,
+        });
+      });
+      input.click();
+    });
+  }
+
+  async applyUpload(mode: ImportMode): Promise<void> {
+    const pending = this.pendingUpload;
+    if (!pending) throw new Error('there is no upload waiting');
+    this.pendingUpload = null;
+    await this.importCorpus(pending, mode);
   }
 }
 
