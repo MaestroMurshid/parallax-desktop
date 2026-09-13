@@ -488,6 +488,33 @@ mod tests {
         assert_eq!(trim_phrase(said), said);
     }
 
+    /// The grammar follows the schema's key order, and the prompt says "in the
+    /// exact order listed". Sorted keys would make the model write `anchors`
+    /// and `movePhrase` before deciding what the note is.
+    #[test]
+    fn the_classify_schema_lists_fields_in_the_prompt_order() {
+        let schema = classify_schema(&["position".into()]);
+        let keys: Vec<&str> = schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "title",
+                "role",
+                "register",
+                "typeId",
+                "summary",
+                "movePhrase",
+                "anchors",
+                "topics"
+            ]
+        );
+    }
+
     /// Found in the packaged app: a note of about 4,000 words overflowed the
     /// 4,096-token context and every pass on it failed. Because it then stayed
     /// unclassified, opening it retried the same doomed pass every time.

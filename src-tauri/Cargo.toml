@@ -17,7 +17,11 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order is load-bearing, not a nicety. llama.cpp builds its grammar in
+# the order a JSON schema lists its fields, and without this serde_json sorts
+# them alphabetically -- which put the judge's `question` before its quotes, made
+# it unwritable once a quote was written, and dropped every connection.
+serde_json = { version = "1", features = ["preserve_order"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 thiserror = "2.0.20"
 chrono = { version = "0.4.45", features = ["serde"] }
