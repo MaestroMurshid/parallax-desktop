@@ -42,5 +42,15 @@ jobs:
       - name: Typecheck Frontend
         run: npm run typecheck
 
+      - name: Fetch Llama Server (Windows)
+        if: runner.os == 'Windows'
+        run: pwsh scripts/fetch-llama.ps1
+
+      - name: Mock Llama Server (Linux & macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p src-tauri/binaries/llama
+          touch src-tauri/binaries/llama/.keep
+
       - name: Build Tauri App
         run: npm run tauri build
