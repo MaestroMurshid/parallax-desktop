@@ -180,7 +180,9 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
   },
 
   async relayout() {
-    const entries = [...get().entries.values()].filter((e) => e.parentEdge === null);
+    // Replies are canvas nodes too. Leaving them out made "tidy" move only
+    // part of the visible field and reintroduced overlapping reply titles.
+    const entries = [...get().entries.values()];
     if (entries.length < 2) return;
 
     // Only what the canvas draws pulls: dismissed edges are not on screen, so

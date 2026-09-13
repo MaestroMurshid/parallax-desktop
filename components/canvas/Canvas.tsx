@@ -18,8 +18,9 @@ function buildScene(state: ReturnType<typeof useApp.getState>): SceneInput {
   const entries: SceneEntry[] = [];
   for (const id of state.order) {
     const entry = state.entries.get(id);
-    // Children are layers on their parent's rings, never their own blob (§6.2).
-    if (!entry || entry.parentEdge !== null) continue;
+    // LabelOverlay renders every entry. Keep the renderer's hit-test scene in
+    // lockstep so an answer remains selectable and draggable after capture.
+    if (!entry) continue;
     entries.push({
       entry,
       box: titleBox(entry),
@@ -367,4 +368,3 @@ export default function Canvas() {
     </>
   );
 }
-
