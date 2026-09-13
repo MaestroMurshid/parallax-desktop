@@ -9,6 +9,7 @@
 //! recordings into an archive is seconds of disk work the window must not
 //! wait behind.
 
+use crate::db;
 use crate::db::import::ImportMode;
 use crate::error::{Error, Result};
 use crate::mdx::{self, archive};
@@ -64,11 +65,11 @@ pub async fn export_archive(
     };
 
     // Read under the lock, written without it.
-    let notes = {
+    let (notes, types) = {
         let conn = state.background_db();
-        mdx::corpus::export(&conn)?
+        (mdx::corpus::export(&conn)?, db::types::exportable(&conn)?)
     };
-    let written = archive::write_notes(&notes, &state.root, &out, with_audio)?;
+    let written = archive::write_notes(&notes, &types, &state.root, &out, with_audio)?;
     Ok(Some(Exported {
         path: out.display().to_string(),
         written,

@@ -7,8 +7,10 @@
 //! topics leaves every note off every shelf, connected to nothing.
 
 use super::{corpus, Note};
+use crate::db;
 use crate::db::import::{CorpusImport, ImportMode};
 use crate::error::{Error, Result};
+use crate::model::TypeDef;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::io::{Read, Write};
@@ -16,6 +18,9 @@ use std::path::{Component, Path};
 
 pub const NOTES_DIR: &str = "notes";
 pub const AUDIO_DIR: &str = "audio";
+/// Beside `notes/`, not inside it -- a type definition is not a note, and
+/// `read` tells the two apart by extension, not by which folder they sat in.
+pub const TYPES_FILE: &str = "types.json";
 
 /// What an upload holds, read in full before anything is written.
 #[derive(Debug, Default)]
@@ -23,6 +28,9 @@ pub struct Contents {
     pub notes: Vec<Note>,
     /// A file name inside `audio/` and its bytes. A name, never a path.
     pub audio: Vec<(String, Vec<u8>)>,
+    /// Custom type definitions (§3.6). Empty for an archive written before
+    /// these existed, or a JSON export, which never carried them either.
+    pub types: Vec<TypeDef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -53,13 +61,25 @@ fn recording_name(name: &str) -> Option<&str> {
 /// Through a `.part` file renamed at the end, so a failure halfway leaves
 /// nothing at the chosen path that looks like a finished backup.
 pub fn write(conn: &Connection, root: &Path, out: &Path, with_audio: bool) -> Result<Written> {
-    write_notes(&corpus::export(conn)?, root, out, with_audio)
+    write_notes(
+        &corpus::export(conn)?,
+        &db::types::exportable(conn)?,
+        root,
+        out,
+        with_audio,
+    )
 }
 
 /// The writing half alone, so a caller can read the corpus under its lock and
 /// then write -- recordings can be hundreds of megabytes, and nothing should
 /// wait on a database lock while they copy.
-pub fn write_notes(notes: &[Note], root: &Path, out: &Path, with_audio: bool) -> Result<Written> {
+pub fn write_notes(
+    notes: &[Note],
+    types: &[TypeDef],
+    root: &Path,
+    out: &Path,
+    with_audio: bool,
+) -> Result<Written> {
     let partial = out.with_extension("part");
     let mut zip = zip::ZipWriter::new(std::fs::File::create(&partial)?);
     let text = zip::write::SimpleFileOptions::default()
@@ -70,6 +90,10 @@ pub fn write_notes(notes: &[Note], root: &Path, out: &Path, with_audio: bool) ->
 
     let mut written = Written { notes: 0, audio: 0, missing_audio: 0 };
     let result = (|| -> Result<()> {
+        if !types.is_empty() {
+            zip.start_file(TYPES_FILE, text).map_err(zipped)?;
+            zip.write_all(serde_json::to_string_pretty(types)?.as_bytes())?;
+        }
         for note in notes {
             zip.start_file(format!("{NOTES_DIR}/{}", corpus::filename(note)), text)
                 .map_err(zipped)?;
@@ -138,6 +162,14 @@ pub fn read(path: &Path) -> Result<Contents> {
             let note = super::parse(&text)
                 .map_err(|e| Error::Other(format!("{inside} could not be read: {e}")))?;
             contents.notes.push(note);
+        } else if inside == TYPES_FILE {
+            let mut text = String::new();
+            file.read_to_string(&mut text)?;
+            // Unreadable types.json refuses the archive by name, the same
+            // rule an unreadable note already follows -- a partly-read type
+            // definition is not something to guess the rest of.
+            contents.types = serde_json::from_str(&text)
+                .map_err(|e| Error::Other(format!("{TYPES_FILE} could not be read: {e}")))?;
         } else if let Some(name) = inside
             .strip_prefix(&format!("{AUDIO_DIR}/"))
             .and_then(recording_name)
@@ -173,7 +205,7 @@ fn from_json(text: &str) -> Result<Contents> {
             entry: entry.clone(),
         })
         .collect();
-    Ok(Contents { notes, audio: Vec::new() })
+    Ok(Contents { notes, audio: Vec::new(), types: Vec::new() })
 }
 
 /// Restores the notes, then puts their recordings where the notes expect them.
@@ -187,6 +219,11 @@ pub fn restore(
     contents: &Contents,
     mode: ImportMode,
 ) -> Result<Vec<String>> {
+    // Definitions before the notes that use them -- not load-bearing (there
+    // is deliberately no FK from an entry's type_id, §3.6), but it means a
+    // restored note's type already exists at the moment the note lands rather
+    // than a beat later.
+    db::types::restore_types(conn, &contents.types, mode)?;
     let orphaned = corpus::restore(conn, &contents.notes, mode)?;
 
     let audio_dir = root.join(AUDIO_DIR);
@@ -407,6 +444,62 @@ mod tests {
         restore(&fresh, &here, &read(&json).unwrap(), ImportMode::Merge).unwrap();
         assert_eq!(db::entries::list(&fresh).unwrap().len(), 2);
         assert_eq!(db::edges::list(&fresh).unwrap().len(), 1);
+    }
+
+    /// §3.6 end to end: a custom type travels in the zip beside `notes/`, and
+    /// a note carrying it is still filed under that type on the far side --
+    /// not just present as a string with nothing behind it.
+    #[test]
+    fn a_custom_type_travels_with_the_archive_and_survives_upload() {
+        let (here, there) = (scratch("types-here"), scratch("types-there"));
+        let conn = db::open_in_memory().unwrap();
+        db::types::create(
+            &conn,
+            crate::model::NewType {
+                id: "wondering".into(),
+                label: "wondering".into(),
+                match_text: "musing without a claim yet".into(),
+                prompt: None,
+                tier: crate::model::ProbeTier::Heavy,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+        let mut e = entry("wondered", "2024-01-01T00:00:00Z", false);
+        e.type_id = "wondering".into();
+        db::entries::insert(&conn, &e).unwrap();
+
+        let zip = here.join("types.zip");
+        write(&conn, &here, &zip, false).unwrap();
+
+        let fresh = db::open_in_memory().unwrap();
+        restore(&fresh, &there, &read(&zip).unwrap(), ImportMode::Replace).unwrap();
+
+        let restored_type = db::types::get(&fresh, "wondering").unwrap();
+        assert!(restored_type.is_some(), "the custom type did not travel");
+        assert_eq!(restored_type.unwrap().tier, crate::model::ProbeTier::Heavy);
+        assert_eq!(
+            db::entries::get(&fresh, "wondered").unwrap().unwrap().type_id,
+            "wondering"
+        );
+    }
+
+    /// An archive from before types.json existed has nothing named that in
+    /// it -- `Contents::types` defaults to empty, and the notes still upload.
+    #[test]
+    fn an_archive_without_a_types_file_still_uploads() {
+        let (here, there) = (scratch("no-types-here"), scratch("no-types-there"));
+        let conn = seeded(&here);
+        let zip = here.join("old.zip");
+        write(&conn, &here, &zip, false).unwrap();
+
+        let contents = read(&zip).unwrap();
+        assert!(contents.types.is_empty(), "this fixture defined no custom type");
+
+        let fresh = db::open_in_memory().unwrap();
+        restore(&fresh, &there, &contents, ImportMode::Replace).unwrap();
+        assert_eq!(db::entries::list(&fresh).unwrap().len(), 2);
     }
 
     /// Merge keeps the copy you have, and that includes the recording.
