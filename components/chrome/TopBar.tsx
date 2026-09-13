@@ -43,8 +43,6 @@ export default function TopBar() {
   const setOverlay = useApp((s) => s.setOverlay);
   const view = useApp((s) => s.view);
   const setView = useApp((s) => s.setView);
-  const chatOpen = useApp((s) => s.chatOpen);
-  const setChatOpen = useApp((s) => s.setChatOpen);
   const askAbout = useApp((s) => s.askAbout);
   const taskCount = useApp((s) => s.actionItems.filter((a) => !a.done).length);
 
@@ -186,16 +184,8 @@ export default function TopBar() {
         >
           {view === 'canvas' ? 'list' : 'canvas'}
         </button>
-        {/* Not an overlay, so it does not take the slot the entry sheet wants:
-            recall is something you do *while* reading a note, not instead. */}
-        <button
-          type="button"
-          className={styles.textButton}
-          aria-pressed={chatOpen}
-          onClick={() => setChatOpen(!chatOpen)}
-        >
-          ask
-        </button>
+        {/* No `ask` here: asking is Enter in the search box, or the first row
+            of its results. Two ways into one act was one too many. */}
         <button
           type="button"
           className={styles.textButton}
