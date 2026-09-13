@@ -59,19 +59,6 @@
   overflow-wrap: anywhere;
 }
 
-/* Sits under everything else and stays out of the way. Capture is the one
-   moment the app is over another window, so this has to read as a footnote
-   rather than as a control competing with what is behind it. */
-.cancelHint {
-  margin: 0.45rem 0 0;
-  font-size: 0.6875rem;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  color: var(--dimmed-fg);
-  opacity: 0.65;
-  text-align: left;
-}
-
 .key {
   font-family: var(--font-mono);
   font-size: 0.625rem;
@@ -96,18 +83,26 @@
 .actionButton {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.02em;
-  color: var(--dimmed-fg);
-  background: transparent;
-  border: 1px solid var(--edge);
+  color: var(--title);
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
   border-radius: 6px;
-  padding: 3px 8px;
+  padding: 5px 11px;
   cursor: pointer;
 }
 
+/* Brightens rather than fades: a control that dims under the cursor reads as
+   disabled, and this panel is the one place a user has to find it cold. */
 .actionButton:hover {
-  opacity: 0.8;
+  border-color: var(--stroke-hub);
+  background: color-mix(in srgb, var(--title) 8%, var(--surface));
+}
+
+.actionButton:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 2px;
 }

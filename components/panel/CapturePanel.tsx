@@ -117,8 +117,8 @@ export default function CapturePanel({ settings }: { settings: Settings | null }
       )}
       {state === 'transcribing' && (
         <div className={styles.actions}>
+          {/* No key shown: the panel never takes focus, so Esc cannot reach it. */}
           <button type="button" className={styles.actionButton} onClick={() => void cancelCapture()}>
-            <kbd className={styles.key}>esc</kbd>
             cancel
           </button>
         </div>
