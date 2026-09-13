@@ -220,6 +220,10 @@ export class TauriBridge implements Bridge {
     return invoke('download_model', { modelId });
   }
 
+  setupComplete(): Promise<boolean> {
+    return invoke('setup_complete');
+  }
+
   onModelProgress(cb: (m: ModelInfo) => void): Unsubscribe {
     return subscribe<ModelInfo>('model://progress', cb);
   }

@@ -222,7 +222,35 @@ fn state_for(expected_bytes: u64, on_disk: Option<u64>, partial: Option<u64>) ->
 /// copied in by hand is.
 #[tauri::command]
 pub fn list_models(state: State<AppState>) -> Vec<ModelInfo> {
+    models_on_disk(&state.models_dir())
+}
+
+#[tauri::command]
+pub fn models_location(state: State<AppState>) -> Result<String> {
     let dir = state.models_dir();
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.display().to_string())
+}
+
+/// Whether first run is behind this machine: a reasoning model was chosen, and
+/// every model the settings name is on disk.
+pub fn set_up(settings: &crate::model::Settings, models: &[ModelInfo]) -> bool {
+    let ready = |id: &str| {
+        models
+            .iter()
+            .any(|m| m.id == id && matches!(m.state, ModelState::Ready))
+    };
+    let Some(reasoning) = settings.model_id.as_deref() else {
+        return false;
+    };
+    // The embedder is optional -- connections work without one -- so only a
+    // chosen one has to be there.
+    ready(reasoning)
+        && ready(settings.transcription_model.model_id())
+        && settings.embedding_model_id.as_deref().is_none_or(ready)
+}
+
+fn models_on_disk(dir: &std::path::Path) -> Vec<ModelInfo> {
     catalogue()
         .into_iter()
         .map(|mut info| {
@@ -238,18 +266,12 @@ pub fn list_models(state: State<AppState>) -> Vec<ModelInfo> {
         .collect()
 }
 
+/// Whether to open on onboarding. Asked of the disk, like `list_models`, so a
+/// download interrupted by closing the app brings onboarding back to finish it.
 #[tauri::command]
-pub fn models_location(state: State<AppState>) -> Result<String> {
-    let dir = state.models_dir();
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir.display().to_string())
-}
-
-/// Whether first run is behind this machine: a reasoning model was chosen, and
-/// every model the settings name is on disk.
-pub fn set_up(settings: &crate::model::Settings, models: &[ModelInfo]) -> bool {
-    let _ = (settings, models);
-    todo!()
+pub fn setup_complete(state: State<AppState>) -> Result<bool> {
+    let settings = crate::db::settings::get(&state.db())?;
+    Ok(set_up(&settings, &models_on_disk(&state.models_dir())))
 }
 
 #[cfg(test)]

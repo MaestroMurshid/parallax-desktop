@@ -38,6 +38,9 @@ function matchesHotkey(e: KeyboardEvent, hotkey: string): boolean {
 export default function Page() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [onboarded, setOnboarded] = useState(false);
+  /** Decided once at launch. Asked again mid-session, a download finishing or
+   *  a model being removed would throw someone out of the app into onboarding. */
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   // The capture panel is its own borderless always-on-top Tauri window (§4),
   // pointed at this same page. Same markup, no second route (§9.1). Null until
   // mount, because a static export has no window to ask at prerender time and
@@ -62,7 +65,12 @@ export default function Page() {
     if (panel) document.documentElement.dataset.window = 'panel';
     void (async () => {
       await initBridge();
-      const loadedSettings = await getBridge().getSettings();
+      const [loadedSettings, setUp] = await Promise.all([
+        getBridge().getSettings(),
+        getBridge().setupComplete(),
+      ]);
+      // A development override only; unset, first run is decided by the disk.
+      setNeedsOnboarding(process.env.NEXT_PUBLIC_ALWAYS_ONBOARD === '1' || !setUp);
       setSettings(loadedSettings);
       // The canvas and the list draw the register treatment without being
       // handed the whole Settings object, so the store carries this one field.
@@ -235,10 +243,10 @@ export default function Page() {
     );
   }
 
-  // Mockup flag: replay onboarding on every load regardless of saved settings.
-  // Real behaviour is "first run only" — drop NEXT_PUBLIC_ALWAYS_ONBOARD to get it.
-  const alwaysOnboard = process.env.NEXT_PUBLIC_ALWAYS_ONBOARD === '1';
-  if (settings && (alwaysOnboard ? !onboarded : settings.modelId === null)) {
+  // Nothing until setup is known, or an installed app flashes onboarding for a
+  // frame before opening on the notes.
+  if (!isPanel && (settings === null || needsOnboarding === null)) return null;
+  if (settings && needsOnboarding && !onboarded) {
     return (
       <main className={styles.main}>
         <Onboarding

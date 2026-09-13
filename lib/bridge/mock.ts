@@ -817,6 +817,10 @@ ${entry.transcript}
   /** Resolves when the file is there, as the Tauri command does. Returning
    *  early made every download look concurrent in the browser build, which is
    *  the one thing this screen exists to show the shape of. */
+  async setupComplete(): Promise<boolean> {
+    return this.settings.modelId !== null;
+  }
+
   async downloadModel(modelId: string): Promise<void> {
     const model = this.models.find((m) => m.id === modelId);
     if (!model) throw new Error(`No model ${modelId}`);

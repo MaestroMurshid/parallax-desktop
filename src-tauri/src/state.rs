@@ -347,12 +347,9 @@ impl AppState {
     /// `None` is a normal state, not an error -- capture works without it, and
     /// the audio is the record the transcript is derived from.
     pub fn transcription_model(&self, chosen: TranscriptionModel) -> Option<PathBuf> {
-        let name = match chosen {
-            TranscriptionModel::Tiny => "whisper-tiny",
-            TranscriptionModel::Base => "whisper-base",
-            TranscriptionModel::Small => "whisper-small",
-        };
-        let path = self.models_dir().join(format!("{name}.gguf"));
+        let path = self
+            .models_dir()
+            .join(format!("{}.gguf", chosen.model_id()));
         path.is_file().then_some(path)
     }
 }

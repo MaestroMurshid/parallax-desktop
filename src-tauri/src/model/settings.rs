@@ -69,6 +69,17 @@ pub enum TranscriptionModel {
     Small,
 }
 
+impl TranscriptionModel {
+    /// The catalogue id, which is also the file's name on disk.
+    pub fn model_id(self) -> &'static str {
+        match self {
+            TranscriptionModel::Tiny => "whisper-tiny",
+            TranscriptionModel::Base => "whisper-base",
+            TranscriptionModel::Small => "whisper-small",
+        }
+    }
+}
+
 /// What a model runs on.
 ///
 /// `Auto` resolves against the machine; `Gpu` forces acceleration but leaves

@@ -194,6 +194,9 @@ export interface Bridge {
   /** Downloads in the background; gates nothing. Capture and transcription
    *  work without it, and the question surfaces when the model lands (§9.4). */
   downloadModel(modelId: string): Promise<void>;
+  /** Whether onboarding is behind this machine: a reasoning model chosen and
+   *  every chosen model on disk. False brings onboarding back to finish. */
+  setupComplete(): Promise<boolean>;
   onModelProgress(cb: (m: ModelInfo) => void): Unsubscribe;
   /** Fires when an enrichment pass starts. Paired with `onEntryEnriched`,
    *  which fires on every exit including failure -- an indicator that only
