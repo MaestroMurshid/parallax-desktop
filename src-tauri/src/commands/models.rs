@@ -245,6 +245,84 @@ pub fn models_location(state: State<AppState>) -> Result<String> {
     Ok(dir.display().to_string())
 }
 
+/// Whether first run is behind this machine: a reasoning model was chosen, and
+/// every model the settings name is on disk.
+pub fn set_up(settings: &crate::model::Settings, models: &[ModelInfo]) -> bool {
+    let _ = (settings, models);
+    todo!()
+}
+
+#[cfg(test)]
+mod set_up_tests {
+    use super::*;
+    use crate::model::{Settings, TranscriptionModel};
+
+    fn on_disk(ids: &[&str]) -> Vec<ModelInfo> {
+        catalogue()
+            .into_iter()
+            .map(|mut m| {
+                m.state = if ids.contains(&m.id.as_str()) {
+                    ModelState::Ready
+                } else {
+                    ModelState::NotDownloaded
+                };
+                m
+            })
+            .collect()
+    }
+
+    fn chosen() -> Settings {
+        Settings {
+            model_id: Some("qwen3-4b-q4".into()),
+            transcription_model: TranscriptionModel::Base,
+            embedding_model_id: Some("bge-small-en-v1.5".into()),
+            ..Settings::default()
+        }
+    }
+
+    /// The installed app, opened again: nothing left to set up, so no
+    /// onboarding. The build had been replaying it on every launch.
+    #[test]
+    fn every_chosen_model_on_disk_is_set_up() {
+        let models = on_disk(&["qwen3-4b-q4", "whisper-base", "bge-small-en-v1.5"]);
+        assert!(set_up(&chosen(), &models));
+    }
+
+    #[test]
+    fn nothing_chosen_is_not_set_up() {
+        let models = on_disk(&["qwen3-4b-q4", "whisper-base", "bge-small-en-v1.5"]);
+        assert!(!set_up(&Settings::default(), &models));
+    }
+
+    /// Onboarding saves the choice before the download finishes. Closing the
+    /// app then must bring onboarding back, because it is what fetches the rest.
+    #[test]
+    fn a_model_still_downloading_is_not_set_up() {
+        let mut models = on_disk(&["whisper-base", "bge-small-en-v1.5"]);
+        for m in &mut models {
+            if m.id == "qwen3-4b-q4" {
+                m.state = ModelState::Downloading {
+                    received_bytes: 1,
+                    total_bytes: 2,
+                };
+            }
+        }
+        assert!(!set_up(&chosen(), &models));
+        assert!(!set_up(&chosen(), &on_disk(&["qwen3-4b-q4", "bge-small-en-v1.5"])));
+    }
+
+    /// Connections work without an embedder, so not having chosen one is not
+    /// unfinished setup.
+    #[test]
+    fn no_embedder_chosen_does_not_hold_it_back() {
+        let settings = Settings {
+            embedding_model_id: None,
+            ..chosen()
+        };
+        assert!(set_up(&settings, &on_disk(&["qwen3-4b-q4", "whisper-base"])));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
