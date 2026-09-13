@@ -488,7 +488,43 @@ mod recall_tests {
             "{prompt}"
         );
         assert!(prompt.contains("\u{ab}profile first\u{bb}"), "{prompt}");
-        assert!(prompt.contains("On 2026-09-13 they said"), "{prompt}");
+        assert!(prompt.contains("In September 2026 they said"), "{prompt}");
+    }
+
+    /// Measured against the real model: asked "how did my opinion on free will
+    /// and determinism change?", every answer said "over time" and none said
+    /// when -- 0 of 15 across five questions -- though each note carried its
+    /// date. Quoted oldest first by month and year, with the answer asked to
+    /// name them: 12 of 12 answerable questions dated, every date right, and a
+    /// question the notes do not answer still says so without inventing one.
+    #[test]
+    fn notes_are_quoted_oldest_first_by_month_and_year() {
+        let prompt = recall_prompt(
+            &[
+                ("2025-11-30", "caused and still mine"),
+                ("2024-06-02", "free will is obviously real"),
+            ],
+            "how did my view change?",
+        );
+        let earlier = prompt.find("In June 2024 they said").expect(&prompt);
+        let later = prompt.find("In November 2025 they said").expect(&prompt);
+        assert!(earlier < later, "{prompt}");
+    }
+
+    #[test]
+    fn the_answer_is_asked_to_say_when() {
+        let prompt = recall_prompt(&[("2024-06-02", "a note")], "q");
+        assert!(prompt.contains("month and year"), "{prompt}");
+        // Only when it did change: asked to trace a change, the model found one
+        // in notes that never disagreed.
+        assert!(prompt.contains("if it did not, do not say it changed"), "{prompt}");
+    }
+
+    /// A date that does not read as one is still shown, not dropped.
+    #[test]
+    fn a_date_that_does_not_parse_is_quoted_as_given() {
+        let prompt = recall_prompt(&[("sometime", "a note")], "q");
+        assert!(prompt.contains("sometime they said"), "{prompt}");
     }
 
     /// A note must not be able to close the quote it sits in and speak as the
