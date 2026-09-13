@@ -44,7 +44,10 @@ export function readTokens(el: HTMLElement = document.documentElement): Tokens {
     strokeOrdinary: n('--stroke-ordinary'),
     strokeWeighty: n('--stroke-weighty'),
     strokeHub: n('--stroke-hub'),
-    edge: n('--edge'),
+    // Its own token rather than the app-wide `--edge` hairline border: the
+    // two named the same thing by coincidence, and raising this one's
+    // contrast for the canvas must not blow out every panel border with it.
+    edge: n('--edge-guess'),
     edgeFact: n('--edge-fact'),
     title: readVar(s, '--title'),
     edgeLabel: readVar(s, '--edge-label'),
