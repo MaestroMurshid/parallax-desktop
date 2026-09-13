@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getBridge } from '@/lib/bridge';
-import { hasOwnSpan, invokedProbes, resolveTypes, slotFor, typeLabel } from '@/lib/scene/classification';
+import { hasOwnSpan, invokedProbes, probeLabel, resolveTypes, slotFor, typeLabel } from '@/lib/scene/classification';
 import { useApp } from '@/lib/store';
 import type { Edge, Entry, Question, Span } from '@/lib/types';
 import styles from './EntryView.module.css';
@@ -23,6 +23,12 @@ function segments(transcript: string, spans: Span[]) {
 }
 
 const EMPTY: Question[] = [];
+
+/** The move a question made, named for a person: Rust records it as the tail
+ *  of `providerName` ("qwen3-4b-q4 · counterexample"). */
+function tacticOf(q: Question): string | undefined {
+  return probeLabel(q.providerName.split(' · ').pop() ?? '');
+}
 
 /** The target renders in the letterform the canvas gives it, so the panel
  *  speaks the same vocabulary rather than flattening everything to one face. */
@@ -102,6 +108,7 @@ export default function EntryView({
   const [registerError, setRegisterError] = useState(false);
   const setOverlay = useApp((s) => s.setOverlay);
   const [probing, setProbing] = useState<string | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Span | null>(null);
   const [selectAt, setSelectAt] = useState<{ x: number; y: number } | null>(null);
   const [proposed, setProposed] = useState<Edge[]>([]);
@@ -123,6 +130,7 @@ export default function EntryView({
   useEffect(() => {
     setCorrecting(false);
     setCorrectionDraft('');
+    setAskError(null);
   }, [id]);
 
   // A note captured before the reasoning model landed never got a pass, and
@@ -150,6 +158,31 @@ export default function EntryView({
   // order both were made. Right for the common case of one question, one answer.
   const answeredIds = questions.filter((q) => q.answered).map((q) => q.id);
   const answerFor = (qid: string): Entry | undefined => children[answeredIds.indexOf(qid)];
+  // The newest question still open; failing that the newest answered one, so
+  // an answer stays one click away.
+  const newestFirst = [...questions].reverse();
+  const shown =
+    newestFirst.find((q) => !q.answered && !q.dismissed) ?? newestFirst.find((q) => q.answered) ?? null;
+  const canAsk = probes.length > 0;
+
+  /** Another move on the same note. Asked before the current one is dismissed,
+   *  so a failed ask leaves the question you had rather than none; Rust offers
+   *  only moves this note has not had, the current one included. */
+  const askAnother = async (current: Question | null) => {
+    setProbing('another');
+    setAskError(null);
+    try {
+      const next = await getBridge().askQuestion(entry.id, null);
+      if (current && !current.answered && !current.dismissed) {
+        await dismissQuestion(entry.id, current.id);
+      }
+      addQuestion(entry.id, next);
+    } catch (e) {
+      setAskError(e instanceof Error ? e.message : 'That did not work -- try again.');
+    } finally {
+      setProbing(null);
+    }
+  };
   const other = (edge: Edge) => entries.get(edge.entryA === entry.id ? edge.entryB : edge.entryA);
 
   return (
@@ -489,66 +522,68 @@ export default function EntryView({
 
       {analysisOpen && (
         <section className={styles.analysis}>
-          {questions.map((q) => (
-            <div
-              key={q.id}
-              className={
-                q.dismissed
-                  ? styles.questionDismissed
-                  : q.answered
-                    ? styles.questionAnswered
-                    : styles.question
-              }
-            >
-              {q.span && (
+          {/* One question at a time: a stack of them read as a questionnaire
+              rather than a question. Dismissed ones stay in the record (and in
+              the file view); they are just not what you are shown. */}
+          {shown && (
+            <div key={shown.id} className={shown.answered ? styles.questionAnswered : styles.question}>
+              {shown.span && (
                 <blockquote className={styles.quoted}>
-                  {entry.transcript.slice(q.span.start, q.span.end)}
+                  {entry.transcript.slice(shown.span.start, shown.span.end)}
                 </blockquote>
               )}
-              <p className={styles.questionText}>{q.text}</p>
+              <p className={styles.questionText}>{shown.text}</p>
               <div className={styles.provider}>
-                <span>{q.providerName}</span>
-                {q.dismissed ? (
-                  <span className={styles.dismissedTag}>dismissed</span>
-                ) : q.answered ? (
+                <span title={shown.providerName}>{tacticOf(shown) ?? shown.providerName}</span>
+                {shown.answered ? (
                   <span className={styles.answeredTag}>answered</span>
                 ) : (
-                  !q.answered && (
-                    <button
-                      type="button"
-                      className={styles.dismissQuestion}
-                      onClick={() => void dismissQuestion(entry.id, q.id)}
-                    >
-                      dismiss
-                    </button>
-                  )
+                  <button
+                    type="button"
+                    className={styles.dismissQuestion}
+                    disabled={probing !== null}
+                    onClick={() => void dismissQuestion(entry.id, shown.id)}
+                  >
+                    dismiss
+                  </button>
+                )}
+                {canAsk && (
+                  <button
+                    type="button"
+                    className={styles.dismissQuestion}
+                    disabled={probing !== null}
+                    onClick={() => void askAnother(shown)}
+                  >
+                    {probing === 'another' ? 'thinking…' : 'ask another'}
+                  </button>
                 )}
               </div>
-              {q.answered && answerFor(q.id) && (
+              {shown.answered && answerFor(shown.id) && (
                 <button
                   type="button"
                   className={styles.answerLink}
-                  onClick={() => openEntry(answerFor(q.id)!.id)}
+                  onClick={() => openEntry(answerFor(shown.id)!.id)}
                 >
                   <span className={styles.answerDate}>
-                    {dateFmt.format(new Date(answerFor(q.id)!.createdAt))}
+                    {dateFmt.format(new Date(answerFor(shown.id)!.createdAt))}
                   </span>
-                  <span className={styles.answerTitle}>{answerFor(q.id)!.title}</span>
+                  <span className={styles.answerTitle}>{answerFor(shown.id)!.title}</span>
                 </button>
               )}
 
-              {!q.answered && !q.dismissed && (
+              {!shown.answered && (
                 <button
                   type="button"
                   className={styles.answerThis}
-                  onClick={() => void startRecording(entry.id, q.id)}
+                  onClick={() => void startRecording(entry.id, shown.id)}
                 >
                   answer this
                   <span className={styles.answerKey}>{hotkey}</span>
                 </button>
               )}
             </div>
-          ))}
+          )}
+          {askError && <p className={styles.nothing}>{askError}</p>}
 
           {proposed.length > 0 && (
             <p className={styles.sectionLabel}>
@@ -589,19 +624,29 @@ export default function EntryView({
               already taken. While it is still deciding, none of them is true
               yet -- "kept as written" on an entry about to be classified as a
               position is the wrong thing to have said. */}
-          {questions.length === 0 && proposed.length === 0 && (
+          {!shown && proposed.length === 0 && (
             <p className={styles.nothing}>{thinking ? 'Reading it back…' : silenceReason(entry, liveRegister)}</p>
+          )}
+          {/* Nothing on screen to re-ask from -- every question was dismissed,
+              or none opened on its own -- so asking gets its own way in. */}
+          {!shown && canAsk && !thinking && (
+            <button
+              type="button"
+              className={styles.dismissQuestion}
+              disabled={probing !== null}
+              onClick={() => void askAnother(null)}
+            >
+              {probing === 'another' ? 'thinking…' : 'ask me a question'}
+            </button>
           )}
 
           {/* Nothing is waiting, but this is the entry you came back to. */}
-          {questions.length > 0 &&
-            proposed.length === 0 &&
-            questions.every((q) => q.answered || q.dismissed) && (
+          {shown?.answered && proposed.length === 0 && (
             <p className={styles.answerHint}>
               Nothing open here. Press <kbd className={styles.kbd}>{hotkey}</kbd> to say something
               else about it. It joins on as its own note.
             </p>
-            )}
+          )}
 
           <div className={styles.connectRow}>
             <button

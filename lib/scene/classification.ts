@@ -256,6 +256,11 @@ const ALL_PROBES: Probe[] = [
   { id: 'feynman', label: 'show you have it', hint: 'ask them to apply the idea to a new case it was not stated for' },
 ];
 
+/** The human name of a move, from its wire id; undefined for anything else. */
+export function probeLabel(id: string): string | undefined {
+  return ALL_PROBES.find((p) => p.id === id)?.label;
+}
+
 /**
  * What the app may open with, unprompted — the primitive the automatic path is
  * built from. Three gates apply to everything: register, duration, and having
