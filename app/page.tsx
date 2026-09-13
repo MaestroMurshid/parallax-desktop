@@ -11,6 +11,7 @@ import PlayerPill from '@/components/chrome/PlayerPill';
 import StatusBar from '@/components/chrome/StatusBar';
 import TopBar from '@/components/chrome/TopBar';
 import EntryView from '@/components/entry/EntryView';
+import FileView from '@/components/entry/FileView';
 import ChatPanel from '@/components/chat/ChatPanel';
 import ListView, { type RoleFilter } from '@/components/list/ListView';
 import Sidebar from '@/components/list/Sidebar';
@@ -116,7 +117,8 @@ export default function Page() {
         // In the canvas, an open entry makes the hotkey mean "respond to this".
         // The panel has no such context.
         const target = state.selectedEntryId;
-        const answering = !isPanel && state.overlay === 'entry' && target ? target : null;
+        const onNote = state.overlay === 'entry' || state.overlay === 'file';
+        const answering = !isPanel && onNote && target ? target : null;
         void state.startRecording(answering);
       })();
     });
@@ -164,7 +166,8 @@ export default function Page() {
           // the response closes, not what permits it: an entry you have already
           // answered is exactly the one you come back to months later.
           const target = state.selectedEntryId;
-          const answering = state.overlay === 'entry' && target ? target : null;
+          const onNote = state.overlay === 'entry' || state.overlay === 'file';
+          const answering = onNote && target ? target : null;
           void state.startRecording(answering);
         }
         return;
@@ -209,6 +212,9 @@ export default function Page() {
         }
         if (state.connectSource) state.setConnectSource(null);
         else if (state.composing) state.setComposing(false);
+        // The file was opened from the note, so escape goes back to the note
+        // rather than past it to the canvas.
+        else if (state.overlay === 'file') state.setOverlay('entry');
         else if (state.overlay !== 'none') state.closeOverlay();
         else state.dismissPanel();
       }
@@ -285,6 +291,7 @@ export default function Page() {
       {overlay === 'entry' && settings && (
         <EntryView hotkey={settings.hotkey} liveRegister={settings.liveRegister} />
       )}
+      {overlay === 'file' && <FileView />}
       {overlay === 'tasks' && <TaskList />}
       {overlay === 'settings' && settings && (
         <SettingsPanel

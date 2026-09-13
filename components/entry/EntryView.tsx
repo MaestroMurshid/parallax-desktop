@@ -100,8 +100,7 @@ export default function EntryView({
   const upsertEntry = useApp((s) => s.upsertEntry);
   const [registerBusy, setRegisterBusy] = useState(false);
   const [registerError, setRegisterError] = useState(false);
-  /** null while hidden; the rendered file once asked for. */
-  const [mdx, setMdx] = useState<string | null>(null);
+  const setOverlay = useApp((s) => s.setOverlay);
   const [probing, setProbing] = useState<string | null>(null);
   const [selection, setSelection] = useState<Span | null>(null);
   const [selectAt, setSelectAt] = useState<{ x: number; y: number } | null>(null);
@@ -124,7 +123,6 @@ export default function EntryView({
   useEffect(() => {
     setCorrecting(false);
     setCorrectionDraft('');
-    setMdx(null);
   }, [id]);
 
   // A note captured before the reasoning model landed never got a pass, and
@@ -336,21 +334,8 @@ export default function EntryView({
 
           {/* §9 keeps SQLite authoritative, so this shows what a file would
               contain rather than offering a way to write one. */}
-          <button
-            type="button"
-            className={styles.correctOpen}
-            onClick={() => {
-              if (mdx !== null) {
-                setMdx(null);
-                return;
-              }
-              void getBridge()
-                .entryMdx(entry.id)
-                .then(setMdx)
-                .catch(() => setMdx('could not render this note as a file'));
-            }}
-          >
-            {mdx === null ? 'view as file' : 'hide file'}
+          <button type="button" className={styles.correctOpen} onClick={() => setOverlay('file')}>
+            view as file
           </button>
           {/* Quiet, and named for the only thing it does. A prominent "edit"
               here would invite rewriting the thought, which is the one change
@@ -372,13 +357,6 @@ export default function EntryView({
           )}
         </div>
       </div>
-
-      {/* The file the note would be exported as. Read-only on purpose: §5.1
-          freezes offsets at insert, so the frontmatter is a record of what was
-          decided, not a form to edit them in. */}
-      {mdx !== null && (
-        <pre className={styles.mdx}>{mdx}</pre>
-      )}
 
       {items.length > 0 && (
         <section className={styles.tasks}>
