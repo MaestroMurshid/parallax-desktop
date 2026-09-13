@@ -17,7 +17,11 @@ pub const UNDO_WINDOW_MS: u64 = 60_000;
 /// Takes the calling window, because the take belongs to it until it ends: the
 /// hotkey is global and routes the stop back to whoever started it.
 #[tauri::command]
-pub fn start_recording(window: tauri::Window, state: State<AppState>) -> Result<()> {
+pub fn start_recording(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: State<AppState>,
+) -> Result<()> {
     let mut slot = state.recording.lock().unwrap_or_else(|p| p.into_inner());
     if slot.is_some() {
         return Err(Error::Other("already recording".into()));
@@ -26,6 +30,15 @@ pub fn start_recording(window: tauri::Window, state: State<AppState>) -> Result<
         take: recorder::start()?,
         owner: window.label().to_string(),
     });
+    drop(slot);
+    // Armed for exactly the lifetime of this recording (Task 2) -- the popup
+    // must not steal a key from every other app the rest of the time. A
+    // settings read failure must not cost a recording that is already
+    // running, so this falls back to the default rather than propagating.
+    let discard_hotkey = db::settings::get(&state.db())
+        .map(|s| s.discard_hotkey)
+        .unwrap_or_else(|_| crate::model::Settings::default().discard_hotkey);
+    crate::shortcuts::arm_discard(&app, state.inner(), &discard_hotkey);
     Ok(())
 }
 
@@ -107,6 +120,10 @@ pub async fn stop_recording(
         .take()
         .ok_or_else(|| Error::Other("not recording".into()))?
         .take;
+    // The recording is no longer in flight, so discard's global shortcut has
+    // nothing left to mean -- disarmed here rather than left armed through
+    // transcription, which would let it fire on whatever key it was bound to.
+    crate::shortcuts::disarm_discard(&app, state.inner());
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();
@@ -337,7 +354,7 @@ fn land(
 /// §4 -- discard belongs in the recording state, not after it. You know it is
 /// junk before you stop.
 #[tauri::command]
-pub fn discard_recording(state: State<AppState>) -> Result<()> {
+pub fn discard_recording(app: tauri::AppHandle, state: State<AppState>) -> Result<()> {
     let recording = state
         .recording
         .lock()
@@ -345,6 +362,9 @@ pub fn discard_recording(state: State<AppState>) -> Result<()> {
         .take()
         .ok_or_else(|| Error::Other("not recording".into()))?
         .take;
+    // Same reasoning as stop_recording: nothing is in flight for the key to
+    // discard any more.
+    crate::shortcuts::disarm_discard(&app, state.inner());
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();

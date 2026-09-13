@@ -21,7 +21,7 @@ import TypedComposer from '@/components/panel/TypedComposer';
 import SettingsPanel from '@/components/settings/SettingsPanel';
 import TaskList from '@/components/tasks/TaskList';
 import { getBridge, initBridge, isTauri } from '@/lib/bridge';
-import { broadcastTheme, hidePanel, isPanelWindow, onHandOff, onHotkey, onThemeChange, showPanel } from '@/lib/shell';
+import { broadcastTheme, hidePanel, isPanelWindow, onDiscardHotkey, onHandOff, onHotkey, onThemeChange, showPanel } from '@/lib/shell';
 import { useApp } from '@/lib/store';
 import type { Settings } from '@/lib/types';
 import styles from './page.module.css';
@@ -136,6 +136,19 @@ export default function Page() {
     });
   }, [isPanel]);
 
+  // Rust only keeps this shortcut registered for the lifetime of one recording
+  // (see src-tauri/src/shortcuts.rs), so it is always safe to read as "discard
+  // the recording" without re-checking capture state against a race. Same
+  // both-windows routing as the hotkey itself, since discard can land in
+  // either one depending on who owns the take.
+  useEffect(() => {
+    if (isPanel === null) return;
+    return onDiscardHotkey(() => {
+      const state = useApp.getState();
+      if (state.captureState === 'recording') void state.discardRecording();
+    });
+  }, [isPanel]);
+
   // The panel window is on screen exactly while capture is running, and never
   // a moment either side of it. Deriving visibility from the state beats asking
   // every exit path to remember: discard has no hand-off to ride out on, and a
@@ -247,7 +260,7 @@ export default function Page() {
   if (isPanel) {
     return (
       <main className={styles.panelWindow}>
-        <CapturePanel />
+        <CapturePanel settings={settings} />
       </main>
     );
   }
@@ -321,7 +334,7 @@ export default function Page() {
           }}
         />
       )}
-      <CapturePanel />
+      <CapturePanel settings={settings} />
       <ConnectPicker />
       <RelationPicker />
 
