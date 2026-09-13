@@ -14,7 +14,7 @@ use crate::model::{Entry, Register, Role};
 pub const MIN_AUTOMATIC_MS: i64 = 30_000;
 
 /// A debate tactic: one way of pushing on what a note claims.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Probe {
     Boundary,
     Disconfirming,
@@ -68,21 +68,30 @@ impl Probe {
         Probe::ALL.into_iter().find(|probe| probe.id() == id)
     }
 
-    /// What the move asks, as the model is told it.
+    /// The move, as the model is told it. Described as a move and never
+    /// phrased as a question: phrased as one, the model handed the description
+    /// back as its question -- "What does this take for granted without saying
+    /// so?", word for word.
     pub fn hint(&self) -> &'static str {
         match self {
-            Probe::Boundary => "where does this stop holding?",
-            Probe::Disconfirming => "what would make you drop this?",
-            Probe::Assumption => "what does this take for granted without saying so?",
-            Probe::Counterexample => "put a concrete case that cuts against it",
-            Probe::Definition => "which word carries the claim, and what exactly does it mean here?",
-            Probe::Consequence => "if this is true, what else has to be true?",
-            Probe::Fallacy => {
-                "name the specific reasoning error the note makes, only if it makes one"
+            Probe::Boundary => "find the case or condition where the claim stops holding",
+            Probe::Disconfirming => {
+                "ask what evidence or experience would make them give the claim up"
             }
-            Probe::Steelman => "state it better than the note did, then push",
-            Probe::Munchhausen => "follow the reasons until they bottom out",
-            Probe::Feynman => "apply it to a case it has not been given",
+            Probe::Assumption => "expose an unstated premise the claim depends on",
+            Probe::Counterexample => {
+                "confront the claim with a specific, concrete case that cuts against it"
+            }
+            Probe::Definition => "press on one key word whose meaning the claim depends on",
+            Probe::Consequence => {
+                "draw out something else that must be true if the claim is, and test it"
+            }
+            Probe::Fallacy => {
+                "name a specific reasoning error the note actually makes, quoting where it makes it"
+            }
+            Probe::Steelman => "state the strongest opposing view and ask how the claim survives it",
+            Probe::Munchhausen => "ask for the reason behind the reason the note gives",
+            Probe::Feynman => "ask them to apply the idea to a new case it was not stated for",
         }
     }
 }
@@ -112,6 +121,11 @@ pub fn has_own_span(entry: &Entry) -> bool {
 /// and role may only ever *narrow* what is offered -- classification suppresses
 /// and never selects, so a misclassification costs a missing question rather
 /// than an intrusive one.
+///
+/// A position is offered every tactic, and the model picks the one that fits
+/// the note. §3.2 had kept the opening move to boundary or disconfirming, and
+/// in use that made every question the same question; decided 13 Sep 2026 that
+/// which move to make is the model's call. Whether to ask at all is still not.
 /// `live_register` is the app-wide setting. When it is off the facet is not
 /// consulted at all, so a note the classifier called live is probed like any
 /// other -- the stored value is left alone rather than rewritten, so turning
@@ -126,11 +140,39 @@ pub fn automatic_probes(entry: &Entry, live_register: bool) -> Vec<Probe> {
     }
 
     match entry.role {
-        Role::Position => vec![Probe::Boundary, Probe::Disconfirming],
-        // Feynman takes no stance and cannot misfire the way a steelman can.
+        Role::Position => Probe::ALL.to_vec(),
+        // Evidence is held, not argued, so it is only asked to explain itself.
         Role::Evidence => vec![Probe::Feynman],
         Role::Note => Vec::new(),
     }
+}
+
+/// How many moves one question chooses between. Measured on the real model:
+/// offered all ten, it took `assumption` 26 of 26 times; offered three drawn at
+/// random, it used nine different moves across 26 questions.
+pub const OFFERED: usize = 3;
+
+/// The moves one question is offered: `OFFERED` of `candidates`, drawn by
+/// `seed`. Seeded rather than random inside, so a test can pin a draw; callers
+/// pass a fresh UUID.
+pub fn offer(candidates: &[Probe], seed: u128) -> Vec<Probe> {
+    // splitmix64 over the seed: enough to shuffle ten items fairly, and no
+    // dependency for it.
+    let mut state = (seed as u64) ^ ((seed >> 64) as u64);
+    let mut next = || {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    let mut pool = candidates.to_vec();
+    for i in (1..pool.len()).rev() {
+        let j = (next() % (i as u64 + 1)) as usize;
+        pool.swap(i, j);
+    }
+    pool.truncate(OFFERED);
+    pool
 }
 
 /// What may fire when the user selects a passage and asks. Register does not
@@ -141,13 +183,7 @@ pub fn invoked_probes(entry: &Entry) -> Vec<Probe> {
     }
 
     match entry.role {
-        Role::Position => vec![
-            Probe::Boundary,
-            Probe::Disconfirming,
-            Probe::Steelman,
-            Probe::Munchhausen,
-            Probe::Feynman,
-        ],
+        Role::Position => Probe::ALL.to_vec(),
         Role::Evidence => vec![Probe::Feynman],
         Role::Note => Vec::new(),
     }
@@ -320,6 +356,32 @@ mod tests {
     /// back takes no stance and cannot wound, and withholding it until someone
     /// thinks to ask means it only ever fires for people who already know to
     /// want it.
+    /// Measured against the real model over the position notes: offered all
+    /// ten, it chose `assumption` 26 of 26 times, and 21 of 26 with the list
+    /// shuffled. Offered three drawn at random, nine different moves across 26
+    /// questions, every quote anchored, and `fallacy` taken once in six offers
+    /// rather than forced onto notes that make no error.
+    #[test]
+    fn a_question_is_offered_three_moves_drawn_at_random() {
+        let mut seen = std::collections::HashSet::new();
+        for seed in 0..40u128 {
+            let offered = offer(&Probe::ALL, seed.wrapping_mul(0x9E37_79B9_7F4A_7C15_F39C_C060_5CED_C834));
+            assert_eq!(offered.len(), 3, "{offered:?}");
+            let distinct: std::collections::HashSet<_> = offered.iter().collect();
+            assert_eq!(distinct.len(), 3, "a move offered twice: {offered:?}");
+            let mut key: Vec<&str> = offered.iter().map(|p| p.id()).collect();
+            key.sort();
+            seen.insert(key);
+        }
+        assert!(seen.len() >= 10, "the draw barely varies: {} sets", seen.len());
+    }
+
+    #[test]
+    fn fewer_than_three_candidates_are_all_offered() {
+        assert_eq!(offer(&[Probe::Feynman], 7), vec![Probe::Feynman]);
+        assert!(offer(&[], 7).is_empty());
+    }
+
     #[test]
     fn evidence_opens_with_feynman() {
         let probes = automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true);

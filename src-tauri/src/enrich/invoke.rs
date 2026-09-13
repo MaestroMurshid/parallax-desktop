@@ -28,28 +28,41 @@ pub fn ask(
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
     let allowed = gate::invoked_probes(&entry);
-    let probe = match probe {
+    let offered = match probe {
         Some(named) if !allowed.contains(&named) => {
             return Err(Error::Other(format!(
                 "{} may not be asked of {entry_id}",
                 named.id()
             )))
         }
-        Some(named) => named,
-        // Rotated by what the entry already carries rather than always taking
-        // the first: §3.4 bans regeneration, so asking a second time has to be
-        // a different move and not another run at the same one.
+        Some(named) => vec![named],
+        None if allowed.is_empty() => {
+            return Err(Error::Other(format!("nothing may be asked of {entry_id}")))
+        }
+        // "Ask another" has to be another move, so the draw is from those this
+        // note has not had -- once it has had them all, from all of them.
         None => {
-            let asked_before = db::questions::list_for(conn, entry_id)?.len();
-            *allowed
-                .get(asked_before % allowed.len().max(1))
-                .ok_or_else(|| Error::Other(format!("nothing may be asked of {entry_id}")))?
+            let used = moves_made(&db::questions::list_for(conn, entry_id)?);
+            let fresh: Vec<Probe> = allowed.iter().copied().filter(|t| !used.contains(t)).collect();
+            let pool = if fresh.is_empty() { allowed } else { fresh };
+            gate::offer(&pool, uuid::Uuid::new_v4().as_u128())
         }
     };
 
-    let question = compose(provider, &entry, &[probe], selection.as_ref())?;
+    let question = compose(provider, &entry, &offered, selection.as_ref())?;
     db::questions::insert(conn, &question, &entry.transcript)?;
     Ok(question)
+}
+
+/// The moves a note's questions have already made, read back off the
+/// `provider · tactic` label `compose` writes, since `Question` has no column
+/// for it.
+fn moves_made(questions: &[Question]) -> Vec<Probe> {
+    questions
+        .iter()
+        .filter_map(|q| q.provider_name.rsplit(" · ").next())
+        .filter_map(Probe::from_id)
+        .collect()
 }
 
 /// Asks the model and anchors what came back.
@@ -262,34 +275,42 @@ mod tests {
         let first = ask(&conn, &provider, &id, None, None).unwrap();
         ask(&conn, &provider, &id, None, None).unwrap();
 
-        assert!(first.provider_name.ends_with("· boundary"), "{}", first.provider_name);
         let prompts = provider.asked.lock().unwrap().clone();
-        assert!(offers(&prompts[0], Probe::Boundary), "{}", prompts[0]);
-        assert!(offers(&prompts[0], Probe::Fallacy), "{}", prompts[0]);
-        assert!(!offers(&prompts[1], Probe::Boundary), "{}", prompts[1]);
-        assert!(offers(&prompts[1], Probe::Definition), "{}", prompts[1]);
+        // Whatever the first offer was, the move the note got is not offered
+        // to the second ask.
+        let made = Probe::from_id(first.provider_name.rsplit(" · ").next().unwrap()).unwrap();
+        assert!(offers(&prompts[0], made), "{}", prompts[0]);
+        assert!(!offers(&prompts[1], made), "{}", prompts[1]);
+        assert_eq!(Probe::ALL.iter().filter(|t| offers(&prompts[1], **t)).count(), 3);
     }
 
     /// Once every move has been made on a note, asking again is still allowed
-    /// -- it offers them all rather than nothing.
+    /// -- it draws from all of them rather than offering nothing.
     #[test]
-    fn once_every_move_is_used_they_are_all_offered_again() {
+    fn once_every_move_is_used_asking_again_still_offers_moves() {
         let (conn, id) = corpus();
-        let mut replies: Vec<String> = Probe::ALL
-            .iter()
-            .map(|t| reply_as(t.id(), "faster reads"))
-            .collect();
-        replies.push(reply_as("boundary", "faster reads"));
-        let provider =
-            ScriptedProvider::with(&replies.iter().map(String::as_str).collect::<Vec<_>>());
-
-        for _ in 0..=Probe::ALL.len() {
-            ask(&conn, &provider, &id, None, None).unwrap();
-        }
-        let last = provider.asked.lock().unwrap().last().unwrap().clone();
         for tactic in Probe::ALL {
-            assert!(offers(&last, tactic), "{tactic:?} missing: {last}");
+            db::questions::insert(
+                &conn,
+                &Question {
+                    id: format!("q-{}", tactic.id()),
+                    entry_id: id.clone(),
+                    text: "asked before?".into(),
+                    span: None,
+                    answered: false,
+                    dismissed: true,
+                    provider_name: format!("scripted · {}", tactic.id()),
+                    created_at: "2024-01-01T00:00:00Z".into(),
+                },
+                SAID,
+            )
+            .unwrap();
         }
+        let provider = ScriptedProvider::with(&[&reply("faster reads")]);
+
+        ask(&conn, &provider, &id, None, None).unwrap();
+        let last = provider.asked.lock().unwrap().last().unwrap().clone();
+        assert_eq!(Probe::ALL.iter().filter(|t| offers(&last, **t)).count(), 3, "{last}");
     }
 
     /// §3.4 -- a quote the note does not contain cannot be checked, so the

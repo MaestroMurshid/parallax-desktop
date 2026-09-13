@@ -327,13 +327,14 @@ fn trim_phrase(phrase: &str) -> String {
 }
 
 const QUESTION_SYSTEM: &str = "\
-You ask one insightful question about a note someone recorded.
+You ask one insightful question about a note someone recorded, the way a good sparring partner in a debate would.
 Follow these constraints strictly. Answer the fields in the exact order listed.
 
 ### Fields to Extract
 
+- **tactic**: The one move from the list you are given that would push hardest on this particular note. Judge it from what the note actually says: a fallacy only if the note commits one, a definition only if one word is doing the work.
 - **quote**: A verbatim passage from the note that the question will be about. The shortest passage that carries the claim (under 20 words). Do not modify it.
-- **text**: One question, ending in a question mark.
+- **text**: One question, ending in a question mark, that makes the move you chose.
 
 ### Question Guidelines
 
@@ -341,10 +342,14 @@ Follow these constraints strictly. Answer the fields in the exact order listed.
 - Aim at the load-bearing part, the underlying assumption, not just the topic.
 - Ask about the claim, never about the note or the speaker (no \"does the note\" or \"according to the note\").
 - Open with what, which, where, how, or why. Avoid yes/no questions.
-- It must be answerable out loud, in a sentence or two.";
+- It must be answerable out loud, in a sentence or two.
+- Do not reuse the wording of the move; the question must name something specific the note says.";
 
 #[derive(Debug, Clone, Deserialize)]
 struct Reply {
+    /// Defaulted: a reply without one still lands, on the first move offered.
+    #[serde(default)]
+    tactic: String,
     text: String,
     quote: String,
 }
@@ -359,14 +364,18 @@ pub struct Asked {
     pub quote: String,
 }
 
-fn question_schema() -> Value {
+fn question_schema(tactics: &[gate::Probe]) -> Value {
+    let ids: Vec<&str> = tactics.iter().map(|t| t.id()).collect();
     json!({
         "type": "object",
         "properties": {
+            // First: the grammar follows key order, and a move chosen after the
+            // question is written is a label on it rather than a decision.
+            "tactic": { "type": "string", "enum": ids },
             "quote": { "type": "string" },
             "text": { "type": "string" },
         },
-        "required": ["quote", "text"],
+        "required": ["tactic", "quote", "text"],
         "additionalProperties": false,
     })
 }
@@ -385,10 +394,9 @@ pub fn ask_about_passage(
     tactics: &[gate::Probe],
     passage: Option<&str>,
 ) -> Result<Asked> {
-    let tactic = *tactics
+    let first = *tactics
         .first()
         .ok_or_else(|| Error::Other("no move was offered to ask with".into()))?;
-    let probe_hint = tactic.hint();
     let selected = match passage {
         Some(passage) => format!(
             "\nThe passage to ask about:\n\n{}\n",
@@ -396,12 +404,16 @@ pub fn ask_about_passage(
         ),
         None => String::new(),
     };
+    let moves = tactics
+        .iter()
+        .map(|t| format!("- {}: {}", t.id(), t.hint()))
+        .collect::<Vec<_>>()
+        .join("\n");
     let user = format!(
-        "The note:\n\n{}\n{selected}\nWhat to ask: {}",
+        "The note:\n\n{}\n{selected}\nThe moves you may make:\n{moves}",
         within(&entry.transcript, QUESTION_TRANSCRIPT_BYTES),
-        probe_hint
     );
-    let ask = Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema());
+    let ask = Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema(tactics));
     let reply = provider.ask(ask)?;
 
     let parsed: Reply = repair_and_parse_json(&reply)?;
@@ -409,6 +421,11 @@ pub fn ask_about_passage(
     if parsed.text.trim().is_empty() {
         return Err(Error::Other("the model returned an empty question".into()));
     }
+    // The grammar allows only what was offered, but that guard is not the
+    // grammar's to keep: a scripted or remote provider is under none.
+    let tactic = gate::Probe::from_id(parsed.tactic.trim())
+        .filter(|t| tactics.contains(t))
+        .unwrap_or(first);
     Ok(Asked {
         tactic,
         text: parsed.text,

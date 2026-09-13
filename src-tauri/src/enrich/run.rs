@@ -121,19 +121,19 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
-    let Some(probe) = gate::automatic_probes(&entry, live_register)
-        .first()
-        .copied()
-    else {
+    let tactics = gate::automatic_probes(&entry, live_register);
+    if tactics.is_empty() {
         return Ok(Enriched {
             classified: true,
             question_id: None,
         });
-    };
+    }
 
     // Shared with the invoked path: both owe a question that quotes the note
-    // verbatim, and there is one place that decides whether it does.
-    let question = super::invoke::compose(provider, &entry, &[probe], None)?;
+    // verbatim, and there is one place that decides whether it does. The model
+    // chooses the move from three drawn out of everything the gate allows.
+    let offered = gate::offer(&tactics, uuid::Uuid::new_v4().as_u128());
+    let question = super::invoke::compose(provider, &entry, &offered, None)?;
     db::questions::insert(conn, &question, &entry.transcript)?;
 
     Ok(Enriched {
@@ -241,8 +241,9 @@ mod tests {
         assert_eq!(js_slice(SAID, span.start, span.end), "faster reads");
     }
 
-    /// The question a capture opens with is the model's choice of move, from
-    /// everything a position may be asked -- not the first tactic every time.
+    /// The question a capture opens with is the model's choice among three
+    /// moves drawn from everything a position may be asked -- not the first
+    /// tactic every time.
     #[test]
     fn the_opening_question_lets_the_model_choose_the_move() {
         let (conn, id) = corpus(SAID, 45_000);
@@ -250,9 +251,11 @@ mod tests {
 
         run(&conn, &provider, &id).unwrap();
         let prompt = provider.asked.lock().unwrap()[1].clone();
-        for tactic in [super::gate::Probe::Boundary, super::gate::Probe::Fallacy, super::gate::Probe::Assumption] {
-            assert!(prompt.contains(&format!("- {}: ", tactic.id())), "{tactic:?}: {prompt}");
-        }
+        let offered = super::gate::Probe::ALL
+            .iter()
+            .filter(|t| prompt.contains(&format!("- {}: ", t.id())))
+            .count();
+        assert_eq!(offered, 3, "{prompt}");
     }
 
     /// The shape of the JSON proves nothing about where the words came from.
