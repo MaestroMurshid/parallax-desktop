@@ -111,6 +111,22 @@ mod tests {
         assert_eq!(s.discard_hotkey, "Escape", "the absent one defaults");
     }
 
+    /// `theme` postdates this fixture's shape, same as any other field an old
+    /// install's stored document lacks.
+    #[test]
+    fn a_stored_document_without_theme_defaults_to_system() {
+        use crate::model::Theme;
+
+        let conn = open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('settings', '{\"hotkey\":\"Ctrl+J\"}')",
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(get(&conn).unwrap().theme, Theme::System);
+    }
+
     /// A stored document with a field that no longer parses must keep every
     /// field that still does. Resetting to factory defaults would then be
     /// persisted by the next merge, losing the real configuration for good.

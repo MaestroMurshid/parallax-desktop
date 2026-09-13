@@ -7,12 +7,16 @@
  */
 
 import { isTauri } from '@/lib/bridge';
-import type { Entry, Question } from '@/lib/types';
+import type { Entry, Question, Theme } from '@/lib/types';
 
 /** Rust fires this on the global shortcut, before the panel is shown (§4). */
 export const HOTKEY_EVENT = 'capture://hotkey';
 /** The panel's hand-off to the main window once transcription lands. */
 export const HANDOFF_EVENT = 'capture://handoff';
+/** The setting is persisted so a fresh window opens on the right theme, but a
+ *  window already open needs telling — the capture panel can be sitting on
+ *  screen mid-recording when the choice changes in Settings. */
+export const THEME_EVENT = 'theme://changed';
 
 export type Unsubscribe = () => void;
 
@@ -74,6 +78,21 @@ export function onHotkey(cb: () => void): Unsubscribe {
 /** Main window: an entry finished recording in the panel. */
 export function onHandOff(cb: (h: HandOff) => void): Unsubscribe {
   return subscribe<HandOff>(HANDOFF_EVENT, cb);
+}
+
+/** Either window: the theme changed in Settings, which only the main window
+ *  renders. Broadcast rather than addressed, so the main window's own store
+ *  updates the same way the panel's does — one path, not two. */
+export function onThemeChange(cb: (theme: Theme) => void): Unsubscribe {
+  return subscribe<Theme>(THEME_EVENT, cb);
+}
+
+/** Tell every window a new theme was chosen. No-ops outside Tauri, where
+ *  there is only the one window to begin with. */
+export async function broadcastTheme(theme: Theme): Promise<void> {
+  if (!isTauri()) return;
+  const { emit } = await import('@tauri-apps/api/event');
+  await emit(THEME_EVENT, theme);
 }
 
 /**

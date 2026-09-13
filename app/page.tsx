@@ -21,7 +21,7 @@ import TypedComposer from '@/components/panel/TypedComposer';
 import SettingsPanel from '@/components/settings/SettingsPanel';
 import TaskList from '@/components/tasks/TaskList';
 import { getBridge, initBridge, isTauri } from '@/lib/bridge';
-import { hidePanel, isPanelWindow, onHandOff, onHotkey, showPanel } from '@/lib/shell';
+import { broadcastTheme, hidePanel, isPanelWindow, onHandOff, onHotkey, onThemeChange, showPanel } from '@/lib/shell';
 import { useApp } from '@/lib/store';
 import type { Settings } from '@/lib/types';
 import styles from './page.module.css';
@@ -75,6 +75,10 @@ export default function Page() {
       // The canvas and the list draw the register treatment without being
       // handed the whole Settings object, so the store carries this one field.
       useApp.getState().setLiveRegister(loadedSettings.liveRegister);
+      // Every window loads settings independently (§ shell.ts) — this is what
+      // stops the capture panel opening on the store's own default instead of
+      // whatever the main window already shows.
+      useApp.getState().setTheme(loadedSettings.theme);
       await useApp.getState().loadCorpus();
     })();
   }, []);
@@ -157,6 +161,11 @@ export default function Page() {
       if (question) state.addQuestion(entry.id, question);
     });
   }, [isPanel]);
+
+  // Both windows: a theme changed in Settings, which only the main window
+  // renders, while the other window (usually the panel) is already open and
+  // needs to repaint rather than wait for its next launch.
+  useEffect(() => onThemeChange((theme) => useApp.getState().setTheme(theme)), []);
 
   useEffect(() => {
     if (!settings) return;
@@ -307,6 +316,8 @@ export default function Page() {
           onChange={(next) => {
             setSettings(next);
             useApp.getState().setLiveRegister(next.liveRegister);
+            useApp.getState().setTheme(next.theme);
+            void broadcastTheme(next.theme);
           }}
         />
       )}

@@ -24,8 +24,6 @@ export default function SettingsPanel({
   onChange(next: Settings): void;
 }) {
   const close = useApp((s) => s.closeOverlay);
-  const theme = useApp((s) => s.theme);
-  const setTheme = useApp((s) => s.setTheme);
   const entryCount = useApp((s) => s.order.length);
   const loadSample = useApp((s) => s.loadSample);
   const clearSample = useApp((s) => s.clearSample);
@@ -240,8 +238,8 @@ export default function SettingsPanel({
               <button
                 key={t}
                 type="button"
-                className={t === theme ? styles.optionOn : styles.option}
-                onClick={() => setTheme(t)}
+                className={t === settings.theme ? styles.optionOn : styles.option}
+                onClick={() => void update({ theme: t })}
               >
                 {t}
               </button>

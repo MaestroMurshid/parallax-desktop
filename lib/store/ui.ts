@@ -1,10 +1,11 @@
 import type { StateCreator } from 'zustand';
+import type { Theme } from '@/lib/types';
 import type { AppState, Mutators } from './index';
 
 /** §9.1 — one page with panels, not routes. Overlays are client state.
  *  `file` is the selected entry read as its MDX file, in the entry sheet's place. */
 export type Overlay = 'none' | 'entry' | 'file' | 'tasks' | 'settings' | 'onboarding';
-export type Theme = 'system' | 'light' | 'dark';
+export type { Theme };
 /**
  * The list is the way in. The graph is not intuitive on first contact, so it
  * stays available rather than primary — the premise is still a commonplace
@@ -97,7 +98,10 @@ export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set
   askAbout: (query) => set({ chatSeed: query, chatOpen: true }),
   clearChatSeed: () => set({ chatSeed: null }),
   overlay: 'none',
-  theme: 'light',
+  // Matches the Rust default (§ Settings::default). Overwritten by the real
+  // setting once it loads; 'system' rather than a fixed choice so the moment
+  // before that happens still reads as a colour scheme instead of one baked in.
+  theme: 'system',
   setTheme: (theme) => set({ theme }),
   selectedEntryId: null,
   hoveredEntryId: null,

@@ -10,7 +10,7 @@ pub use edge::{Edge, EdgeStatus, Relation};
 pub use entry::{ActionItem, Entry, Register, Role, Span};
 pub use question::Question;
 pub use settings::{
-    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile,
+    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile, Theme,
     TranscriptionModel,
 };
 
@@ -169,5 +169,6 @@ mod contract_tests {
         assert_eq!(v["transcriptionModel"], json!("base"));
         assert_eq!(v["transcriptionBackend"], json!("auto"));
         assert_eq!(v["reasoningBackend"], json!("auto"));
+        assert_eq!(v["theme"], json!("system"));
     }
 }

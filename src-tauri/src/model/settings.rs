@@ -86,6 +86,20 @@ impl TranscriptionModel {
 /// the backend to whatever is present. The named backends are an explicit
 /// override -- a broken driver, a second card, or isolating a backend bug --
 /// and fail rather than silently falling back, so a forced choice stays forced.
+/// The window's colour scheme. `System` is the default and the only one that
+/// can change without the app being told -- it tracks `prefers-color-scheme`
+/// in CSS. Stored so the capture panel, a second webview with its own JS
+/// runtime, starts on the same choice as the main window instead of quietly
+/// defaulting on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ComputeBackend {
@@ -133,6 +147,12 @@ pub struct Settings {
     /// suppresses nothing and rewrites nothing; it stops the facet being read.
     #[serde(default = "yes")]
     pub live_register: bool,
+
+    /// Which webview reads this back matters: the panel is a second window
+    /// with its own store, so this is what lets it open on the theme the main
+    /// window is already showing rather than always starting light.
+    #[serde(default)]
+    pub theme: Theme,
 }
 
 fn yes() -> bool {
@@ -154,6 +174,7 @@ impl Default for Settings {
             reasoning_backend: ComputeBackend::Auto,
             llama_server_path: None,
             live_register: true,
+            theme: Theme::System,
         }
     }
 }

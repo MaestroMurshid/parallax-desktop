@@ -246,6 +246,15 @@ export interface ModelInfo {
 export type Residency = 'warm' | 'cold';
 
 /**
+ * `system` tracks `prefers-color-scheme` and is the only one that can change
+ * without the app being told. Persisted (§ Settings) so the capture panel — a
+ * second webview with its own JS runtime and its own copy of the UI store —
+ * opens on the choice already showing in the main window instead of always
+ * starting on the store's own default.
+ */
+export type Theme = 'system' | 'light' | 'dark';
+
+/**
  * What a model runs on. `auto` resolves against the machine; `gpu` forces
  * acceleration and leaves the backend open. The named backends are an explicit
  * override — a broken driver, a second card — and fail rather than falling
@@ -293,4 +302,5 @@ export interface Settings {
    * it back on restores what the classifier decided.
    */
   liveRegister: boolean;
+  theme: Theme;
 }

@@ -150,6 +150,7 @@ export class MockBridge implements Bridge {
     transcriptionBackend: 'auto',
     reasoningBackend: 'auto',
     liveRegister: true,
+    theme: 'system',
   };
 
   // Mirrors the Rust catalogue in commands/models.rs; a mock that lists
