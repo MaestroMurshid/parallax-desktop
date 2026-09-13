@@ -28,28 +28,41 @@ pub fn ask(
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
     let allowed = gate::invoked_probes(&entry);
-    let probe = match probe {
+    let offered = match probe {
         Some(named) if !allowed.contains(&named) => {
             return Err(Error::Other(format!(
                 "{} may not be asked of {entry_id}",
                 named.id()
             )))
         }
-        Some(named) => named,
-        // Rotated by what the entry already carries rather than always taking
-        // the first: §3.4 bans regeneration, so asking a second time has to be
-        // a different move and not another run at the same one.
+        Some(named) => vec![named],
+        None if allowed.is_empty() => {
+            return Err(Error::Other(format!("nothing may be asked of {entry_id}")))
+        }
+        // "Ask another" has to be another move, so the draw is from those this
+        // note has not had -- once it has had them all, from all of them.
         None => {
-            let asked_before = db::questions::list_for(conn, entry_id)?.len();
-            *allowed
-                .get(asked_before % allowed.len().max(1))
-                .ok_or_else(|| Error::Other(format!("nothing may be asked of {entry_id}")))?
+            let used = moves_made(&db::questions::list_for(conn, entry_id)?);
+            let fresh: Vec<Probe> = allowed.iter().copied().filter(|t| !used.contains(t)).collect();
+            let pool = if fresh.is_empty() { allowed } else { fresh };
+            gate::offer(&pool, uuid::Uuid::new_v4().as_u128())
         }
     };
 
-    let question = compose(provider, &entry, probe, selection.as_ref())?;
+    let question = compose(provider, &entry, &offered, selection.as_ref())?;
     db::questions::insert(conn, &question, &entry.transcript)?;
     Ok(question)
+}
+
+/// The moves a note's questions have already made, read back off the
+/// `provider · tactic` label `compose` writes, since `Question` has no column
+/// for it.
+fn moves_made(questions: &[Question]) -> Vec<Probe> {
+    questions
+        .iter()
+        .filter_map(|q| q.provider_name.rsplit(" · ").next())
+        .filter_map(Probe::from_id)
+        .collect()
 }
 
 /// Asks the model and anchors what came back.
@@ -59,7 +72,7 @@ pub fn ask(
 pub fn compose(
     provider: &dyn LlmProvider,
     entry: &Entry,
-    probe: Probe,
+    tactics: &[Probe],
     selection: Option<&Span>,
 ) -> Result<Question> {
     let passage = match selection {
@@ -79,7 +92,7 @@ pub fn compose(
         None => None,
     };
 
-    let asked = super::ask_about_passage(provider, entry, probe.hint(), passage.as_deref())?;
+    let asked = super::ask_about_passage(provider, entry, tactics, passage.as_deref())?;
     let Some(span) = super::run::anchor(entry, &asked.quote) else {
         return Err(Error::Other(format!(
             "the question quoted something not in the note: {:?}",
@@ -97,7 +110,7 @@ pub fn compose(
         // Which move produced it, carried where the panel already looks.
         // `Question` has no probe field and the fixture backend has always put
         // it here, so this keeps one wire shape rather than adding a column.
-        provider_name: format!("{} · {}", provider.name(), probe.id()),
+        provider_name: format!("{} · {}", provider.name(), asked.tactic.id()),
         created_at: chrono::Utc::now().to_rfc3339(),
     })
 }
@@ -172,6 +185,18 @@ mod tests {
         )
     }
 
+    fn reply_as(tactic: &str, quote: &str) -> String {
+        format!(
+            r#"{{"tactic":"{tactic}","quote":{},"text":"What would change that?"}}"#,
+            serde_json::to_string(quote).unwrap()
+        )
+    }
+
+    /// The offer as the model sees it: one line per move.
+    fn offers(prompt: &str, tactic: Probe) -> bool {
+        prompt.contains(&format!("- {}: ", tactic.id()))
+    }
+
     fn span_over(quote: &str) -> Span {
         let at = SAID.find(quote).expect("the fixture contains it");
         Span {
@@ -221,6 +246,7 @@ mod tests {
         ask(&conn, &provider, &id, Some(Probe::Steelman), None).unwrap();
         let prompt = provider.asked.lock().unwrap().last().unwrap().clone();
         assert!(prompt.contains(Probe::Steelman.hint()), "{prompt}");
+        assert!(!offers(&prompt, Probe::Boundary), "a named move offered others: {prompt}");
     }
 
     /// The gate decides, not the caller. Evidence may be asked to explain
@@ -236,19 +262,55 @@ mod tests {
         assert!(ask(&conn, &provider, &id, Some(Probe::Feynman), None).is_ok());
     }
 
-    /// §3.4 bans regeneration, so a second ask has to be a different question
-    /// rather than another run at the same one.
+    /// "Ask another" has to be another move, not another run at the same one,
+    /// so what this note has already been asked is not offered again.
     #[test]
-    fn asking_twice_does_not_repeat_the_move() {
+    fn asking_again_does_not_offer_a_move_already_used() {
         let (conn, id) = corpus();
-        let provider = ScriptedProvider::with(&[&reply("faster reads"), &reply("faster reads")]);
+        let provider = ScriptedProvider::with(&[
+            &reply_as("boundary", "faster reads"),
+            &reply_as("definition", "faster reads"),
+        ]);
 
-        ask(&conn, &provider, &id, None, None).unwrap();
+        let first = ask(&conn, &provider, &id, None, None).unwrap();
         ask(&conn, &provider, &id, None, None).unwrap();
 
         let prompts = provider.asked.lock().unwrap().clone();
-        assert_eq!(prompts.len(), 2);
-        assert_ne!(prompts[0], prompts[1], "the same probe fired twice");
+        // Whatever the first offer was, the move the note got is not offered
+        // to the second ask.
+        let made = Probe::from_id(first.provider_name.rsplit(" · ").next().unwrap()).unwrap();
+        assert!(offers(&prompts[0], made), "{}", prompts[0]);
+        assert!(!offers(&prompts[1], made), "{}", prompts[1]);
+        assert_eq!(Probe::ALL.iter().filter(|t| offers(&prompts[1], **t)).count(), 3);
+    }
+
+    /// Once every move has been made on a note, asking again is still allowed
+    /// -- it draws from all of them rather than offering nothing.
+    #[test]
+    fn once_every_move_is_used_asking_again_still_offers_moves() {
+        let (conn, id) = corpus();
+        for tactic in Probe::ALL {
+            db::questions::insert(
+                &conn,
+                &Question {
+                    id: format!("q-{}", tactic.id()),
+                    entry_id: id.clone(),
+                    text: "asked before?".into(),
+                    span: None,
+                    answered: false,
+                    dismissed: true,
+                    provider_name: format!("scripted · {}", tactic.id()),
+                    created_at: "2024-01-01T00:00:00Z".into(),
+                },
+                SAID,
+            )
+            .unwrap();
+        }
+        let provider = ScriptedProvider::with(&[&reply("faster reads")]);
+
+        ask(&conn, &provider, &id, None, None).unwrap();
+        let last = provider.asked.lock().unwrap().last().unwrap().clone();
+        assert_eq!(Probe::ALL.iter().filter(|t| offers(&last, **t)).count(), 3, "{last}");
     }
 
     /// §3.4 -- a quote the note does not contain cannot be checked, so the
@@ -267,43 +329,6 @@ mod tests {
         assert_eq!(
             question.provider_name,
             format!("{} · steelman", provider.name())
-        );
-    }
-
-    /// Asking again rotates, and the fourth ask on a position reaches a heavy
-    /// probe nobody named. §3.2 hands the invoked path to the user because the
-    /// risk is theirs to take; arriving at a steelman by pressing the same
-    /// button three times is not the same as choosing one. Pinned rather than
-    /// endorsed -- if the order changes, that is a decision, not a drift.
-    #[test]
-    fn repeated_asking_walks_the_whole_tier_ladder() {
-        let (conn, id) = corpus();
-        let replies = vec![reply("faster reads"); 5];
-        let provider =
-            ScriptedProvider::with(&replies.iter().map(String::as_str).collect::<Vec<_>>());
-
-        let mut walked = Vec::new();
-        for _ in 0..5 {
-            let question = ask(&conn, &provider, &id, None, None).unwrap();
-            walked.push(
-                question
-                    .provider_name
-                    .rsplit(" · ")
-                    .next()
-                    .unwrap_or_default()
-                    .to_string(),
-            );
-        }
-
-        assert_eq!(
-            walked,
-            vec![
-                "boundary",
-                "disconfirming",
-                "steelman",
-                "munchhausen",
-                "feynman"
-            ]
         );
     }
 

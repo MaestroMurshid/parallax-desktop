@@ -223,44 +223,53 @@ export function mayAskToExplain(entry: Entry, types: TypeDefinition[] = BUILT_IN
 }
 
 /**
- * §3.1 modes D/E/F — the Heavy tier, invoked only. A/B/C already fire as the
- * automatic question and G arrives as a proposed edge, so neither belongs here.
+ * A debate tactic: one way of pushing on what a note claims. The model picks
+ * the one that fits the note from those an entry may be asked; mirrored by
+ * `Probe` in src-tauri/src/enrich/gate.rs, which reads this table in a test.
  */
 export interface Probe {
-  id: 'steelman' | 'boundary' | 'disconfirming' | 'munchhausen' | 'feynman';
+  id:
+    | 'boundary'
+    | 'disconfirming'
+    | 'assumption'
+    | 'counterexample'
+    | 'definition'
+    | 'consequence'
+    | 'fallacy'
+    | 'steelman'
+    | 'munchhausen'
+    | 'feynman';
   label: string;
   hint: string;
-  /**
-   * §3.6's tier, declared rather than implied by position in the array. Safe
-   * may fire on its own; Heavy is invoked only. Reading this off array order
-   * is how a steelman ends up firing automatically.
-   */
-  tier: 'safe' | 'heavy';
 }
 
 const ALL_PROBES: Probe[] = [
-  // §3.1 D — being understood before being challenged, but it states a position
-  // of its own, so it is never the app's opening move.
-  { id: 'steelman', label: 'steelman it', hint: 'state it better than you did, then push', tier: 'heavy' },
-  // §3.1 B and C — the two that may open, per §3.2's A/B/C-or-nothing.
-  { id: 'boundary', label: 'find the edge', hint: 'where does this stop holding?', tier: 'safe' },
-  { id: 'disconfirming', label: 'what would break it', hint: 'what would make you drop this?', tier: 'safe' },
-  // §3.1 E and F — §3.3 gates one, the other needs a concept being held.
-  { id: 'munchhausen', label: 'ask why, four times', hint: 'follow the reasons until they bottom out', tier: 'heavy' },
-  { id: 'feynman', label: 'show you have it', hint: 'apply it to a case you have not been given', tier: 'heavy' },
+  { id: 'boundary', label: 'find the edge', hint: 'find the case or condition where the claim stops holding' },
+  { id: 'disconfirming', label: 'what would break it', hint: 'ask what evidence or experience would make them give the claim up' },
+  { id: 'assumption', label: 'what it takes for granted', hint: 'expose an unstated premise the claim depends on' },
+  { id: 'counterexample', label: 'a case against it', hint: 'confront the claim with a specific, concrete case that cuts against it' },
+  { id: 'definition', label: 'pin the word down', hint: 'press on one key word whose meaning the claim depends on' },
+  { id: 'consequence', label: 'follow it through', hint: 'draw out something else that must be true if the claim is, and test it' },
+  { id: 'fallacy', label: 'name the flaw', hint: 'name a specific reasoning error the note actually makes, quoting where it makes it' },
+  { id: 'steelman', label: 'steelman it', hint: 'state the strongest opposing view and ask how the claim survives it' },
+  { id: 'munchhausen', label: 'ask why, four times', hint: 'ask for the reason behind the reason the note gives' },
+  { id: 'feynman', label: 'show you have it', hint: 'ask them to apply the idea to a new case it was not stated for' },
 ];
+
+/** The human name of a move, from its wire id; undefined for anything else. */
+export function probeLabel(id: string): string | undefined {
+  return ALL_PROBES.find((p) => p.id === id)?.label;
+}
 
 /**
  * What the app may open with, unprompted — the primitive the automatic path is
  * built from. Three gates apply to everything: register, duration, and having
  * words of your own in it. Beyond that it depends on what the entry is.
  *
- * §3.2 restricts the opening move to A, B or C, and that holds for a position:
- * never a steelman, never Münchhausen. But it also said never F, and that was
- * wrong for the same reason F did not need the position gate — being asked to
- * say something back takes no stance and cannot wound. Withholding it until the
- * user thinks to ask means the one move that makes learning stick only fires
- * for someone who already knows to want it.
+ * A position is offered every tactic and the model picks the one that fits.
+ * §3.2 had kept the opening move to boundary or disconfirming, which in use
+ * made every question the same question; decided 13 Sep 2026 that the move is
+ * the model's call. Whether to ask at all is still the gates above.
  */
 export function automaticProbes(
   entry: Entry,
@@ -281,7 +290,7 @@ export function automaticProbes(
 
   if (role === 'position') {
     const mayInitiate = !def || def.builtIn || AUTO_FIRING.includes(def.tier);
-    return mayInitiate ? ALL_PROBES.filter((p) => p.tier === 'safe') : [];
+    return mayInitiate ? ALL_PROBES : [];
   }
   // A concept you are holding gets asked for, in whatever form the topic
   // suits — a case to apply it to, a consequence to follow, a restatement.

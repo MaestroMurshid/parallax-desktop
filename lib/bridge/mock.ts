@@ -633,9 +633,9 @@ ${entry.transcript}
     // it depending on whether one was written into the fixture. The seed corpus
     // still supplies the better-written examples where it has them.
     //
-    // Restricted to the Safe tier. Reaching for invokedProbes here fires a
-    // steelman as the opening move, which §3.2 forbids.
-    const probe = automaticProbes(entry)[0];
+    // A random move stands in for the model's choice of the one that fits.
+    const offered = automaticProbes(entry);
+    const probe = offered[Math.floor(Math.random() * offered.length)];
     return probe ? this.runProbe(entryId, probe.id) : null;
   }
 
@@ -647,12 +647,13 @@ ${entry.transcript}
   async askQuestion(entryId: string, span?: Span | null): Promise<Question> {
     const entry = this.entries.get(entryId);
     if (!entry) throw new Error(`No entry ${entryId}`);
-    // Stands in for the model's choice: the eligible set, then the first that
-    // fits. Real inference would weigh the transcript, not the order.
+    // Stands in for the model's choice: a random move this note has not had,
+    // as Rust offers only those. Real inference weighs the transcript.
     const eligible = invokedProbes(entry);
-    // Rotate rather than always returning the first: questions accumulate now,
-    // so asking twice about different sentences should not repeat itself.
-    const chosen = eligible[(this.questions.get(entryId)?.length ?? 0) % eligible.length];
+    const used = new Set((this.questions.get(entryId) ?? []).map((q) => q.providerName.split(' · ').pop()));
+    const fresh = eligible.filter((p) => !used.has(p.id));
+    const pool = fresh.length > 0 ? fresh : eligible;
+    const chosen = pool[Math.floor(Math.random() * pool.length)];
     if (!chosen) throw new Error(`Nothing to ask of ${entryId}`);
     return this.runProbe(entryId, chosen.id, span);
   }
@@ -691,6 +692,11 @@ ${entry.transcript}
         'What would you have to see for the entry to be wrong about this?',
       munchhausen:
         'The entry rests on that being the case. What is that resting on?',
+      assumption: 'What does this take for granted that it never says out loud?',
+      counterexample: 'What is the most ordinary case you can think of where this turns out false?',
+      definition: 'Which word is carrying this, and what exactly do you mean by it here?',
+      consequence: 'If this holds, what else would have to be true that you have not said?',
+      fallacy: 'Is this reasoning from how things started to how they must stay?',
       // A real model writes this against the transcript, so it lands on the
       // subject: a case the concept has to cover, a consequence to follow. This
       // stub cannot do that and should not be read as the shape of the mode.
