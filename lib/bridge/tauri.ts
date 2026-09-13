@@ -24,10 +24,13 @@ import type {
   ImportMode,
   UploadPreview,
   NewEntryDraft,
+  NewTypeDraft,
   SampleLoad,
   SearchHit,
+  TypePatchDraft,
   Unsubscribe,
 } from './index';
+import type { TypeDefinition } from '@/lib/scene/classification';
 
 /**
  * Tauri event listeners register asynchronously, so the unsubscribe function
@@ -284,5 +287,23 @@ export class TauriBridge implements Bridge {
 
   applyUpload(mode: ImportMode): Promise<void> {
     return invoke('apply_upload', { mode });
+  }
+
+  // -- types ----------------------------------------------------------------
+
+  listTypes(): Promise<TypeDefinition[]> {
+    return invoke('list_types');
+  }
+
+  createType(draft: NewTypeDraft): Promise<TypeDefinition> {
+    return invoke('create_type', { draft });
+  }
+
+  updateType(id: string, patch: TypePatchDraft): Promise<TypeDefinition> {
+    return invoke('update_type', { id, patch });
+  }
+
+  deleteType(id: string): Promise<void> {
+    return invoke('delete_type', { id });
   }
 }

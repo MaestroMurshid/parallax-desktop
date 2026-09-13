@@ -5,6 +5,7 @@ pub mod edge;
 pub mod entry;
 pub mod question;
 pub mod settings;
+pub mod type_def;
 
 pub use edge::{Edge, EdgeStatus, Relation};
 pub use entry::{ActionItem, Entry, Register, Role, Span};
@@ -13,6 +14,7 @@ pub use settings::{
     ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile, Theme,
     TranscriptionModel,
 };
+pub use type_def::{Mark, NewType, ProbeTier, TypeDef, TypePatch};
 
 #[cfg(test)]
 mod contract_tests {

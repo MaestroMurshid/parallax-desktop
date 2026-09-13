@@ -16,7 +16,13 @@ import type {
   SystemProfile,
   Span,
 } from '@/lib/types';
-import { automaticProbes, invokedProbes, mayProbeAutomatically } from '@/lib/scene/classification';
+import {
+  automaticProbes,
+  BUILT_IN_TYPES,
+  invokedProbes,
+  mayProbeAutomatically,
+  type TypeDefinition,
+} from '@/lib/scene/classification';
 import { detectUnfinished } from '@/lib/scene/markers';
 import { placeEntry, type PlacedNode } from '@/lib/scene/placement';
 import { titleSizeForDuration, wrapTitle } from '@/lib/scene/lexicon';
@@ -30,8 +36,10 @@ import type {
   ImportMode,
   UploadPreview,
   NewEntryDraft,
+  NewTypeDraft,
   SampleLoad,
   SearchHit,
+  TypePatchDraft,
   Unsubscribe,
 } from './index';
 
@@ -1118,6 +1126,62 @@ ${entry.transcript}
     if (!pending) throw new Error('there is no upload waiting');
     this.pendingUpload = null;
     await this.importCorpus(pending, mode);
+  }
+
+  // -- types (§3.6) ---------------------------------------------------------
+  // Mirrors db::types in Rust: built-ins seeded up front, the same shape
+  // rejected for the same reasons, and a delete falls a carrying note back to
+  // its own role rather than leaving it pointing at nothing.
+
+  private types = new Map<string, TypeDefinition>(BUILT_IN_TYPES.map((t) => [t.id, t]));
+
+  async listTypes(): Promise<TypeDefinition[]> {
+    return [...this.types.values()];
+  }
+
+  private validateTypeShape(id: string, label: string, tier: TypeDefinition['tier']): void {
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)) throw new Error(`${id} is not a valid type id`);
+    if (BUILT_IN_TYPES.some((t) => t.id === id)) throw new Error(`${id} is a built-in type id`);
+    if (!label.trim()) throw new Error('a type needs a label');
+    if (tier === 'retrieval') throw new Error('a user-defined type may not claim the retrieval tier');
+  }
+
+  async createType(draft: NewTypeDraft): Promise<TypeDefinition> {
+    this.validateTypeShape(draft.id, draft.label, draft.tier);
+    if (this.types.has(draft.id)) throw new Error(`a type called ${draft.id} already exists`);
+    const created: TypeDefinition = {
+      id: draft.id,
+      label: draft.label,
+      builtIn: false,
+      match: draft.match,
+      prompt: draft.prompt,
+      tier: draft.tier,
+      role: draft.role,
+      mark: draft.mark,
+      autoApproved: true,
+    };
+    this.types.set(draft.id, created);
+    return created;
+  }
+
+  async updateType(id: string, patch: TypePatchDraft): Promise<TypeDefinition> {
+    const existing = this.types.get(id);
+    if (!existing || existing.builtIn) throw new Error(`no user type ${id}`);
+    this.validateTypeShape(id, patch.label, patch.tier);
+    const updated: TypeDefinition = { ...existing, ...patch };
+    this.types.set(id, updated);
+    return updated;
+  }
+
+  async deleteType(id: string): Promise<void> {
+    const existing = this.types.get(id);
+    if (!existing || existing.builtIn) throw new Error(`no user type ${id}`);
+    this.types.delete(id);
+    // The built-in ids are exactly the role names, so an orphaned entry's own
+    // `role` is already the fallback id.
+    for (const [entryId, entry] of this.entries) {
+      if (entry.typeId === id) this.entries.set(entryId, { ...entry, typeId: entry.role });
+    }
   }
 }
 

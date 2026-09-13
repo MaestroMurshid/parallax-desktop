@@ -262,6 +262,10 @@ pub fn run() {
             commands::system::get_settings,
             commands::system::set_settings,
             commands::system::corpus_location,
+            commands::types::list_types,
+            commands::types::create_type,
+            commands::types::update_type,
+            commands::types::delete_type,
         ])
         .setup(move |app| {
             // Resolved before anything else: every other subsystem hangs off

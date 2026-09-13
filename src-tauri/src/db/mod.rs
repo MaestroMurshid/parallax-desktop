@@ -8,6 +8,7 @@ pub mod sample;
 pub mod search;
 pub mod settings;
 pub mod tags;
+pub mod types;
 pub mod vectors;
 
 use crate::error::Result;
@@ -19,7 +20,7 @@ const SCHEMA: &str = include_str!("schema.sql");
 /// Bumped whenever `schema.sql` changes shape. `user_version` is a SQLite
 /// integer stored in the file header, so the database says which migration it
 /// is on without a table of its own.
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 7;
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -31,6 +32,10 @@ pub fn open(path: &Path) -> Result<Connection> {
     // The corpus is written from the capture path while the canvas reads it.
     conn.pragma_update(None, "journal_mode", "WAL")?;
     migrate(&conn)?;
+    // Every open, not just a fresh one: a database that predates the types
+    // table getting written to (or that has simply never had a custom type
+    // made in it) still needs the three the classifier and gate assume exist.
+    types::ensure_built_ins(&conn)?;
     Ok(conn)
 }
 
@@ -39,6 +44,7 @@ pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     migrate(&conn)?;
+    types::ensure_built_ins(&conn)?;
     Ok(conn)
 }
 
@@ -100,6 +106,25 @@ fn migrate(conn: &Connection) -> Result<()> {
         // make candidates, which is what the measurement already said of them.
         let _ =
             conn.execute_batch("ALTER TABLE tags ADD COLUMN kind TEXT NOT NULL DEFAULT 'anchor';");
+    }
+    if current < 7 {
+        // `types` reached schema.sql before a migration step existed to carry
+        // it to an install that predates it -- IF NOT EXISTS makes this a
+        // no-op for a database that got it at version 0 already.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS types (
+                 id         TEXT PRIMARY KEY,
+                 label      TEXT    NOT NULL,
+                 match_text TEXT    NOT NULL,
+                 prompt     TEXT,
+                 tier       TEXT    NOT NULL,
+                 role       TEXT,
+                 mark_kind  TEXT    NOT NULL,
+                 mark_value TEXT,
+                 built_in   INTEGER NOT NULL DEFAULT 0,
+                 created_at TEXT    NOT NULL
+             );",
+        )?;
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -263,6 +288,27 @@ mod tests {
         crate::db::tags::set_for_entry(&conn, "e1", &ids).unwrap();
         assert_eq!(crate::db::tags::for_entry(&conn, "e1").unwrap().len(), 1);
 
+        let version: i32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // Running it again must not throw: migrate is called on every open.
+        migrate(&conn).unwrap();
+    }
+
+    /// `types` reached `schema.sql` before a migration step existed to carry
+    /// it to an install that predates it, which left `type_ids` and the gate's
+    /// tier lookup reading a table that was never there.
+    #[test]
+    fn version_seven_adds_the_types_table_to_an_existing_corpus() {
+        let conn = open_in_memory().unwrap();
+        conn.execute_batch("DROP TABLE types;").unwrap();
+        conn.pragma_update(None, "user_version", 6).unwrap();
+        migrate(&conn).unwrap();
+        types::ensure_built_ins(&conn).unwrap();
+
+        assert_eq!(types::list(&conn).unwrap().len(), 3);
         let version: i32 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();

@@ -68,16 +68,13 @@ export default function TypeEditor() {
     if (!canSubmit || !markResult?.ok) return;
     const id = slug(draft.label);
     if (!id || resolved.some((t) => t.id === id)) return;
-    addType({
-      id,
+    void addType(id, {
       label: draft.label.trim(),
-      builtIn: false,
       match: draft.match.trim() || 'manual',
       prompt: draft.prompt.trim() || null,
       tier: draft.tier,
       role: draft.role || null,
       mark: { kind: 'char', char: markResult.char },
-      autoApproved: draft.autoApproved,
     });
     setDraft(blank);
   }

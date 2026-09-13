@@ -15,6 +15,7 @@ import type {
   Span,
   SystemProfile,
 } from '@/lib/types';
+import type { TypeDefinition } from '@/lib/scene/classification';
 
 /** Unsubscribe. Every stream returns one; call it on unmount. */
 export type Unsubscribe = () => void;
@@ -234,7 +235,33 @@ export interface Bridge {
   pickUpload(): Promise<UploadPreview | null>;
   /** Applies what pickUpload read. */
   applyUpload(mode: ImportMode): Promise<void>;
+
+  // -- types (§3.6) ---------------------------------------------------------
+  /** Built-ins and custom types, from the one table both the classifier's
+   *  enum and the gate's tier lookup read. */
+  listTypes(): Promise<TypeDefinition[]>;
+  /** `id` is the slug the editor already shows before submitting — computed
+   *  client-side so what the confirmation showed is what gets stored. */
+  createType(draft: NewTypeDraft): Promise<TypeDefinition>;
+  /** A built-in's id and identity are not the user's to take over, so this
+   *  patches everything but those. */
+  updateType(id: string, patch: TypePatchDraft): Promise<TypeDefinition>;
+  /** Notes carrying this type fall back to their own role's built-in id, in
+   *  the same transaction as the delete. */
+  deleteType(id: string): Promise<void>;
 }
+
+export interface NewTypeDraft {
+  id: string;
+  label: string;
+  match: string;
+  prompt: string | null;
+  tier: TypeDefinition['tier'];
+  role: TypeDefinition['role'];
+  mark: TypeDefinition['mark'];
+}
+
+export type TypePatchDraft = Omit<NewTypeDraft, 'id'>;
 
 export interface Exported {
   path: string;

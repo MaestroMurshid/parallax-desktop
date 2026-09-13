@@ -79,7 +79,7 @@ export default function Page() {
       // stops the capture panel opening on the store's own default instead of
       // whatever the main window already shows.
       useApp.getState().setTheme(loadedSettings.theme);
-      await useApp.getState().loadCorpus();
+      await Promise.all([useApp.getState().loadCorpus(), useApp.getState().loadTypes()]);
     })();
   }, []);
 
