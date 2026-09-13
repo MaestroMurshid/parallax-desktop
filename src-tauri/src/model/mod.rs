@@ -161,7 +161,7 @@ mod contract_tests {
         let s = Settings::default();
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["hotkey"], json!("Ctrl+Shift+Space"));
-        assert_eq!(v["discardHotkey"], json!("Escape"));
+        assert_eq!(v["discardHotkey"], json!("Ctrl+Shift+Backspace"));
         assert_eq!(v["modelId"], json!(null));
         assert_eq!(v["residency"], json!("warm"));
         assert_eq!(v["providerName"], json!("llama-server"));

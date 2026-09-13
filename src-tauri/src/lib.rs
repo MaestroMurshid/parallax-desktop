@@ -74,7 +74,7 @@ fn on_hotkey(app: &AppHandle) {
     let _ = app.emit_to(target, "capture://hotkey", ());
 }
 
-/// Discard's global shortcut (Task 2) is armed only while something is
+/// Discard's global shortcut is armed only while something is
 /// recording, so the owner is always Some in practice -- a stray event with
 /// nothing recording is a race with the recording just having ended, and is
 /// silently ignored the same way `on_hotkey` ignores an unknown window.

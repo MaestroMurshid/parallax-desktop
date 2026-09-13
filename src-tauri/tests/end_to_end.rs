@@ -215,7 +215,7 @@ fn settings_round_trip_through_a_restart() {
         let settings = db::settings::get(&conn).unwrap();
         assert_eq!(settings.hotkey, "Ctrl+Alt+K");
         assert_eq!(
-            settings.discard_hotkey, "Escape",
+            settings.discard_hotkey, "Ctrl+Shift+Backspace",
             "untouched fields keep their defaults"
         );
     }

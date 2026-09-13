@@ -43,7 +43,19 @@ pub fn get(conn: &Connection) -> Result<Settings> {
             }
         }
     }
-    Ok(serde_json::from_value(doc).unwrap_or_default())
+    Ok(chorded_discard(serde_json::from_value(doc).unwrap_or_default()))
+}
+
+/// Discard is registered globally for the length of a take, and a key with no
+/// modifier would be swallowed from every other app meanwhile -- Esc in a
+/// browser would throw the recording away.
+fn chorded_discard(mut settings: Settings) -> Settings {
+    let chorded = crate::shortcuts::parse(&settings.discard_hotkey)
+        .is_some_and(|s| !s.mods.is_empty());
+    if !chorded {
+        settings.discard_hotkey = Settings::default().discard_hotkey;
+    }
+    settings
 }
 
 pub fn set(conn: &Connection, settings: &Settings) -> Result<()> {
@@ -64,7 +76,7 @@ pub fn merge(conn: &Connection, patch: serde_json::Value) -> Result<Settings> {
             target.insert(key.clone(), value.clone());
         }
     }
-    let merged: Settings = serde_json::from_value(doc)?;
+    let merged = chorded_discard(serde_json::from_value(doc)?);
     set(conn, &merged)?;
     Ok(merged)
 }
@@ -90,8 +102,41 @@ mod tests {
         let merged = merge(&conn, serde_json::json!({ "hotkey": "Ctrl+Alt+K" })).unwrap();
 
         assert_eq!(merged.hotkey, "Ctrl+Alt+K");
-        assert_eq!(merged.discard_hotkey, "Escape");
+        assert_eq!(merged.discard_hotkey, Settings::default().discard_hotkey);
         assert_eq!(get(&conn).unwrap().hotkey, "Ctrl+Alt+K");
+    }
+
+    /// Discard is registered globally while recording, and a bare key there is
+    /// taken from every app: Esc in a browser would throw the take away.
+    #[test]
+    fn a_stored_bare_discard_key_falls_back_to_a_chord() {
+        let conn = open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('settings', '{\"discardHotkey\":\"Escape\"}')",
+            [],
+        )
+        .unwrap();
+
+        let s = get(&conn).unwrap();
+        assert_ne!(s.discard_hotkey, "Escape");
+        let chord = crate::shortcuts::parse(&s.discard_hotkey).expect("default parses");
+        assert!(!chord.mods.is_empty(), "the fallback carries a modifier");
+    }
+
+    #[test]
+    fn merging_a_bare_discard_key_keeps_a_chord() {
+        let conn = open_in_memory().unwrap();
+        let merged = merge(&conn, serde_json::json!({ "discardHotkey": "Delete" })).unwrap();
+
+        assert_eq!(merged.discard_hotkey, Settings::default().discard_hotkey);
+        assert_eq!(get(&conn).unwrap().discard_hotkey, Settings::default().discard_hotkey);
+    }
+
+    #[test]
+    fn a_chorded_discard_key_is_kept() {
+        let conn = open_in_memory().unwrap();
+        let merged = merge(&conn, serde_json::json!({ "discardHotkey": "Ctrl+Alt+D" })).unwrap();
+        assert_eq!(merged.discard_hotkey, "Ctrl+Alt+D");
     }
 
     /// An install that predates a setting must still open -- and keep the
@@ -108,7 +153,7 @@ mod tests {
 
         let s = get(&conn).unwrap();
         assert_eq!(s.hotkey, "Ctrl+J", "the stored field survives");
-        assert_eq!(s.discard_hotkey, "Escape", "the absent one defaults");
+        assert_eq!(s.discard_hotkey, Settings::default().discard_hotkey, "the absent one defaults");
     }
 
     /// `theme` postdates this fixture's shape, same as any other field an old

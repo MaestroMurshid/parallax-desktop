@@ -51,7 +51,7 @@ pub struct AppState {
     /// by `shortcuts::rebind_hotkey` so a rebind knows exactly what to
     /// unregister.
     pub hotkey: Mutex<Shortcut>,
-    /// Armed only while a recording is in flight (Task 2); `None` whenever
+    /// Armed only while a recording is in flight; `None` whenever
     /// nothing is recording, which must always be true when idle -- the popup
     /// must not steal a key from every other app the rest of the time.
     pub discard_shortcut: Mutex<Option<Shortcut>>,

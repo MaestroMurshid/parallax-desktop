@@ -31,7 +31,7 @@ pub fn start_recording(
         owner: window.label().to_string(),
     });
     drop(slot);
-    // Armed for exactly the lifetime of this recording (Task 2) -- the popup
+    // Armed for exactly the lifetime of this recording -- the popup
     // must not steal a key from every other app the rest of the time. A
     // settings read failure must not cost a recording that is already
     // running, so this falls back to the default rather than propagating.

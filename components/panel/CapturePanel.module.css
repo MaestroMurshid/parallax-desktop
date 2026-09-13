@@ -81,7 +81,7 @@
   opacity: 0.8;
 }
 
-/* Real controls, not a footnote (Task 2): the panel floats over whatever app
+/* Real controls, not a footnote: the panel floats over whatever app
    has focus, so a mouse click has to be as obvious an option as the key is.
    Wraps rather than overflows -- the two labels together are longer than
    "esc" ever was, and the panel's width is not this component's to grow. */

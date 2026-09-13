@@ -1,12 +1,9 @@
 //! Registering and swapping the global shortcuts.
 //!
-//! The record hotkey is a setting, changeable at any time -- `rebind_hotkey`
-//! is what makes that change actually reach the OS registration, which
-//! nothing did before this file existed (see `lib.rs`'s old hardcoded combo).
-//! Discard is a setting too, but armed only while a recording is in flight
-//! (Task 2): the popup must not steal a key from every other app the rest of
-//! the time, so it is registered in `start_recording` and torn down on every
-//! path off "recording".
+//! The record hotkey can change at any time, so a rebind has to reach the OS
+//! registration rather than only the stored setting. Discard is armed only
+//! while a recording is in flight: registered in `start_recording`, torn down
+//! on every path off "recording", so it never takes a key from other apps.
 
 use crate::state::AppState;
 use std::str::FromStr;
@@ -91,11 +88,6 @@ pub fn disarm_discard(app: &AppHandle, state: &AppState) {
 mod tests {
     use super::*;
 
-    /// The bug this file fixes: `next` (and everything that calls it) did not
-    /// exist. `lib.rs` registered one fixed combo at startup and `set_settings`
-    /// never touched the OS registration at all, so no string a user typed
-    /// into Settings ever reached it -- confirmed by reading both call sites
-    /// before this change, not assumed.
     #[test]
     fn a_different_chord_is_registered() {
         let current = default_hotkey();
@@ -122,9 +114,7 @@ mod tests {
         assert_eq!(next(current, "not a real chord"), None);
     }
 
-    /// The settings UI's own format (SettingsPanel.tsx / onboarding), letter
-    /// for letter -- proves the string this bug was actually about parses
-    /// fine, so the fix is entirely about wiring, never about format.
+    /// The settings UI's own format (SettingsPanel.tsx, onboarding).
     #[test]
     fn the_settings_ui_format_parses() {
         assert_eq!(

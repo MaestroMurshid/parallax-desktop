@@ -102,8 +102,7 @@ export default function CapturePanel({ settings }: { settings: Settings | null }
       )}
       {/* Real buttons, not just a key name: the panel floats over whatever app
           has focus, so a mouse click has to work exactly as well as the key
-          does. Labels show the user's actual (possibly rebound) hotkeys —
-          hard-coding "esc" here is the bug this replaces (Task 2). */}
+          does. Labels show the user's actual, possibly rebound, keys. */}
       {state === 'recording' && (
         <div className={styles.actions}>
           <button type="button" className={styles.actionButton} onClick={() => void stopRecording()}>

@@ -163,7 +163,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             hotkey: "Ctrl+Shift+Space".into(),
-            discard_hotkey: "Escape".into(),
+            discard_hotkey: "Ctrl+Shift+Backspace".into(),
             model_id: None,
             residency: Residency::Warm,
             provider_name: "llama-server".into(),

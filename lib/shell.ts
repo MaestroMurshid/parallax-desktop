@@ -12,7 +12,7 @@ import type { Entry, Question, Theme } from '@/lib/types';
 /** Rust fires this on the global shortcut, before the panel is shown (§4). */
 export const HOTKEY_EVENT = 'capture://hotkey';
 /** Rust fires this on the discard shortcut, which it only keeps registered
- *  for the lifetime of one recording (Task 2) -- see src-tauri/src/shortcuts.rs. */
+ *  for the lifetime of one recording -- see src-tauri/src/shortcuts.rs. */
 export const DISCARD_EVENT = 'capture://discard';
 /** The panel's hand-off to the main window once transcription lands. */
 export const HANDOFF_EVENT = 'capture://handoff';
@@ -79,7 +79,7 @@ export function onHotkey(cb: () => void): Unsubscribe {
 }
 
 /** The discard shortcut fired. Only ever sent while something is recording —
- *  Rust arms and disarms it around start/stop (Task 2) — so this is safe to
+ *  Rust arms and disarms it around start/stop — so this is safe to
  *  treat as "discard the recording" without checking capture state here. */
 export function onDiscardHotkey(cb: () => void): Unsubscribe {
   return subscribe<null>(DISCARD_EVENT, () => cb());

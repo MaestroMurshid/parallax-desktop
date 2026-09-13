@@ -140,7 +140,7 @@ export class MockBridge implements Bridge {
 
   private settings: Settings = {
     hotkey: 'Ctrl+Shift+Space',
-    discardHotkey: 'Escape',
+    discardHotkey: 'Ctrl+Shift+Backspace',
     modelId: null,
     embeddingModelId: null,
     residency: 'warm',
