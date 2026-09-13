@@ -105,6 +105,11 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// The lock itself, for work that takes it per step rather than holding it.
+    pub fn background_conn(&self) -> &Mutex<Connection> {
+        &self.background
+    }
+
     /// The connection background work reads and writes through.
     pub fn background_db(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.background

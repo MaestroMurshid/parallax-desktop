@@ -138,7 +138,11 @@ pub async fn pick_upload(
 
 /// Applies the upload `pick_upload` read.
 #[tauri::command]
-pub async fn apply_upload(state: State<'_, AppState>, mode: ImportMode) -> Result<()> {
+pub async fn apply_upload(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    mode: ImportMode,
+) -> Result<()> {
     let contents = state
         .pending_upload
         .lock()
@@ -155,5 +159,18 @@ pub async fn apply_upload(state: State<'_, AppState>, mode: ImportMode) -> Resul
     for relative in orphaned {
         state.remove_audio(&relative);
     }
+
+    // The archive carries no vectors, and a replace took the old ones with it.
+    // Without these `ask` finds nothing, so every restored note is embedded now
+    // rather than five per recording. After returning, so the upload itself is
+    // not held up; the embedder is small and on the CPU.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        match state.with_embedder(|e| crate::embed::catch_up(state.background_conn(), e)) {
+            Ok(Some(n)) => println!("embedded {n} uploaded notes"),
+            Ok(None) => {}
+            Err(e) => eprintln!("embedding the upload failed: {e}"),
+        }
+    });
     Ok(())
 }

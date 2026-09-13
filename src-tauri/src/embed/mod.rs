@@ -69,9 +69,46 @@ pub fn embed_now(conn: &Connection, embedder: &dyn Embedder, entry_id: &str) -> 
 }
 
 /// Every note this model has not embedded, with no per-capture cap.
+///
+/// For an upload, which arrives with no vectors at all: until they are back,
+/// `ask` finds nothing and candidates lose their ordering. Locks per note
+/// rather than across the pass, so a few hundred notes of embedding never
+/// holds enrichment up behind it.
 pub fn catch_up(db: &std::sync::Mutex<Connection>, embedder: &dyn Embedder) -> Result<usize> {
-    let _ = (db, embedder);
-    todo!()
+    const BATCH: usize = 32;
+    let lock = || db.lock().unwrap_or_else(|p| p.into_inner());
+    let model = embedder.model_id();
+    // A note that fails stays missing, so it is remembered here or every batch
+    // would hand it back and the pass would never end.
+    let mut tried = std::collections::HashSet::new();
+    let mut done = 0;
+    loop {
+        let batch: Vec<(String, String)> = {
+            let conn = lock();
+            let mut batch = Vec::new();
+            for id in db::vectors::missing(&conn, &model, tried.len() + BATCH)? {
+                if !tried.insert(id.clone()) {
+                    continue;
+                }
+                if let Some(entry) = db::entries::get(&conn, &id)? {
+                    batch.push((id, entry.transcript));
+                }
+            }
+            batch
+        };
+        if batch.is_empty() {
+            return Ok(done);
+        }
+        for (id, transcript) in batch {
+            match embedder.embed(&transcript) {
+                Ok(vector) => match db::vectors::set(&lock(), &id, &model, &vector) {
+                    Ok(()) => done += 1,
+                    Err(e) => eprintln!("storing a vector failed for {id}: {e}"),
+                },
+                Err(e) => eprintln!("embedding failed for {id}: {e}"),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
