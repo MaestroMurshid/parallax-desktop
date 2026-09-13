@@ -184,6 +184,34 @@ fn spans_to_utf16(conn: &Connection) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Background work has a connection of its own, so the two can reach for
+    /// the write lock at the same moment. Bare SQLite refuses the second writer
+    /// at once; rusqlite's default busy timeout is what makes it wait instead,
+    /// and this pins that, since losing a classification or a moved note to
+    /// "database is locked" would be silent.
+    #[test]
+    fn a_second_writer_waits_for_the_first_rather_than_failing() {
+        let path = std::env::temp_dir()
+            .join(format!("parallax-busy-{}", uuid::Uuid::new_v4()))
+            .join("corpus.db");
+        let first = open(&path).unwrap();
+        let second = open(&path).unwrap();
+
+        // IMMEDIATE takes the write lock at once, as a write in flight holds it.
+        first.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            first.execute_batch("COMMIT").unwrap();
+        });
+
+        let wrote = second.execute(
+            "UPDATE entries SET title = title WHERE id = 'nobody'",
+            [],
+        );
+        releaser.join().unwrap();
+        assert!(wrote.is_ok(), "the second writer failed: {wrote:?}");
+    }
+
     #[test]
     fn migration_creates_the_schema_once() {
         let conn = open_in_memory().unwrap();

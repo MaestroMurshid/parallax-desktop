@@ -93,6 +93,11 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// The connection background work reads and writes through.
+    pub fn background_db(&self) -> std::sync::MutexGuard<'_, Connection> {
+        todo!()
+    }
+
     /// The window a take belongs to, or `None` when nothing is recording.
     pub fn recording_owner(&self) -> Option<String> {
         self.recording
@@ -384,6 +389,39 @@ mod tests {
         *state.llama_used.lock().unwrap() = Some(std::time::Instant::now());
         let _ = idle;
         (state, dir, pid)
+    }
+
+    /// Found in the packaged app: while a note was being enriched, reading one
+    /// note's file took 21.9s. A pass held the only connection across every
+    /// model call it made -- eight judge calls in `propose` alone -- and the
+    /// window's commands run on the main thread, so the whole app waited on it.
+    /// Background work holds a connection of its own, and what it writes is
+    /// what the window reads.
+    #[test]
+    fn background_work_never_holds_the_connection_the_window_uses() {
+        let dir = std::env::temp_dir().join(format!("parallax-background-{}", uuid::Uuid::new_v4()));
+        let state = AppState::open(dir).unwrap();
+
+        // Held the way a pass holds it, for as long as the model takes.
+        let background = state.background_db();
+        let window = state.conn.try_lock();
+        assert!(window.is_ok(), "the window's connection is taken by background work");
+        let window = window.unwrap();
+
+        let id = db::create::create(
+            &background,
+            db::create::NewEntry {
+                transcript: "written by a pass".into(),
+                duration_ms: 1_000,
+                fingerprint: vec![],
+                parent_entry_id: None,
+                local_only: None,
+                typed: true,
+            },
+        )
+        .unwrap()
+        .id;
+        assert!(db::entries::get(&window, &id).unwrap().is_some());
     }
 
     fn running(pid: u32) -> bool {
