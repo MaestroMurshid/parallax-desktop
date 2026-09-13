@@ -111,6 +111,10 @@ fn anchor_quote(entry: &Entry, raw: &str) -> Option<Span> {
     anchor(entry, &words.join(" "))
 }
 
+/// Two notes share one context, so each gets a little under half of what a
+/// classification gives its one, less the connection prompt's own 213 tokens.
+const JUDGE_TRANSCRIPT_BYTES: usize = 4_200;
+
 /// What the edge from `a` to `b` says, or `None`.
 pub fn judge(provider: &dyn LlmProvider, a: &Entry, b: &Entry) -> Result<Option<Proposal>> {
     // Dated, because `returns to` is a claim about time: the second note
@@ -121,7 +125,10 @@ pub fn judge(provider: &dyn LlmProvider, a: &Entry, b: &Entry) -> Result<Option<
 
 Second note, {}:
 {}",
-        a.created_at, a.transcript, b.created_at, b.transcript
+        a.created_at,
+        super::within(&a.transcript, JUDGE_TRANSCRIPT_BYTES),
+        b.created_at,
+        super::within(&b.transcript, JUDGE_TRANSCRIPT_BYTES)
     );
     let ask = Ask::new(CONNECT_SYSTEM, &user).constrained(connect_schema());
 

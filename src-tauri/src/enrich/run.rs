@@ -78,6 +78,18 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
+    // Nothing to read, so nothing to decide. Asked anyway, the model files a
+    // blank note with a title and a summary it invented -- measured in the
+    // packaged app -- and a spoken note recorded before the transcription model
+    // lands is blank in exactly this way. Left unclassified, it keeps the
+    // derived title and waits for words.
+    if entry.transcript.trim().is_empty() {
+        return Ok(Enriched {
+            classified: false,
+            question_id: None,
+        });
+    }
+
     // Read once, so the classification and the gate below cannot disagree
     // about it halfway through a pass.
     let live_register = db::settings::get(conn)?.live_register;
@@ -177,6 +189,28 @@ mod tests {
             r#"{{"text":"Where does that stop holding?","quote":{}}}"#,
             serde_json::to_string(quote).unwrap()
         )
+    }
+
+    /// Found in the packaged app: a note of nothing but whitespace came back
+    /// titled "records something to do" and summarised as "the speaker records
+    /// a note about a specific topic" -- a filing invented from no words at
+    /// all. A spoken note recorded before the transcription model lands is
+    /// empty in exactly this way, so it is not only a typed-note edge.
+    #[test]
+    fn an_empty_note_is_not_sent_to_the_model() {
+        let (conn, id) = corpus("   \n\t  ", 45_000);
+        let provider = ScriptedProvider::with(&[CLASSIFY, &question("faster reads")]);
+
+        let out = run(&conn, &provider, &id).unwrap();
+
+        assert!(!out.classified, "a blank note was classified");
+        assert!(
+            provider.asked.lock().unwrap().is_empty(),
+            "the model was asked about a note with no words in it"
+        );
+        let entry = db::entries::get(&conn, &id).unwrap().unwrap();
+        assert_eq!(entry.summary, None, "a summary was invented for nothing");
+        assert!(db::questions::list_for(&conn, &id).unwrap().is_empty());
     }
 
     #[test]

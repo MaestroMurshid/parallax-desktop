@@ -179,6 +179,14 @@ impl LlmProvider for LlamaServer {
             .json()
             .map_err(|e| Error::Other(format!("llama-server sent something unreadable: {e}")))?;
 
+        // Its own words when it refuses. "Returned no content" was all an
+        // overflowing request ever said, which reads as the model misbehaving
+        // rather than the prompt being too long for it.
+        if let Some(message) = response["error"]["message"].as_str() {
+            return Err(Error::Other(format!(
+                "llama-server refused the request: {message}"
+            )));
+        }
         response["choices"][0]["message"]["content"]
             .as_str()
             .map(|s| s.trim().to_string())
@@ -191,9 +199,111 @@ pub(crate) fn free_port() -> Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
+/// A real child standing in for llama-server, for tests above this module that
+/// need a server to stop without loading a model.
+#[cfg(test)]
+pub(crate) fn stand_in(child: Child) -> LlamaServer {
+    LlamaServer {
+        port: 0,
+        model_name: "stand-in".into(),
+        child: Mutex::new(Some(child)),
+        client: reqwest::blocking::Client::new(),
+    }
+}
+
+/// Whether a running process is a model server this app left behind.
+///
+/// Both conditions, because each alone kills the wrong thing: a live parent is
+/// a second instance still using its servers, and a model outside our own
+/// folder is a llama-server the user runs for reasons of their own.
+fn is_orphan(cmd: &[String], models_dir: &std::path::Path, parent_alive: bool) -> bool {
+    !parent_alive
+        && cmd
+            .iter()
+            .any(|arg| std::path::Path::new(arg).starts_with(models_dir))
+}
+
+/// Stops model servers a previous run of this app left running.
+///
+/// `shutdown` covers every ordinary quit, but a crash or an End Task runs no
+/// handler at all. Measured in the packaged app: killed hard, it left both
+/// servers up, holding 2.6GB of RAM and most of a 4GB card, and the next launch
+/// had to fit its model beside them -- which on this hardware means the CPU and
+/// roughly a tenth of the speed. Swept at startup, before anything spawns.
+pub fn reap_orphans(models_dir: &std::path::Path) {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always),
+    );
+    for process in system.processes().values() {
+        let name = process.name().to_string_lossy().to_lowercase();
+        if !name.starts_with("llama-server") {
+            continue;
+        }
+        let parent_alive = process
+            .parent()
+            .is_some_and(|pid| system.process(pid).is_some());
+        let cmd: Vec<String> = process
+            .cmd()
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        if is_orphan(&cmd, models_dir, parent_alive) && process.kill() {
+            println!(
+                "stopped a model server left by a previous run: {}",
+                process.pid()
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cmd(model: &str) -> Vec<String> {
+        ["llama-server.exe", "-m", model, "--port", "2131"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    /// Measured in the packaged app: killed hard, it left both servers running
+    /// -- 2.6GB of RAM and most of a 4GB card -- and the next launch had to fit
+    /// its model beside a server nobody owned.
+    #[test]
+    fn a_server_on_our_models_with_a_dead_parent_is_an_orphan() {
+        let models = std::path::Path::new("E:/root/data/models");
+        assert!(is_orphan(
+            &cmd("E:/root/data/models/qwen3-4b-q4.gguf"),
+            models,
+            false
+        ));
+    }
+
+    /// A second instance of the app is still using its servers.
+    #[test]
+    fn a_server_whose_parent_is_alive_is_left_running() {
+        let models = std::path::Path::new("E:/root/data/models");
+        assert!(!is_orphan(
+            &cmd("E:/root/data/models/qwen3-4b-q4.gguf"),
+            models,
+            true
+        ));
+    }
+
+    /// The one outcome that must never happen: killing a llama-server the user
+    /// runs themselves, against their own models, for their own reasons.
+    #[test]
+    fn someone_elses_llama_server_is_never_touched() {
+        let models = std::path::Path::new("E:/root/data/models");
+        assert!(!is_orphan(&cmd("D:/my-models/mistral.gguf"), models, false));
+        assert!(!is_orphan(&["llama-server.exe".to_string()], models, false));
+    }
 
     #[test]
     fn a_free_port_is_actually_free() {

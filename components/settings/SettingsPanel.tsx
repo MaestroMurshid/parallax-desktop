@@ -225,7 +225,9 @@ export default function SettingsPanel({
           </div>
         </div>
         <p className={styles.helper}>
-          Warm answers in ~2s but holds 1–4.5GB in memory. Cold frees the RAM but takes 10s+.
+          Warm keeps the model loaded for ten minutes after your last note, so each question lands in
+          about two seconds. Cold gives the graphics card back thirty seconds after, which saves battery,
+          and the next question takes about four seconds longer while the model loads.
         </p>
       </section>
 

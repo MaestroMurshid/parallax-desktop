@@ -42,9 +42,11 @@ pub struct AppState {
     /// Where the bundled llama-server sits. `None` in a dev build that has not
     /// fetched it; an explicit setting still overrides either way.
     pub llama_dir: Mutex<Option<PathBuf>>,
-    /// Started on first use and kept, because loading 2.5GB per question is
-    /// the difference between the question existing and not.
+    /// Started on first use and kept for as long as the residency setting says,
+    /// then released -- see `release_idle_at`.
     pub llama: Mutex<Option<crate::llm::llama_server::LlamaServer>>,
+    /// When the reasoning model last finished a call.
+    pub llama_used: Mutex<Option<std::time::Instant>>,
     /// Its own process: a generative llama-server refuses the embedding
     /// endpoint outright, and `--embedding` disables generation, so the two
     /// cannot share one. Tens of megabytes on the CPU, so keeping it costs
@@ -74,6 +76,7 @@ impl AppState {
             discarded: Mutex::new(None),
             llama_dir: Mutex::new(None),
             llama: Mutex::new(None),
+            llama_used: Mutex::new(None),
             embedder: Mutex::new(None),
             downloads: crate::model::download::Gate::new(),
             enriching: Mutex::new(std::collections::HashSet::new()),
@@ -182,7 +185,39 @@ impl AppState {
             )?);
         }
         let server = slot.as_ref().expect("just started");
-        f(server).map(Some)
+        let result = f(server).map(Some);
+        // Stamped on the way out, still under the slot's lock, so the sweeper
+        // can never see a finished call as older than it is.
+        *self.llama_used.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some(std::time::Instant::now());
+        result
+    }
+
+    /// Stops the reasoning model once it has sat unused past what the
+    /// residency setting keeps it for. Returns whether it stopped one.
+    pub fn release_idle_at(&self, now: std::time::Instant) -> bool {
+        // `with_reasoning` holds this lock for the whole of a call, so failing
+        // to take it means a question is being answered right now.
+        let Ok(mut slot) = self.llama.try_lock() else {
+            return false;
+        };
+        if slot.is_none() {
+            return false;
+        }
+        let Some(last) = *self.llama_used.lock().unwrap_or_else(|p| p.into_inner()) else {
+            return false;
+        };
+        let keep = db::settings::get(&self.db())
+            .map(|s| s.residency)
+            .unwrap_or(crate::model::Residency::Warm)
+            .keep_for();
+        if now.saturating_duration_since(last) < keep {
+            return false;
+        }
+        if let Some(server) = slot.take() {
+            server.stop();
+        }
+        true
     }
 
     /// Runs `f` against the embedder, starting it if it is not up.
@@ -325,6 +360,99 @@ pub fn resolve_root(app_data: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn state_with(
+        residency: crate::model::Residency,
+        idle: std::time::Duration,
+    ) -> (AppState, PathBuf, u32) {
+        let dir = std::env::temp_dir().join(format!("parallax-residency-{}", uuid::Uuid::new_v4()));
+        let state = AppState::open(dir.clone()).unwrap();
+        {
+            let conn = state.db();
+            let mut settings = db::settings::get(&conn).unwrap();
+            settings.residency = residency;
+            db::settings::set(&conn, &settings).unwrap();
+        }
+        let child = std::process::Command::new("cmd")
+            .args(["/C", "ping -n 60 127.0.0.1 > nul"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        *state.llama.lock().unwrap() = Some(crate::llm::llama_server::stand_in(child));
+        *state.llama_used.lock().unwrap() = Some(std::time::Instant::now());
+        let _ = idle;
+        (state, dir, pid)
+    }
+
+    fn running(pid: u32) -> bool {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}")])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
+    }
+
+    /// Measured on the RTX 3050: a resident model holds the card in D0 at about
+    /// 6W for as long as the app runs, and released it goes to D3, powered off.
+    /// Cold is the setting that says to give it back.
+    #[test]
+    fn a_cold_model_left_idle_is_stopped() {
+        use std::time::{Duration, Instant};
+        let (state, dir, pid) = state_with(crate::model::Residency::Cold, Duration::ZERO);
+
+        let later = Instant::now() + Duration::from_secs(120);
+        assert!(state.release_idle_at(later), "an idle cold model was kept");
+        assert!(state.llama.lock().unwrap().is_none());
+        assert!(!running(pid), "the server was forgotten but not stopped");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A note recorded a minute ago is a session in progress, and warm is for
+    /// exactly that.
+    #[test]
+    fn a_warm_model_survives_a_short_pause() {
+        use std::time::{Duration, Instant};
+        let (state, dir, pid) = state_with(crate::model::Residency::Warm, Duration::ZERO);
+
+        let later = Instant::now() + Duration::from_secs(120);
+        assert!(
+            !state.release_idle_at(later),
+            "warm released after two minutes"
+        );
+        assert!(state.llama.lock().unwrap().is_some());
+        state.shutdown();
+        assert!(!running(pid));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The whole residency setting did nothing before this. Warm still gives
+    /// the card back once the session is plainly over.
+    #[test]
+    fn a_warm_model_is_released_once_the_session_is_over() {
+        use std::time::{Duration, Instant};
+        let (state, dir, _pid) = state_with(crate::model::Residency::Warm, Duration::ZERO);
+
+        let later = Instant::now() + Duration::from_secs(60 * 60);
+        assert!(state.release_idle_at(later));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// `with_reasoning` holds the slot's lock for a whole call. A call in
+    /// flight is the one thing the sweeper must never cut short.
+    #[test]
+    fn a_model_answering_a_question_is_never_stopped() {
+        use std::time::{Duration, Instant};
+        let (state, dir, _pid) = state_with(crate::model::Residency::Cold, Duration::ZERO);
+
+        let held = state.llama.lock().unwrap();
+        let later = Instant::now() + Duration::from_secs(60 * 60);
+        assert!(!state.release_idle_at(later), "stopped mid-call");
+        drop(held);
+        state.shutdown();
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn app_data_is_the_default() {
