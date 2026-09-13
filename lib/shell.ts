@@ -7,7 +7,7 @@
  */
 
 import { isTauri } from '@/lib/bridge';
-import type { Entry, Question, Theme } from '@/lib/types';
+import type { Entry, Question, Settings } from '@/lib/types';
 
 /** Rust fires this on the global shortcut, before the panel is shown (§4). */
 export const HOTKEY_EVENT = 'capture://hotkey';
@@ -16,10 +16,10 @@ export const HOTKEY_EVENT = 'capture://hotkey';
 export const DISCARD_EVENT = 'capture://discard';
 /** The panel's hand-off to the main window once transcription lands. */
 export const HANDOFF_EVENT = 'capture://handoff';
-/** The setting is persisted so a fresh window opens on the right theme, but a
- *  window already open needs telling — the capture panel can be sitting on
- *  screen mid-recording when the choice changes in Settings. */
-export const THEME_EVENT = 'theme://changed';
+/** Settings are persisted so a fresh window opens right, but a window already
+ *  open needs telling — the capture panel can be on screen mid-recording when
+ *  the theme or a key it labels changes in Settings. */
+export const SETTINGS_EVENT = 'settings://changed';
 
 export type Unsubscribe = () => void;
 
@@ -90,19 +90,19 @@ export function onHandOff(cb: (h: HandOff) => void): Unsubscribe {
   return subscribe<HandOff>(HANDOFF_EVENT, cb);
 }
 
-/** Either window: the theme changed in Settings, which only the main window
- *  renders. Broadcast rather than addressed, so the main window's own store
- *  updates the same way the panel's does — one path, not two. */
-export function onThemeChange(cb: (theme: Theme) => void): Unsubscribe {
-  return subscribe<Theme>(THEME_EVENT, cb);
+/** Either window: Settings changed, which only the main window renders.
+ *  Broadcast rather than addressed, so the main window updates the same way
+ *  the panel does — one path, not two. */
+export function onSettingsChange(cb: (settings: Settings) => void): Unsubscribe {
+  return subscribe<Settings>(SETTINGS_EVENT, cb);
 }
 
-/** Tell every window a new theme was chosen. No-ops outside Tauri, where
+/** Tell every window what Settings now holds. No-ops outside Tauri, where
  *  there is only the one window to begin with. */
-export async function broadcastTheme(theme: Theme): Promise<void> {
+export async function broadcastSettings(settings: Settings): Promise<void> {
   if (!isTauri()) return;
   const { emit } = await import('@tauri-apps/api/event');
-  await emit(THEME_EVENT, theme);
+  await emit(SETTINGS_EVENT, settings);
 }
 
 /**

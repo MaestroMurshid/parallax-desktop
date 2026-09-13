@@ -21,7 +21,7 @@ import TypedComposer from '@/components/panel/TypedComposer';
 import SettingsPanel from '@/components/settings/SettingsPanel';
 import TaskList from '@/components/tasks/TaskList';
 import { getBridge, initBridge, isTauri } from '@/lib/bridge';
-import { broadcastTheme, hidePanel, isPanelWindow, onDiscardHotkey, onHandOff, onHotkey, onThemeChange, showPanel } from '@/lib/shell';
+import { broadcastSettings, hidePanel, isPanelWindow, onDiscardHotkey, onHandOff, onHotkey, onSettingsChange, showPanel } from '@/lib/shell';
 import { useApp } from '@/lib/store';
 import type { Settings } from '@/lib/types';
 import styles from './page.module.css';
@@ -175,10 +175,17 @@ export default function Page() {
     });
   }, [isPanel]);
 
-  // Both windows: a theme changed in Settings, which only the main window
-  // renders, while the other window (usually the panel) is already open and
-  // needs to repaint rather than wait for its next launch.
-  useEffect(() => onThemeChange((theme) => useApp.getState().setTheme(theme)), []);
+  // Both windows: Settings changed in the main window while the other (usually
+  // the panel) is already open. It repaints and relabels its keys now rather
+  // than on its next launch.
+  useEffect(
+    () =>
+      onSettingsChange((next) => {
+        setSettings(next);
+        useApp.getState().setTheme(next.theme);
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!settings) return;
@@ -330,7 +337,7 @@ export default function Page() {
             setSettings(next);
             useApp.getState().setLiveRegister(next.liveRegister);
             useApp.getState().setTheme(next.theme);
-            void broadcastTheme(next.theme);
+            void broadcastSettings(next);
           }}
         />
       )}
