@@ -20,7 +20,9 @@ import type {
 import type {
   Bridge,
   CorpusImport,
+  Exported,
   ImportMode,
+  UploadPreview,
   NewEntryDraft,
   SampleLoad,
   SearchHit,
@@ -218,6 +220,10 @@ export class TauriBridge implements Bridge {
     return invoke('download_model', { modelId });
   }
 
+  setupComplete(): Promise<boolean> {
+    return invoke('setup_complete');
+  }
+
   onModelProgress(cb: (m: ModelInfo) => void): Unsubscribe {
     return subscribe<ModelInfo>('model://progress', cb);
   }
@@ -260,5 +266,23 @@ export class TauriBridge implements Bridge {
 
   importCorpus(data: CorpusImport, mode: ImportMode): Promise<void> {
     return invoke('import_corpus', { data, mode });
+  }
+
+  // -- export and upload ---------------------------------------------------
+
+  exportArchive(withAudio: boolean): Promise<Exported | null> {
+    return invoke('export_archive', { withAudio });
+  }
+
+  exportTranscripts(markdown: string): Promise<string | null> {
+    return invoke('export_transcripts', { contents: markdown });
+  }
+
+  pickUpload(): Promise<UploadPreview | null> {
+    return invoke('pick_upload');
+  }
+
+  applyUpload(mode: ImportMode): Promise<void> {
+    return invoke('apply_upload', { mode });
   }
 }

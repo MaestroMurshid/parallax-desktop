@@ -17,6 +17,7 @@
 //! No new dependency either, which matters for a project that still owes a
 //! dependency audit.
 
+pub mod archive;
 pub mod corpus;
 
 use crate::error::{Error, Result};

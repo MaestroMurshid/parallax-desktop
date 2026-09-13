@@ -24,11 +24,19 @@
   opacity: 0.62;
 }
 
+/* Sized to its content between a floor and the viewport, not fixed. A fixed
+   520px held two models; with a third, measured in the packaged app at the
+   default 1280x820 window, the models step ran to 562px and put Continue below
+   the card -- the first screen of the app, with its only button outside the
+   thing it belongs to. The browser build hid it: its fonts set slightly shorter
+   than WebView2's. Steps that fit still sit at the floor, and one that grows
+   past the viewport shrinks its flex region and scrolls rather than spilling. */
 .frame {
   position: relative;
   z-index: 1;
   width: min(880px, 100%);
-  height: min(520px, 100%);
+  min-height: min(520px, 100%);
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   padding: 26px 32px 22px;

@@ -132,6 +132,7 @@ pub fn classify(
     live_register: bool,
 ) -> Result<Classification> {
     let system = classify_system(live_register);
+    let transcript = within(transcript, CLASSIFY_TRANSCRIPT_BYTES);
     let ask = Ask::new(&system, transcript).constrained(classify_schema(type_ids));
     let reply = provider.ask(ask)?;
 
@@ -207,16 +208,64 @@ fn grounded(tag: &str, transcript: &str) -> bool {
     })
 }
 
+/// The front of a transcript that fits in the reasoning model's context.
+///
+/// Measured in the packaged app, a note of about 4,000 words overflowed the
+/// 4,096-token context and llama-server refused it outright -- and a note that
+/// is never classified is retried on every open. The front is what the model
+/// reads instead: a prefix of the transcript, so any quote taken from it is
+/// still found at the same offsets in the whole.
+///
+/// Bounded in bytes rather than words because a script without spaces has no
+/// words to count. Three bytes a token is the conservative end: English speech
+/// measured 4.6, and a CJK character is three bytes for about one token.
+pub(crate) fn within(text: &str, max_bytes: usize) -> &str {
+    if text.len() <= max_bytes {
+        return text;
+    }
+    let mut end = max_bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    // Between words where there are words, so the last one is not severed.
+    match text[..end].rfind(char::is_whitespace) {
+        Some(space) if space > 0 => &text[..space],
+        _ => &text[..end],
+    }
+}
+
+/// What each prompt leaves for the transcript, at three bytes a token: the
+/// 4,096-token context less the system prompt (353 tokens for classification,
+/// 184 for the question, measured) and room for the reply.
+pub(super) const CLASSIFY_TRANSCRIPT_BYTES: usize = 9_000;
+pub(super) const QUESTION_TRANSCRIPT_BYTES: usize = 7_500;
+pub(super) const QUESTION_PASSAGE_BYTES: usize = 1_500;
+
 /// A span, enforced rather than asked for: asked for under twenty words it
 /// returned twenty-four and thirty-six. Cutting on a word boundary keeps a
 /// verbatim substring verbatim, so the anchor still resolves.
+///
+/// Where a clause ends inside the limit, the cut goes there instead of at the
+/// twentieth word. Measured in the packaged app, a count alone stopped a quote
+/// at "and it always disagrees at the" -- verbatim, anchored, and plainly
+/// broken to anyone reading it. The trailing comma goes with it, and what is
+/// left is still a prefix of what the model said.
 pub(super) fn trim_quote(quote: &str) -> String {
     const MOST: usize = 20;
+    // Backing off further than this trades a clipped quote for a stub.
+    const LEAST: usize = 10;
     let words: Vec<&str> = quote.split_whitespace().collect();
     if words.len() <= MOST {
         return words.join(" ");
     }
-    words[..MOST].join(" ")
+    let cut = (LEAST..=MOST)
+        .rev()
+        .find(|&n| words[n - 1].ends_with([',', ';', ':', '.', '!', '?']))
+        .unwrap_or(MOST);
+    words[..cut]
+        .join(" ")
+        .trim_end_matches([',', ';', ':'])
+        .to_string()
 }
 
 /// Three or four words, enforced rather than asked for. A 4B model cannot count
@@ -224,11 +273,21 @@ pub(super) fn trim_quote(quote: &str) -> String {
 /// already solved against.
 fn trim_title(title: &str) -> String {
     const MOST: usize = 4;
-    let words: Vec<&str> = title.split_whitespace().collect();
-    if words.len() <= MOST {
-        return words.join(" ");
+    // Words that only exist to lead into the next one. A count lands on these
+    // as readily as on anything else, and a title ending in one reads as cut
+    // off rather than short -- "naïve caching hides the", measured in the
+    // packaged app.
+    const LEADS_ON: &[&str] = &[
+        "a", "an", "the", "of", "to", "in", "on", "at", "for", "with", "by", "from", "into",
+        "about", "before", "after", "over", "under", "and", "or", "but", "nor", "as", "than",
+        "that", "this", "is", "are", "was", "were", "be", "its", "my", "our", "your", "their",
+    ];
+    let words: Vec<&str> = title.split_whitespace().take(MOST).collect();
+    let mut end = words.len();
+    while end > 1 && LEADS_ON.contains(&words[end - 1].to_lowercase().as_str()) {
+        end -= 1;
     }
-    words[..MOST].join(" ")
+    words[..end].join(" ")
 }
 
 /// An anchor is a name, not a sentence.
@@ -321,12 +380,16 @@ pub fn ask_about_passage(
     passage: Option<&str>,
 ) -> Result<Asked> {
     let selected = match passage {
-        Some(passage) => format!("\nThe passage to ask about:\n\n{passage}\n"),
+        Some(passage) => format!(
+            "\nThe passage to ask about:\n\n{}\n",
+            within(passage, QUESTION_PASSAGE_BYTES)
+        ),
         None => String::new(),
     };
     let user = format!(
         "The note:\n\n{}\n{selected}\nWhat to ask: {}",
-        entry.transcript, probe_hint
+        within(&entry.transcript, QUESTION_TRANSCRIPT_BYTES),
+        probe_hint
     );
     let ask = Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema());
     let reply = provider.ask(ask)?;
@@ -357,9 +420,11 @@ mod tests {
     /// Measured: asked for four, it returned six.
     #[test]
     fn a_longer_title_is_cut_to_four_words() {
+        // Was "renew the domain before": the same dangling word the packaged
+        // app showed, pinned here as correct until it was seen on a real row.
         assert_eq!(
             trim_title("renew the domain before the twentieth"),
-            "renew the domain before"
+            "renew the domain"
         );
     }
 
@@ -423,12 +488,122 @@ mod tests {
         assert_eq!(trim_phrase(said), said);
     }
 
+    /// The grammar follows the schema's key order, and the prompt says "in the
+    /// exact order listed". Sorted keys would make the model write `anchors`
+    /// and `movePhrase` before deciding what the note is.
+    #[test]
+    fn the_classify_schema_lists_fields_in_the_prompt_order() {
+        let schema = classify_schema(&["position".into()]);
+        let keys: Vec<&str> = schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "title",
+                "role",
+                "register",
+                "typeId",
+                "summary",
+                "movePhrase",
+                "anchors",
+                "topics"
+            ]
+        );
+    }
+
+    /// Found in the packaged app: a note of about 4,000 words overflowed the
+    /// 4,096-token context and every pass on it failed. Because it then stayed
+    /// unclassified, opening it retried the same doomed pass every time.
+    #[test]
+    fn a_long_transcript_is_cut_to_its_front() {
+        let said = "measuring before changing is the habit that saves time ".repeat(900);
+        let kept = within(&said, 9_000);
+        assert!(kept.len() <= 9_000, "{} bytes", kept.len());
+        assert!(
+            said.starts_with(kept),
+            "a prefix, so quotes still anchor in the whole"
+        );
+        assert!(
+            said[kept.len()..].starts_with(' '),
+            "cut between words, not inside one"
+        );
+    }
+
+    #[test]
+    fn a_transcript_that_fits_is_untouched() {
+        let said = "profiling beats guessing every single time";
+        assert_eq!(within(said, 9_000), said);
+    }
+
+    /// No spaces to back off to, and a byte limit that lands inside a
+    /// three-byte character. Slicing there would panic.
+    #[test]
+    fn text_without_spaces_is_cut_on_a_character_boundary() {
+        let said = "缓存隐藏了真正的成本".repeat(2_000);
+        let kept = within(&said, 9_001);
+        assert!(kept.len() <= 9_001);
+        assert!(!kept.is_empty());
+        assert!(said.starts_with(kept));
+    }
+
+    /// Found in the packaged app: the model quoted a twenty-two word sentence
+    /// and a count of twenty cut it after "at the", so the question sat under
+    /// a quote that stopped mid-thought. A clause that ends inside the limit is
+    /// a better place to stop than a word that happens to be twentieth.
+    #[test]
+    fn a_long_quote_stops_at_a_clause_rather_than_mid_phrase() {
+        let said = "Every cache is a second source of truth that can disagree with the first,                     and it always disagrees at the worst moment.";
+        let said: String = said.split_whitespace().collect::<Vec<_>>().join(" ");
+        let cut = trim_quote(&said);
+        assert_eq!(
+            cut,
+            "Every cache is a second source of truth that can disagree with the first"
+        );
+        assert!(said.contains(&cut), "a cut quote must still be in the note");
+    }
+
+    /// Backing off to a comma three words in trades a clipped quote for a stub.
+    #[test]
+    fn a_clause_break_too_early_does_not_shrink_the_quote_to_a_stub() {
+        let said = "Yes, one two three four five six seven eight nine ten eleven twelve                     thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty";
+        let said: String = said.split_whitespace().collect::<Vec<_>>().join(" ");
+        let cut = trim_quote(&said);
+        assert_eq!(cut.split_whitespace().count(), 20, "cut to a stub: {cut:?}");
+    }
+
     #[test]
     fn a_short_quote_is_left_alone() {
         assert_eq!(
             trim_quote("the reads anybody waits on"),
             "the reads anybody waits on"
         );
+    }
+
+    /// Found in the packaged app: "naïve caching hides the real cost" was cut to
+    /// "naïve caching hides the", which reads as a broken title on every row and
+    /// label that shows it. The four-word cap stays; it just does not end on a
+    /// word that only exists to lead into the next one.
+    #[test]
+    fn a_title_does_not_end_on_a_function_word() {
+        assert_eq!(
+            trim_title("naïve caching hides the real cost"),
+            "naïve caching hides"
+        );
+        assert_eq!(
+            trim_title("trading reads for writes"),
+            "trading reads for writes"
+        );
+        assert_eq!(trim_title("the cost of a"), "the cost");
+    }
+
+    /// Never whittled to nothing, however the words fall.
+    #[test]
+    fn a_title_of_function_words_keeps_its_first() {
+        assert_eq!(trim_title("the of and to"), "the");
     }
 
     #[test]

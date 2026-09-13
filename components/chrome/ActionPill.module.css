@@ -50,10 +50,6 @@
   margin: 0 3px;
 }
 
-.file {
-  display: none;
-}
-
 /* Rises out of the pill rather than dropping over the canvas. */
 .menu {
   position: absolute;

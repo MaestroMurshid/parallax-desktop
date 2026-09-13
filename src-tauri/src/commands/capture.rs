@@ -128,64 +128,102 @@ const PROPOSE_CAP: usize = 8;
 /// indicator spinning forever on the paths that are most likely to be taken --
 /// no model installed, or a model that threw.
 pub fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
+    enrich_in_order(app, vec![entry_id]);
+}
+
+/// Several notes at once -- the sample, an import -- read one at a time, oldest
+/// first, the way they would have arrived had they been recorded.
+///
+/// Found in the packaged app: run side by side, the passes finished in whatever
+/// order they happened to, so a note was compared against notes recorded after
+/// it, and the shelves the early notes should have seeded were coined by
+/// whichever pass got there first.
+pub fn enrich_in_order(app: &tauri::AppHandle, ids: Vec<String>) {
     let app = app.clone();
-    {
+    let queued: Vec<String> = {
         // One pass per note at a time. Opening a note asks for one if it never
         // got a pass, and a note can be opened again while the first is still
         // running -- each of which would append its own question, since
         // `questions` carries no uniqueness constraint the way edges do.
         let state = app.state::<AppState>();
         let mut in_flight = state.enriching.lock().unwrap_or_else(|p| p.into_inner());
-        if !in_flight.insert(entry_id.clone()) {
-            return;
-        }
+        ids.into_iter()
+            .filter(|id| in_flight.insert(id.clone()))
+            .collect()
+    };
+    if queued.is_empty() {
+        return;
     }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        // Emitted before with_reasoning, which is where a cold llama-server is
-        // started: the first pass after launch spends most of its time there,
-        // and that wait is exactly what needs saying.
-        let _ = app.emit("entry://enriching", &entry_id);
-        let done = state
-            .with_reasoning(|provider| crate::enrich::run::run(&state.db(), provider, &entry_id));
-
-        // Separate from enrichment and after it, because it is ranking rather
-        // than eligibility: topics already decided who this note can be
-        // compared against, and the vector only orders them. An absent or
-        // failing embedder therefore costs ordering and no connections at all.
-        if let Err(e) = state
-            .with_embedder(|embedder| crate::embed::embed_now(&state.db(), embedder, &entry_id))
-        {
-            eprintln!("embedding failed for {entry_id}: {e}");
+        let ordered = if queued.len() > 1 {
+            let found = db::entries::oldest_first(&state.background_db(), &queued);
+            found.unwrap_or_else(|e| {
+                eprintln!("could not order the queue, reading it as given: {e}");
+                queued.clone()
+            })
+        } else {
+            queued.clone()
+        };
+        for entry_id in &ordered {
+            pass(&app, &state, entry_id);
         }
-        // After embedding, because candidates are ordered by cosine and this
-        // note's own vector has to exist for that to mean anything. And before
-        // the settled event, or the indicator clears while the judge is still
-        // working -- one model call per candidate is the slowest part of the
-        // whole pass.
-        if let Err(e) = state.with_reasoning(|provider| {
-            crate::enrich::propose::propose(&state.db(), provider, &entry_id, PROPOSE_CAP)
-        }) {
-            eprintln!("proposing failed for {entry_id}: {e}");
+        // A note deleted while it waited is not in `ordered`, and would
+        // otherwise stay claimed and never be read again under that id.
+        // Only those: a note already read may have been claimed again since.
+        let mut in_flight = state.enriching.lock().unwrap_or_else(|p| p.into_inner());
+        for id in queued.iter().filter(|id| !ordered.contains(id)) {
+            in_flight.remove(id);
         }
-
-        match done {
-            // No binary or no model yet: the question arrives when one lands.
-            Ok(None) => {}
-            Ok(Some(enriched)) => {
-                if enriched.question_id.is_none() {
-                    println!("classified {entry_id}, no question");
-                }
-            }
-            Err(e) => eprintln!("enrichment failed for {entry_id}: {e}"),
-        }
-        state
-            .enriching
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(&entry_id);
-        let _ = app.emit("entry://enriched", &entry_id);
     });
+}
+
+fn pass(app: &tauri::AppHandle, state: &AppState, entry_id: &str) {
+    // Emitted before with_reasoning, which is where a cold llama-server is
+    // started: the first pass after launch spends most of its time there, and
+    // that wait is exactly what needs saying.
+    let _ = app.emit("entry://enriching", entry_id);
+    // Every step below holds a connection across model calls, so each uses
+    // background work's own and never the one the window reads through.
+    let done = state.with_reasoning(|provider| {
+        crate::enrich::run::run(&state.background_db(), provider, entry_id)
+    });
+
+    // Separate from enrichment and after it, because it is ranking rather than
+    // eligibility: topics already decided who this note can be compared
+    // against, and the vector only orders them. An absent or failing embedder
+    // therefore costs ordering and no connections at all.
+    if let Err(e) = state.with_embedder(|embedder| {
+        crate::embed::embed_now(&state.background_db(), embedder, entry_id)
+    }) {
+        eprintln!("embedding failed for {entry_id}: {e}");
+    }
+    // After embedding, because candidates are ordered by cosine and this note's
+    // own vector has to exist for that to mean anything. And before the settled
+    // event, or the indicator clears while the judge is still working -- one
+    // model call per candidate is the slowest part of the whole pass.
+    if let Err(e) = state.with_reasoning(|provider| {
+        crate::enrich::propose::propose(&state.background_db(), provider, entry_id, PROPOSE_CAP)
+    }) {
+        eprintln!("proposing failed for {entry_id}: {e}");
+    }
+
+    match done {
+        // No binary or no model yet: the question arrives when one lands.
+        Ok(None) => {}
+        Ok(Some(enriched)) => {
+            if enriched.question_id.is_none() {
+                println!("classified {entry_id}, no question");
+            }
+        }
+        Err(e) => eprintln!("enrichment failed for {entry_id}: {e}"),
+    }
+    state
+        .enriching
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(entry_id);
+    let _ = app.emit("entry://enriched", entry_id);
 }
 
 /// Everything after the microphone stops, separated so the order in which a

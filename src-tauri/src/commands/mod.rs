@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod capture;
 pub mod corpus;
 pub mod enrichment;

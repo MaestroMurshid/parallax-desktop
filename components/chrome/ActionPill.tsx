@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { exportJson, exportTranscripts, parseImport, type ParsedImport } from '@/lib/corpus-io';
+import { getBridge, type UploadPreview } from '@/lib/bridge';
+import { transcriptsMarkdown } from '@/lib/corpus-io';
 import { useApp } from '@/lib/store';
 import styles from './ActionPill.module.css';
 
@@ -9,13 +10,19 @@ const ARM_MS = 4000;
 
 type Menu = 'export' | 'upload' | null;
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** A path is long and the part that matters is the end of it. */
+function shortPath(path: string): string {
+  const parts = path.split(/[\\/]/);
+  return parts.length > 3 ? `…/${parts.slice(-2).join('/')}` : path;
+}
+
 export default function ActionPill() {
   const entries = useApp((s) => s.entries);
-  const edges = useApp((s) => s.edges);
-  const questions = useApp((s) => s.questions);
   const clearAll = useApp((s) => s.clearAll);
   const setSampleLoaded = useApp((s) => s.setSampleLoaded);
-  const importCorpus = useApp((s) => s.importCorpus);
+  const applyUpload = useApp((s) => s.applyUpload);
   const composing = useApp((s) => s.composing);
   const setComposing = useApp((s) => s.setComposing);
   const relayout = useApp((s) => s.relayout);
@@ -23,25 +30,67 @@ export default function ActionPill() {
 
   const [menu, setMenu] = useState<Menu>(null);
   const [armed, setArmed] = useState(false);
-  const [pending, setPending] = useState<ParsedImport | null>(null);
+  const [pending, setPending] = useState<UploadPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** What the last export or upload did, said once, in words. */
+  const [notice, setNotice] = useState<string | null>(null);
+  /** A dialog is open or a file is being written; the buttons wait. */
+  const [busy, setBusy] = useState(false);
   const [tidying, setTidying] = useState(false);
 
   const wrapRef = useRef<HTMLDivElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!menu && !error) return;
+    if (!menu && !error && !notice) return;
     const onDown = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setMenu(null);
         setError(null);
+        setNotice(null);
       }
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [menu, error]);
+  }, [menu, error, notice]);
+
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+
+  function say(text: string) {
+    setError(null);
+    setNotice(text);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 8000);
+  }
+
+  /** Runs one dialog-backed action, and says what went wrong in its own words
+   *  rather than leaving a button that did nothing. */
+  async function act(work: () => Promise<void>) {
+    setMenu(null);
+    setNotice(null);
+    setError(null);
+    setBusy(true);
+    try {
+      await work();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function exportArchive(withAudio: boolean) {
+    void act(async () => {
+      const done = await getBridge().exportArchive(withAudio);
+      if (!done) return;
+      const recordings = withAudio ? ` and ${plural(done.audio, 'recording')}` : '';
+      const missing = done.missingAudio > 0 ? ` — ${plural(done.missingAudio, 'recording')} not found` : '';
+      say(`${plural(done.notes, 'note')}${recordings} saved to ${shortPath(done.path)}${missing}`);
+    });
+  }
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
@@ -65,51 +114,50 @@ export default function ActionPill() {
     void clearAll().then(() => setSampleLoaded(false));
   }
 
-  async function onFile(file: File) {
-    const parsed = parseImport(await file.text());
-    if ('error' in parsed) {
+  function pickUpload() {
+    void act(async () => {
       setPending(null);
-      setError(parsed.error);
-      setMenu(null);
-      return;
-    }
-    setError(null);
-    setPending(parsed);
-    setMenu('upload');
+      const preview = await getBridge().pickUpload();
+      if (!preview) return;
+      setPending(preview);
+      setMenu('upload');
+    });
   }
 
   function run(mode: 'merge' | 'replace') {
-    if (!pending) return;
-    void importCorpus(pending, mode);
+    const preview = pending;
+    if (!preview) return;
     setPending(null);
-    setMenu(null);
+    void act(async () => {
+      await applyUpload(mode);
+      say(`${plural(preview.notes, 'note')} uploaded from ${preview.fileName}`);
+    });
   }
 
   return (
     <div className={styles.pill} ref={wrapRef}>
       {menu === 'export' && (
         <div className={styles.menu}>
-          <button
-            type="button"
-            className={styles.menuItem}
-            onClick={() => {
-              exportTranscripts(all());
-              setMenu(null);
-            }}
-          >
-            <span className={styles.menuLabel}>markdown</span>
-            <span className={styles.menuHint}>transcripts, as written</span>
+          <button type="button" className={styles.menuItem} onClick={() => exportArchive(false)}>
+            <span className={styles.menuLabel}>notes</span>
+            <span className={styles.menuHint}>every note as a file, in one zip</span>
+          </button>
+          <button type="button" className={styles.menuItem} onClick={() => exportArchive(true)}>
+            <span className={styles.menuLabel}>notes + audio</span>
+            <span className={styles.menuHint}>with the recordings, re-uploadable</span>
           </button>
           <button
             type="button"
             className={styles.menuItem}
-            onClick={() => {
-              exportJson(all(), edges, [...questions.values()].flat());
-              setMenu(null);
-            }}
+            onClick={() =>
+              void act(async () => {
+                const path = await getBridge().exportTranscripts(transcriptsMarkdown(all()));
+                if (path) say(`transcripts saved to ${shortPath(path)}`);
+              })
+            }
           >
-            <span className={styles.menuLabel}>json</span>
-            <span className={styles.menuHint}>everything, re-uploadable</span>
+            <span className={styles.menuLabel}>markdown</span>
+            <span className={styles.menuHint}>transcripts, as written</span>
           </button>
         </div>
       )}
@@ -117,7 +165,8 @@ export default function ActionPill() {
       {menu === 'upload' && pending && (
         <div className={styles.menu}>
           <span className={styles.menuHead}>
-            {pending.entries.length} entries · {pending.edges.length} edges
+            {plural(pending.notes, 'note')} · {plural(pending.edges, 'edge')}
+            {pending.recordings > 0 && ` · ${plural(pending.recordings, 'recording')}`}
           </span>
           <button type="button" className={styles.menuItem} onClick={() => run('merge')}>
             <span className={styles.menuLabel}>merge</span>
@@ -131,6 +180,11 @@ export default function ActionPill() {
       )}
 
       {error && <div className={styles.menu}><span className={styles.menuHead}>{error}</span></div>}
+      {notice && !error && !menu && (
+        <div className={styles.menu} role="status">
+          <span className={styles.menuHead}>{notice}</span>
+        </div>
+      )}
 
       {/* §4 — the typed path needs a visible entrance, not just a hotkey. */}
       <button
@@ -175,34 +229,19 @@ export default function ActionPill() {
       <button
         type="button"
         className={styles.action}
-        disabled={count === 0}
-        onClick={() => setMenu(menu === 'export' ? null : 'export')}
+        disabled={count === 0 || busy}
+        onClick={() => {
+          setNotice(null);
+          setError(null);
+          setMenu(menu === 'export' ? null : 'export');
+        }}
       >
         export
       </button>
 
-      <button
-        type="button"
-        className={styles.action}
-        onClick={() => {
-          setError(null);
-          fileRef.current?.click();
-        }}
-      >
+      <button type="button" className={styles.action} disabled={busy} onClick={pickUpload}>
         upload
       </button>
-
-      <input
-        ref={fileRef}
-        type="file"
-        accept="application/json,.json"
-        className={styles.file}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (f) void onFile(f);
-        }}
-      />
 
       <span className={styles.divider} aria-hidden />
 

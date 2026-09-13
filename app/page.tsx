@@ -11,6 +11,7 @@ import PlayerPill from '@/components/chrome/PlayerPill';
 import StatusBar from '@/components/chrome/StatusBar';
 import TopBar from '@/components/chrome/TopBar';
 import EntryView from '@/components/entry/EntryView';
+import FileView from '@/components/entry/FileView';
 import ChatPanel from '@/components/chat/ChatPanel';
 import ListView, { type RoleFilter } from '@/components/list/ListView';
 import Sidebar from '@/components/list/Sidebar';
@@ -37,6 +38,9 @@ function matchesHotkey(e: KeyboardEvent, hotkey: string): boolean {
 export default function Page() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [onboarded, setOnboarded] = useState(false);
+  /** Decided once at launch. Asked again mid-session, a download finishing or
+   *  a model being removed would throw someone out of the app into onboarding. */
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   // The capture panel is its own borderless always-on-top Tauri window (§4),
   // pointed at this same page. Same markup, no second route (§9.1). Null until
   // mount, because a static export has no window to ask at prerender time and
@@ -61,7 +65,12 @@ export default function Page() {
     if (panel) document.documentElement.dataset.window = 'panel';
     void (async () => {
       await initBridge();
-      const loadedSettings = await getBridge().getSettings();
+      const [loadedSettings, setUp] = await Promise.all([
+        getBridge().getSettings(),
+        getBridge().setupComplete(),
+      ]);
+      // A development override only; unset, first run is decided by the disk.
+      setNeedsOnboarding(process.env.NEXT_PUBLIC_ALWAYS_ONBOARD === '1' || !setUp);
       setSettings(loadedSettings);
       // The canvas and the list draw the register treatment without being
       // handed the whole Settings object, so the store carries this one field.
@@ -116,7 +125,8 @@ export default function Page() {
         // In the canvas, an open entry makes the hotkey mean "respond to this".
         // The panel has no such context.
         const target = state.selectedEntryId;
-        const answering = !isPanel && state.overlay === 'entry' && target ? target : null;
+        const onNote = state.overlay === 'entry' || state.overlay === 'file';
+        const answering = !isPanel && onNote && target ? target : null;
         void state.startRecording(answering);
       })();
     });
@@ -164,7 +174,8 @@ export default function Page() {
           // the response closes, not what permits it: an entry you have already
           // answered is exactly the one you come back to months later.
           const target = state.selectedEntryId;
-          const answering = state.overlay === 'entry' && target ? target : null;
+          const onNote = state.overlay === 'entry' || state.overlay === 'file';
+          const answering = onNote && target ? target : null;
           void state.startRecording(answering);
         }
         return;
@@ -209,6 +220,9 @@ export default function Page() {
         }
         if (state.connectSource) state.setConnectSource(null);
         else if (state.composing) state.setComposing(false);
+        // The file was opened from the note, so escape goes back to the note
+        // rather than past it to the canvas.
+        else if (state.overlay === 'file') state.setOverlay('entry');
         else if (state.overlay !== 'none') state.closeOverlay();
         else state.dismissPanel();
       }
@@ -229,10 +243,10 @@ export default function Page() {
     );
   }
 
-  // Mockup flag: replay onboarding on every load regardless of saved settings.
-  // Real behaviour is "first run only" — drop NEXT_PUBLIC_ALWAYS_ONBOARD to get it.
-  const alwaysOnboard = process.env.NEXT_PUBLIC_ALWAYS_ONBOARD === '1';
-  if (settings && (alwaysOnboard ? !onboarded : settings.modelId === null)) {
+  // Nothing until setup is known, or an installed app flashes onboarding for a
+  // frame before opening on the notes.
+  if (!isPanel && (settings === null || needsOnboarding === null)) return null;
+  if (settings && needsOnboarding && !onboarded) {
     return (
       <main className={styles.main}>
         <Onboarding
@@ -285,6 +299,7 @@ export default function Page() {
       {overlay === 'entry' && settings && (
         <EntryView hotkey={settings.hotkey} liveRegister={settings.liveRegister} />
       )}
+      {overlay === 'file' && <FileView />}
       {overlay === 'tasks' && <TaskList />}
       {overlay === 'settings' && settings && (
         <SettingsPanel

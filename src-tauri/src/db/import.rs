@@ -81,6 +81,14 @@ pub fn import(conn: &Connection, data: &CorpusImport, mode: ImportMode) -> Resul
         super::questions::insert(&tx, question, &entry.transcript)?;
     }
 
+    // A path the incoming entries still use is not orphaned, however many rows
+    // pointed at it before. Replacing a corpus with its own export deleted
+    // every recording it restored without this.
+    if !orphaned.is_empty() {
+        let kept: HashSet<String> = audio_paths(&tx)?.into_iter().collect();
+        orphaned.retain(|path| !kept.contains(path));
+    }
+
     tx.commit()?;
     Ok(orphaned)
 }
@@ -397,6 +405,25 @@ mod tests {
 
         let orphaned = import(&conn, &CorpusImport::default(), ImportMode::Replace).unwrap();
         assert_eq!(orphaned, vec!["audio/mine.wav".to_string()]);
+    }
+
+    /// Found in the packaged app: uploading the app's own export with replace
+    /// deleted every recording it restored. All the old rows' paths were
+    /// reported as orphaned, including the ones the incoming entries point at,
+    /// so the caller unlinked files the corpus still used.
+    #[test]
+    fn a_replace_keeps_the_recordings_its_own_entries_still_use() {
+        let conn = open_in_memory().unwrap();
+        for (id, at) in [("kept", "2024-01-01T00:00:00.000Z"), ("gone", "2024-01-02T00:00:00.000Z")] {
+            super::super::entries::insert(&conn, &entry(id, at, true)).unwrap();
+        }
+        let file = CorpusImport {
+            entries: vec![entry("kept", "2024-01-01T00:00:00.000Z", true)],
+            ..Default::default()
+        };
+
+        let orphaned = import(&conn, &file, ImportMode::Replace).unwrap();
+        assert_eq!(orphaned, vec!["audio/gone.wav".to_string()]);
     }
 
     /// A merge removes nothing, so it can orphan nothing.

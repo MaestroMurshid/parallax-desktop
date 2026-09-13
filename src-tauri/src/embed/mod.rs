@@ -68,6 +68,49 @@ pub fn embed_now(conn: &Connection, embedder: &dyn Embedder, entry_id: &str) -> 
     Ok(())
 }
 
+/// Every note this model has not embedded, with no per-capture cap.
+///
+/// For an upload, which arrives with no vectors at all: until they are back,
+/// `ask` finds nothing and candidates lose their ordering. Locks per note
+/// rather than across the pass, so a few hundred notes of embedding never
+/// holds enrichment up behind it.
+pub fn catch_up(db: &std::sync::Mutex<Connection>, embedder: &dyn Embedder) -> Result<usize> {
+    const BATCH: usize = 32;
+    let lock = || db.lock().unwrap_or_else(|p| p.into_inner());
+    let model = embedder.model_id();
+    // A note that fails stays missing, so it is remembered here or every batch
+    // would hand it back and the pass would never end.
+    let mut tried = std::collections::HashSet::new();
+    let mut done = 0;
+    loop {
+        let batch: Vec<(String, String)> = {
+            let conn = lock();
+            let mut batch = Vec::new();
+            for id in db::vectors::missing(&conn, &model, tried.len() + BATCH)? {
+                if !tried.insert(id.clone()) {
+                    continue;
+                }
+                if let Some(entry) = db::entries::get(&conn, &id)? {
+                    batch.push((id, entry.transcript));
+                }
+            }
+            batch
+        };
+        if batch.is_empty() {
+            return Ok(done);
+        }
+        for (id, transcript) in batch {
+            match embedder.embed(&transcript) {
+                Ok(vector) => match db::vectors::set(&lock(), &id, &model, &vector) {
+                    Ok(()) => done += 1,
+                    Err(e) => eprintln!("storing a vector failed for {id}: {e}"),
+                },
+                Err(e) => eprintln!("embedding failed for {id}: {e}"),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod fake {
     use super::*;
@@ -207,6 +250,41 @@ mod tests {
 
         assert_eq!(backfill(&conn, &FakeEmbedder::new("m"), 2).unwrap(), 1);
         assert!(db::vectors::get(&conn, &third).unwrap().is_some());
+    }
+
+    /// Found in the packaged app: an upload restores notes but no vectors, and
+    /// after replacing a corpus with its own archive `ask` answered "No relevant
+    /// notes found" -- 16 notes, 0 vectors -- because the only thing refilling
+    /// them was the capture backfill, five notes per recording.
+    #[test]
+    fn an_upload_is_embedded_in_full_not_five_at_a_time() {
+        let conn = db::open_in_memory().unwrap();
+        let ids: Vec<String> = (0..12)
+            .map(|i| note(&conn, &format!("note {i}"), &format!("2024-01-{:02}T00:00:00Z", i + 1)))
+            .collect();
+        let db = std::sync::Mutex::new(conn);
+
+        assert_eq!(catch_up(&db, &FakeEmbedder::new("m")).unwrap(), 12);
+        let conn = db.lock().unwrap();
+        for id in &ids {
+            assert!(db::vectors::get(&conn, id).unwrap().is_some(), "{id} was left out");
+        }
+    }
+
+    /// A refused note stays missing, so a loop that asks for "whatever is still
+    /// missing" would ask for it forever.
+    #[test]
+    fn a_refused_note_neither_stops_the_catch_up_nor_loops_it() {
+        let conn = db::open_in_memory().unwrap();
+        let bad = note(&conn, "bad", "2024-01-01T00:00:00Z");
+        for i in 0..40 {
+            note(&conn, &format!("good {i}"), &format!("2024-02-01T00:00:{i:02}Z"));
+        }
+        let db = std::sync::Mutex::new(conn);
+
+        let e = FakeEmbedder::refusing("m", &["bad"]);
+        assert_eq!(catch_up(&db, &e).unwrap(), 40);
+        assert!(db::vectors::get(&db.lock().unwrap(), &bad).unwrap().is_none());
     }
 
     /// One note the model chokes on must not cost the rest of the corpus.

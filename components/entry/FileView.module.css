@@ -1,0 +1,440 @@
+/* Same slot and width as the entry sheet it replaces, so swapping between the
+   note and its file never moves the edge you are reading against. */
+.sheet {
+  position: absolute;
+  top: var(--chrome-top);
+  right: var(--pill-inset);
+  bottom: var(--chrome-bottom);
+  z-index: 5;
+  width: var(--entry-sheet-w);
+  max-width: calc(100vw - var(--pill-inset) * 2);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px 0;
+  background: var(--dimmed-bg);
+  border: 1px solid var(--edge);
+  border-radius: var(--pill-radius);
+  box-shadow: var(--pill-shadow);
+  animation: pillSlideIn 190ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  container-type: inline-size;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.back,
+.headerAction,
+.tab,
+.tabActive,
+.link {
+  position: relative;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.back {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.headerActions {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.headerAction {
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.back:hover,
+.headerAction:hover,
+.tab:hover:not(:disabled) {
+  color: var(--title);
+}
+
+/* The file's own identity: its name, its size, and which reading of it. */
+.fileBar {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.fileName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--size-body);
+  color: var(--title);
+}
+
+.fileSize {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+  flex-shrink: 0;
+}
+
+.tabs {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.tab,
+.tabActive {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.08em;
+  color: var(--edge-label);
+  text-underline-offset: 4px;
+}
+
+.tabActive {
+  color: var(--title);
+  text-decoration: underline;
+}
+
+.tab:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.empty {
+  margin: 18px 0;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+/* ---- file: the exact text, numbered ---------------------------------------- */
+
+.source {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0 -24px;
+  padding: 12px 0 24px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  line-height: 1.7;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: 44px max-content;
+  min-width: 100%;
+}
+
+.line:hover {
+  background: color-mix(in srgb, var(--title) 4%, transparent);
+}
+
+.gutter {
+  padding-right: 12px;
+  text-align: right;
+  color: var(--edge-label);
+  opacity: 0.55;
+  user-select: none;
+}
+
+.code,
+.fence,
+.bodyLine {
+  padding-right: 24px;
+  white-space: pre;
+  tab-size: 2;
+  font-family: inherit;
+}
+
+.code {
+  color: var(--meta);
+}
+
+.key {
+  color: var(--title);
+}
+
+.string {
+  color: var(--edge-label);
+}
+
+.literal {
+  color: var(--stroke-hub);
+}
+
+.fence {
+  color: var(--edge-label);
+  letter-spacing: 0.2em;
+}
+
+/* The body is prose, so it wraps to the panel rather than running off it. */
+.bodyLine {
+  max-width: calc(var(--entry-sheet-w) - 92px);
+  white-space: pre-wrap;
+  color: var(--title);
+}
+
+/* ---- fields: the same file, read as what it records ------------------------- */
+
+.fields {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -24px;
+  padding: 16px 24px 28px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 7px 14px;
+  margin: 0;
+  font-size: var(--size-meta);
+  line-height: 1.5;
+}
+
+.facts dt {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.04em;
+  color: var(--edge-label);
+  padding-top: 1px;
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--title);
+  overflow-wrap: anywhere;
+}
+
+.title {
+  font-family: var(--font-serif);
+  font-size: var(--size-question);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--meta);
+}
+
+.summary {
+  margin: 16px 0 0;
+  font-family: var(--font-serif);
+  font-size: clamp(14px, 2.4cqw, 16px);
+  line-height: 1.5;
+  color: var(--meta);
+}
+
+.group {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+}
+
+.label {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--edge-label);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  font-size: var(--size-meta);
+  color: var(--title);
+}
+
+.anchors {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--meta);
+  overflow-wrap: anywhere;
+}
+
+.item,
+.itemSettled {
+  padding: 10px 0;
+}
+
+.item + .item,
+.item + .itemSettled,
+.itemSettled + .item,
+.itemSettled + .itemSettled {
+  border-top: 1px dashed var(--edge);
+}
+
+.itemSettled {
+  opacity: 0.62;
+}
+
+.itemHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.relation {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+.link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--size-body);
+  color: var(--title);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 120ms;
+}
+
+.link:hover {
+  text-decoration-color: currentColor;
+}
+
+.status {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+.question {
+  margin: 6px 0 0;
+  font-family: var(--font-serif);
+  font-size: clamp(14px, 2.4cqw, 15px);
+  line-height: 1.5;
+  color: var(--meta);
+}
+
+.quoted {
+  margin: 0 0 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--edge);
+  font-size: var(--size-meta);
+  line-height: 1.55;
+  color: var(--meta);
+  font-style: italic;
+}
+
+.provider {
+  margin: 6px 0 0;
+  font-size: var(--size-micro);
+  color: var(--edge-label);
+}
+
+.items {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--size-meta);
+  line-height: 1.6;
+  color: var(--title);
+}
+
+.done {
+  color: var(--meta);
+  text-decoration: line-through;
+}
+
+.fingerprint {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 28px;
+}
+
+.fingerprint span {
+  width: 6px;
+  background: var(--stroke-hub);
+  border-radius: 1px;
+}
+
+.body {
+  margin: 0;
+  font-size: var(--size-body);
+  line-height: 1.7;
+  color: var(--title);
+  white-space: pre-wrap;
+}
+
+@keyframes pillSlideIn {
+  from {
+    transform: translateX(14px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+.back:focus-visible,
+.headerAction:focus-visible,
+.tab:focus-visible,
+.tabActive:focus-visible,
+.link:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 3px;
+}
+
+/* WCAG 2.2 target size, grown with a pseudo-element so nothing reflows. */
+.back::after,
+.headerAction::after,
+.tab::after,
+.tabActive::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(calc(100% + 8px), 24px);
+  height: max(calc(100% + 10px), 24px);
+}

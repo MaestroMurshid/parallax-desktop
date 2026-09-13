@@ -111,6 +111,10 @@ fn anchor_quote(entry: &Entry, raw: &str) -> Option<Span> {
     anchor(entry, &words.join(" "))
 }
 
+/// Two notes share one context, so each gets a little under half of what a
+/// classification gives its one, less the connection prompt's own 213 tokens.
+const JUDGE_TRANSCRIPT_BYTES: usize = 4_200;
+
 /// What the edge from `a` to `b` says, or `None`.
 pub fn judge(provider: &dyn LlmProvider, a: &Entry, b: &Entry) -> Result<Option<Proposal>> {
     // Dated, because `returns to` is a claim about time: the second note
@@ -121,7 +125,10 @@ pub fn judge(provider: &dyn LlmProvider, a: &Entry, b: &Entry) -> Result<Option<
 
 Second note, {}:
 {}",
-        a.created_at, a.transcript, b.created_at, b.transcript
+        a.created_at,
+        super::within(&a.transcript, JUDGE_TRANSCRIPT_BYTES),
+        b.created_at,
+        super::within(&b.transcript, JUDGE_TRANSCRIPT_BYTES)
     );
     let ask = Ask::new(CONNECT_SYSTEM, &user).constrained(connect_schema());
 
@@ -169,6 +176,24 @@ mod tests {
     use super::*;
     use crate::llm::fake::FakeProvider;
     use crate::model::{Register, Role};
+
+    /// Found in the packaged app: the corpus never got a single connection.
+    /// The model named them -- `extends`, `questions` -- but sorted keys put
+    /// `question` ahead of the quotes, the grammar follows that order, and once
+    /// the model wrote a quote as the prompt asks, the question could no longer
+    /// be written. Every proposal then failed the empty-question check. Measured
+    /// on the real model: 0 of 4 authored pairs landed sorted, 4 of 4 in order.
+    #[test]
+    fn the_schema_lists_fields_in_the_order_the_prompt_asks_for_them() {
+        let schema = connect_schema();
+        let keys: Vec<&str> = schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["relation", "quoteA", "quoteB", "question"]);
+    }
 
     const SAID_A: &str = "Database indexes trade write performance for faster reads.";
     const SAID_B: &str = "Retries can make distributed systems less reliable under load.";

@@ -12,12 +12,72 @@ pub enum Residency {
     Cold,
 }
 
+impl Residency {
+    /// How long the reasoning model is kept loaded after it was last used.
+    ///
+    /// Neither keeps it forever. Measured on the RTX 3050: a loaded model holds
+    /// the card powered on at about 6W for as long as it stays, while an unused
+    /// card powers off entirely -- the difference between a laptop that lasts
+    /// the afternoon and one that does not. A cold start costs about 4s, so a
+    /// release is cheap to undo.
+    pub fn keep_for(self) -> std::time::Duration {
+        match self {
+            // A session: notes recorded minutes apart each get their question
+            // in about two seconds.
+            Residency::Warm => std::time::Duration::from_secs(10 * 60),
+            // Long enough to outlast one capture, whose classify, question and
+            // connection judge run back to back; short enough to give the card
+            // back as soon as that is done.
+            Residency::Cold => std::time::Duration::from_secs(30),
+        }
+    }
+}
+
+#[cfg(test)]
+mod residency_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Warm is for a session: notes recorded minutes apart each get their
+    /// question in about two seconds rather than paying a load first.
+    #[test]
+    fn warm_outlasts_a_recording_session() {
+        assert!(Residency::Warm.keep_for() >= Duration::from_secs(5 * 60));
+    }
+
+    /// Cold gives the card back almost at once, but not inside one capture:
+    /// classify, question and the connection judge run back to back, and
+    /// releasing between them would reload the model for each.
+    #[test]
+    fn cold_releases_soon_but_not_mid_capture() {
+        let keep = Residency::Cold.keep_for();
+        assert!(keep <= Duration::from_secs(60), "{keep:?}");
+        assert!(keep >= Duration::from_secs(15), "{keep:?}");
+    }
+
+    #[test]
+    fn warm_keeps_longer_than_cold() {
+        assert!(Residency::Warm.keep_for() > Residency::Cold.keep_for());
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TranscriptionModel {
     Tiny,
     Base,
     Small,
+}
+
+impl TranscriptionModel {
+    /// The catalogue id, which is also the file's name on disk.
+    pub fn model_id(self) -> &'static str {
+        match self {
+            TranscriptionModel::Tiny => "whisper-tiny",
+            TranscriptionModel::Base => "whisper-base",
+            TranscriptionModel::Small => "whisper-small",
+        }
+    }
 }
 
 /// What a model runs on.

@@ -176,9 +176,14 @@ pub fn run() {
                 })
                 .build(),
         )
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             show_capture,
             hide_capture,
+            commands::archive::export_archive,
+            commands::archive::export_transcripts,
+            commands::archive::pick_upload,
+            commands::archive::apply_upload,
             commands::corpus::list_entries,
             commands::capture::start_recording,
             commands::capture::stop_recording,
@@ -217,6 +222,7 @@ pub fn run() {
             commands::corpus::clear_sample_corpus,
             commands::models::get_system_profile,
             commands::models::list_models,
+            commands::models::setup_complete,
             commands::models::download_model,
             commands::models::models_location,
             commands::system::get_settings,
@@ -231,6 +237,9 @@ pub fn run() {
             let root = state::resolve_root(&app_data);
             println!("corpus at {}", root.display());
             let app_state = state::AppState::open(root)?;
+            // Before anything spawns, so a server orphaned by a crash is gone
+            // before this run tries to fit its own model beside it.
+            llm::llama_server::reap_orphans(&app_state.models_dir());
             // Bundled beside the installed app; in a dev build it is still in
             // the source tree, which is why both are tried.
             for candidate in [
@@ -250,6 +259,19 @@ pub fn run() {
                 }
             }
             app.manage(app_state);
+
+            // Gives the graphics card back once the reasoning model has sat
+            // unused for as long as the residency setting keeps it. A loaded
+            // model holds the card powered on for as long as it is loaded, and
+            // this was the only thing that ever let it go -- the setting existed
+            // and nothing read it.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(15));
+                if let Some(state) = handle.try_state::<state::AppState>() {
+                    state.release_idle_at(std::time::Instant::now());
+                }
+            });
 
             // Not fatal. Another instance, or any other app holding the same
             // combination, makes this fail -- and aborting setup means the

@@ -1,8 +1,9 @@
 import type { StateCreator } from 'zustand';
 import type { AppState, Mutators } from './index';
 
-/** §9.1 — one page with panels, not routes. Overlays are client state. */
-export type Overlay = 'none' | 'entry' | 'tasks' | 'settings' | 'onboarding';
+/** §9.1 — one page with panels, not routes. Overlays are client state.
+ *  `file` is the selected entry read as its MDX file, in the entry sheet's place. */
+export type Overlay = 'none' | 'entry' | 'file' | 'tasks' | 'settings' | 'onboarding';
 export type Theme = 'system' | 'light' | 'dark';
 /**
  * The list is the way in. The graph is not intuitive on first contact, so it
