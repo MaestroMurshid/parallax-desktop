@@ -1,10 +1,11 @@
 //! User-defined note types (§3.6), persisted.
 //!
 //! Built-ins live in this table too, seeded on every open rather than kept as
-//! a hardcoded fallback: the classifier's enum (`entries::type_ids`) and the
-//! gate's tier lookup both read one table instead of a table plus a constant
-//! that has to be kept in sync with it.
+//! a hardcoded fallback: the classifier's enum (`classifiable`) and the
+//! gate's tier lookup (`tier_for`) both read one table instead of a table
+//! plus a constant that has to be kept in sync with it.
 
+use crate::db::import::ImportMode;
 use crate::error::{Error, Result};
 use crate::model::{Mark, NewType, ProbeTier, Role, TypeDef, TypePatch};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -128,6 +129,75 @@ pub fn list(conn: &Connection) -> Result<Vec<TypeDef>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Types worth handing to the classifier: everything except a type whose
+/// match is the literal sentinel "manual" (§3.6) -- those exist for the user
+/// to tag by hand, and a description that says nothing but "manual" gives the
+/// model nothing to match a transcript against.
+pub fn classifiable(conn: &Connection) -> Result<Vec<TypeDef>> {
+    Ok(list(conn)?.into_iter().filter(|t| !is_manual(&t.match_text)).collect())
+}
+
+fn is_manual(match_text: &str) -> bool {
+    match_text.trim().eq_ignore_ascii_case("manual")
+}
+
+/// Custom types only, for an archive to carry (§3.6). Built-ins are seeded,
+/// never exported: every install already has them, and an upload that could
+/// overwrite a built-in's own definition would be able to disable the tier
+/// narrowing every other type depends on.
+pub fn exportable(conn: &Connection) -> Result<Vec<TypeDef>> {
+    Ok(list(conn)?.into_iter().filter(|t| !t.built_in).collect())
+}
+
+/// Restores custom type definitions from an upload, the same choice `mode`
+/// already means for entries: `merge` adds whatever id is missing and keeps
+/// the local definition on a clash, `replace` clears every custom type first.
+/// Built-in ids are never touched either way -- an archive naming one is
+/// ignored rather than refusing the whole restore over a row that was never
+/// going to change anything.
+///
+/// A type that fails `create`'s own validation (a malformed id from a
+/// hand-edited file, say) is skipped rather than failing the restore: the
+/// notes carrying it still land, filed under whatever their role already
+/// gives them until the type is fixed or recreated by hand.
+pub fn restore_types(conn: &Connection, types: &[TypeDef], mode: ImportMode) -> Result<()> {
+    if mode == ImportMode::Replace {
+        for existing in exportable(conn)? {
+            delete(conn, &existing.id)?;
+        }
+    }
+    for t in types {
+        if is_built_in_id(&t.id) || get(conn, &t.id)?.is_some() {
+            continue;
+        }
+        let draft = NewType {
+            id: t.id.clone(),
+            label: t.label.clone(),
+            match_text: t.match_text.clone(),
+            prompt: t.prompt.clone(),
+            tier: t.tier,
+            role: t.role,
+            mark: t.mark.clone(),
+        };
+        if let Err(e) = create(conn, draft) {
+            eprintln!("skipping type {} from upload: {e}", t.id);
+        }
+    }
+    Ok(())
+}
+
+/// The tier that should narrow the gate for an entry carrying this type, or
+/// `None` when nothing should narrow it.
+///
+/// A built-in's `tier` column is decorative -- the gate already hardcodes
+/// built-in behaviour by role, the same tests it always has -- and a type
+/// that no longer exists (deleted since the entry was classified, though the
+/// delete itself falls every carrying note back to its role in the same
+/// transaction) narrows nothing rather than silencing a note by accident.
+pub fn tier_for(conn: &Connection, type_id: &str) -> Result<Option<ProbeTier>> {
+    Ok(get(conn, type_id)?.filter(|t| !t.built_in).map(|t| t.tier))
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<Option<TypeDef>> {
     conn.query_row(
         &format!("SELECT {SELECT_COLUMNS} FROM types WHERE id = ?1"),
@@ -230,15 +300,23 @@ pub fn update(conn: &Connection, id: &str, patch: TypePatch) -> Result<TypeDef> 
 /// Deletes a user type. Notes carrying it fall back to their own role's
 /// built-in id, in the same transaction — a note is never left pointing at a
 /// type row that no longer exists.
-pub fn delete(conn: &mut Connection, id: &str) -> Result<()> {
+pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     if is_built_in_id(id) {
         return Err(Error::Other(format!("{id} is a built-in type and cannot be deleted")));
     }
-    let tx = conn.transaction()?;
+    // Shared rather than exclusive, like every other transaction in this
+    // codebase (`db::entries`, `db::sample`, `db::import`) -- the caller
+    // holds `MutexGuard<Connection>`, not an owned `Connection` it could lend
+    // mutably.
+    let tx = conn.unchecked_transaction()?;
     // The built-in ids are exactly the role names, so an orphaned entry's own
     // `role` column is already the fallback id — no lookup table needed.
+    // `type_locked` is cleared with it: the lock recorded a person's choice of
+    // *this* type, which no longer exists, so nothing is being taken back by
+    // clearing it -- and leaving it set would block every future
+    // re-classification over a type that is already gone.
     tx.execute(
-        "UPDATE entries SET type_id = role WHERE type_id = ?1",
+        "UPDATE entries SET type_id = role, type_locked = 0 WHERE type_id = ?1",
         params![id],
     )?;
     let changed = tx.execute("DELETE FROM types WHERE id = ?1 AND built_in = 0", params![id])?;
@@ -265,6 +343,137 @@ mod tests {
             role: Some(Role::Position),
             mark: Some(Mark::Char { char: "†".into() }),
         }
+    }
+
+    #[test]
+    fn exportable_carries_only_custom_types() {
+        let conn = open_in_memory().unwrap();
+        create(&conn, draft("wondering")).unwrap();
+        let found = exportable(&conn).unwrap();
+        let ids: Vec<&str> = found.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["wondering"], "a built-in has no business in an archive");
+    }
+
+    /// Merge adds what a receiving corpus is missing and keeps its own
+    /// definition where an id already exists -- the same choice `mode`
+    /// already means for entries.
+    #[test]
+    fn merging_types_adds_missing_and_keeps_a_local_clash() {
+        let conn = open_in_memory().unwrap();
+        create(&conn, draft("wondering")).unwrap();
+        update(
+            &conn,
+            "wondering",
+            TypePatch {
+                label: "the local version".into(),
+                match_text: "kept, not overwritten".into(),
+                prompt: None,
+                tier: ProbeTier::Heavy,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+
+        let incoming = vec![
+            TypeDef {
+                id: "wondering".into(),
+                label: "the uploaded version".into(),
+                built_in: false,
+                match_text: "should not land".into(),
+                prompt: None,
+                tier: ProbeTier::Safe,
+                role: None,
+                mark: None,
+                auto_approved: true,
+            },
+            TypeDef {
+                id: "gratitude".into(),
+                label: "gratitude".into(),
+                built_in: false,
+                match_text: "noticing something good".into(),
+                prompt: None,
+                tier: ProbeTier::Heavy,
+                role: None,
+                mark: None,
+                auto_approved: true,
+            },
+        ];
+        restore_types(&conn, &incoming, ImportMode::Merge).unwrap();
+
+        let kept = get(&conn, "wondering").unwrap().unwrap();
+        assert_eq!(kept.label, "the local version", "merge overwrote a local definition");
+        assert!(get(&conn, "gratitude").unwrap().is_some(), "a missing type was not added");
+    }
+
+    #[test]
+    fn replacing_types_clears_local_customs_first() {
+        let conn = open_in_memory().unwrap();
+        create(&conn, draft("wondering")).unwrap();
+
+        let incoming = vec![TypeDef {
+            id: "gratitude".into(),
+            label: "gratitude".into(),
+            built_in: false,
+            match_text: "noticing something good".into(),
+            prompt: None,
+            tier: ProbeTier::Heavy,
+            role: None,
+            mark: None,
+            auto_approved: true,
+        }];
+        restore_types(&conn, &incoming, ImportMode::Replace).unwrap();
+
+        assert!(get(&conn, "wondering").unwrap().is_none(), "the old custom type survived a replace");
+        assert!(get(&conn, "gratitude").unwrap().is_some());
+        assert_eq!(list(&conn).unwrap().len(), 4, "three built-ins plus the one restored type");
+    }
+
+    /// A built-in in the archive (an old export, or a hand-edited one) must
+    /// not let an upload redefine what the gate hardcodes behaviour for.
+    #[test]
+    fn a_built_in_id_in_the_upload_is_ignored() {
+        let conn = open_in_memory().unwrap();
+        let incoming = vec![TypeDef {
+            id: "position".into(),
+            label: "hijacked".into(),
+            built_in: false,
+            match_text: "anything".into(),
+            prompt: None,
+            tier: ProbeTier::Silent,
+            role: None,
+            mark: None,
+            auto_approved: true,
+        }];
+        restore_types(&conn, &incoming, ImportMode::Merge).unwrap();
+
+        let position = get(&conn, "position").unwrap().unwrap();
+        assert!(position.built_in);
+        assert_eq!(position.label, "position", "a built-in was overwritten by an upload");
+    }
+
+    /// An old archive predates this and simply has no types to restore.
+    #[test]
+    fn an_empty_upload_leaves_the_built_ins_alone() {
+        let conn = open_in_memory().unwrap();
+        restore_types(&conn, &[], ImportMode::Merge).unwrap();
+        assert_eq!(list(&conn).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_custom_types_tier_narrows_the_gate_but_a_built_ins_does_not() {
+        let conn = open_in_memory().unwrap();
+        create(&conn, draft("wondering")).unwrap();
+        assert_eq!(tier_for(&conn, "wondering").unwrap(), Some(ProbeTier::Heavy));
+        // position's own tier column is 'safe', but that is not what governs
+        // the gate for a built-in -- role does, unconditionally.
+        assert_eq!(tier_for(&conn, "position").unwrap(), None);
+    }
+
+    #[test]
+    fn a_type_that_no_longer_exists_narrows_nothing() {
+        let conn = open_in_memory().unwrap();
+        assert_eq!(tier_for(&conn, "long-gone").unwrap(), None);
     }
 
     #[test]
@@ -356,7 +565,7 @@ mod tests {
 
     #[test]
     fn a_built_in_cannot_be_updated_or_deleted() {
-        let mut conn = open_in_memory().unwrap();
+        let conn = open_in_memory().unwrap();
         let patch = TypePatch {
             label: "renamed".into(),
             match_text: "x".into(),
@@ -366,13 +575,13 @@ mod tests {
             mark: None,
         };
         assert!(update(&conn, "position", patch).is_err());
-        assert!(delete(&mut conn, "position").is_err());
+        assert!(delete(&conn, "position").is_err());
     }
 
     #[test]
     fn deleting_an_unknown_type_is_an_error() {
-        let mut conn = open_in_memory().unwrap();
-        assert!(delete(&mut conn, "no-such-type").is_err());
+        let conn = open_in_memory().unwrap();
+        assert!(delete(&conn, "no-such-type").is_err());
     }
 
     /// The rule from §3.6: a note never loses its type entirely, it falls back
@@ -380,7 +589,7 @@ mod tests {
     /// role names, so that fallback needs no lookup that could itself be wrong.
     #[test]
     fn deleting_a_type_falls_every_note_carrying_it_back_to_its_own_role() {
-        let mut conn = open_in_memory().unwrap();
+        let conn = open_in_memory().unwrap();
         create(&conn, draft("wondering")).unwrap();
         conn.execute(
             "INSERT INTO entries (id, transcript, created_at, x, y, role, register,
@@ -391,7 +600,7 @@ mod tests {
         )
         .unwrap();
 
-        delete(&mut conn, "wondering").unwrap();
+        delete(&conn, "wondering").unwrap();
 
         let type_id: String = conn
             .query_row("SELECT type_id FROM entries WHERE id = 'e1'", [], |r| r.get(0))
@@ -400,11 +609,40 @@ mod tests {
         assert!(get(&conn, "wondering").unwrap().is_none());
     }
 
+    /// A locked manual choice must not survive the type it named -- keeping
+    /// the lock would block every future re-classification over a type that
+    /// no longer exists in the editor at all.
+    #[test]
+    fn deleting_a_type_clears_the_lock_on_notes_that_had_it_manually_set() {
+        let conn = open_in_memory().unwrap();
+        create(&conn, draft("wondering")).unwrap();
+        conn.execute(
+            "INSERT INTO entries (id, transcript, created_at, x, y, role, register,
+             type_id, type_locked, resolved, title, duration_ms, unfinished, local_only, is_sample)
+             VALUES ('e1', 'said', '2024-01-01T00:00:00Z', 0, 0, 'evidence', 'neutral',
+             'wondering', 1, 0, 't', 40000, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+
+        delete(&conn, "wondering").unwrap();
+
+        let (type_id, locked): (String, i64) = conn
+            .query_row(
+                "SELECT type_id, type_locked FROM entries WHERE id = 'e1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(type_id, "evidence");
+        assert_eq!(locked, 0, "a lock on a type that no longer exists must clear");
+    }
+
     /// The transaction is one write, not two: the note must never observe a
     /// state where the type is gone but its type_id has not moved yet.
     #[test]
     fn the_fallback_and_the_delete_happen_together() {
-        let mut conn = open_in_memory().unwrap();
+        let conn = open_in_memory().unwrap();
         create(&conn, draft("wondering")).unwrap();
         conn.execute(
             "INSERT INTO entries (id, transcript, created_at, x, y, role, register,
@@ -414,7 +652,7 @@ mod tests {
             [],
         )
         .unwrap();
-        delete(&mut conn, "wondering").unwrap();
+        delete(&conn, "wondering").unwrap();
         let type_id: String = conn
             .query_row("SELECT type_id FROM entries WHERE id = 'e1'", [], |r| r.get(0))
             .unwrap();
@@ -430,6 +668,37 @@ mod tests {
         assert_eq!(created.mark, Some(Mark::Glyph { id: Role::Evidence }));
         let fetched = get(&conn, "wondering").unwrap().unwrap();
         assert_eq!(fetched.mark, Some(Mark::Glyph { id: Role::Evidence }));
+    }
+
+    /// §3.6: "manual" is the sentinel that tells the classifier to leave a
+    /// type alone entirely, so it must vanish from the enum and the prompt,
+    /// not just get a discouraging description.
+    #[test]
+    fn a_type_matched_manually_is_not_classifiable() {
+        let conn = open_in_memory().unwrap();
+        let mut d = draft("logged-manually");
+        d.match_text = "manual".into();
+        create(&conn, d).unwrap();
+        create(&conn, draft("wondering")).unwrap();
+
+        let found = classifiable(&conn).unwrap();
+        let ids: Vec<&str> = found.iter().map(|t| t.id.as_str()).collect();
+        assert!(ids.contains(&"wondering"));
+        assert!(!ids.contains(&"logged-manually"));
+        assert!(ids.contains(&"position"), "built-ins stay classifiable");
+    }
+
+    /// Written in whatever case or padding the user typed it in, "manual"
+    /// still means manual.
+    #[test]
+    fn manual_is_recognised_regardless_of_case_or_padding() {
+        let conn = open_in_memory().unwrap();
+        let mut d = draft("logged-manually");
+        d.match_text = "  Manual  ".into();
+        create(&conn, d).unwrap();
+        let found = classifiable(&conn).unwrap();
+        let ids: Vec<&str> = found.iter().map(|t| t.id.as_str()).collect();
+        assert!(!ids.contains(&"logged-manually"));
     }
 
     #[test]

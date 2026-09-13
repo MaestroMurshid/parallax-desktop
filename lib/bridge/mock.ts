@@ -355,6 +355,21 @@ export class MockBridge implements Bridge {
     return { ...entry };
   }
 
+  /**
+   * §3.6: the editor's hint has always said "manual" tags entries yourself;
+   * nothing did until now. The mock has no background pass that would
+   * overwrite `typeId` after this, so there is no lock flag to set here --
+   * Rust's is real machinery against a real re-classification pass.
+   */
+  async setEntryType(entryId: string, typeId: string): Promise<Entry> {
+    const entry = this.entries.get(entryId);
+    if (!entry) throw new Error(`No entry ${entryId}`);
+    if (!this.types.has(typeId)) throw new Error(`No type ${typeId}`);
+    const next: Entry = { ...entry, typeId };
+    this.entries.set(entryId, next);
+    return next;
+  }
+
   /** Shaped like the real file rather than rendered like one: the mock has no
    *  exporter, so this shows the frontmatter-then-transcript form the viewer
    *  has to lay out without pretending the fields are what Rust would write. */

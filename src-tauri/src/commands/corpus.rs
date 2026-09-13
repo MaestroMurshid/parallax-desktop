@@ -184,6 +184,22 @@ pub fn entry_mdx(state: State<AppState>, entry_id: String) -> Result<String> {
     crate::mdx::render(&crate::mdx::corpus::note_for(&conn, &entry_id)?)
 }
 
+/// Assigns a type by hand (§3.6 -- the editor's own hint says to write
+/// "manual" and tag entries yourself, and until now nothing did).
+///
+/// Locks the type against the next re-classification: without that, correcting
+/// a typo in the transcript or `ensure_enriched` catching up an old note would
+/// silently take back a choice someone made on purpose.
+#[tauri::command]
+pub fn set_entry_type(state: State<AppState>, entry_id: String, type_id: String) -> Result<Entry> {
+    let conn = state.db();
+    if db::types::get(&conn, &type_id)?.is_none() {
+        return Err(Error::NotFound(format!("no type {type_id}")));
+    }
+    db::entries::set_entry_type(&conn, &entry_id, &type_id)?;
+    db::entries::get(&conn, &entry_id)?.ok_or_else(|| Error::NotFound(entry_id))
+}
+
 /// Overrules the classifier on one note.
 ///
 /// §3.2 gives the invoked path to the user, and this is the same argument one

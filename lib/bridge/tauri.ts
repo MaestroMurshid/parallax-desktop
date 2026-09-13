@@ -92,6 +92,10 @@ export class TauriBridge implements Bridge {
     return invoke('set_register', { entryId, register });
   }
 
+  setEntryType(entryId: string, typeId: string): Promise<Entry> {
+    return invoke('set_entry_type', { entryId, typeId });
+  }
+
   entryMdx(entryId: string): Promise<string> {
     return invoke('entry_mdx', { entryId });
   }

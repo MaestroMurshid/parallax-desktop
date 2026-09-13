@@ -26,11 +26,9 @@ pub fn update_type(state: State<AppState>, id: String, patch: TypePatch) -> Resu
 }
 
 /// Notes carrying this type fall back to their own role's built-in id, in the
-/// same transaction as the delete (`db::types::delete`) — so the state
-/// guard needs a mutable connection, not the shared one every other command
-/// here borrows.
+/// same transaction as the delete (`db::types::delete`).
 #[tauri::command]
 pub fn delete_type(state: State<AppState>, id: String) -> Result<()> {
-    let mut conn = state.db();
-    db::types::delete(&mut conn, &id)
+    let conn = state.db();
+    db::types::delete(&conn, &id)
 }

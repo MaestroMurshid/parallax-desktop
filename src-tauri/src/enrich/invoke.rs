@@ -27,7 +27,8 @@ pub fn ask(
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
-    let allowed = gate::invoked_probes(&entry);
+    let tier = db::types::tier_for(conn, &entry.type_id)?;
+    let allowed = gate::invoked_probes(&entry, tier);
     let offered = match probe {
         Some(named) if !allowed.contains(&named) => {
             return Err(Error::Other(format!(
@@ -221,6 +222,76 @@ mod tests {
             &SAID[span.start as usize..span.end as usize],
             "faster reads"
         );
+    }
+
+    /// §3.6 end to end: a silent custom type closes the invoked path too, even
+    /// though the entry is a position with words of its own -- role allows
+    /// everything here, so only the tier lookup reaching `ask` explains a
+    /// refusal.
+    #[test]
+    fn a_silent_custom_type_closes_the_invoked_path_too() {
+        let (conn, id) = corpus();
+        db::types::create(
+            &conn,
+            crate::model::NewType {
+                id: "musing".into(),
+                label: "musing".into(),
+                match_text: "half-formed, not yet a claim".into(),
+                prompt: None,
+                tier: crate::model::ProbeTier::Silent,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+        db::entries::set_classification(
+            &conn,
+            &id,
+            "indexes trade writes",
+            Role::Position,
+            Register::Neutral,
+            "musing",
+            None,
+            None,
+        )
+        .unwrap();
+        let provider = ScriptedProvider::with(&[&reply("faster reads")]);
+
+        assert!(ask(&conn, &provider, &id, None, None).is_err());
+        assert_eq!(provider.calls(), 0);
+    }
+
+    /// A heavy custom type is "only when you ask" -- exactly the path this is.
+    #[test]
+    fn a_heavy_custom_type_still_allows_an_invoked_question() {
+        let (conn, id) = corpus();
+        db::types::create(
+            &conn,
+            crate::model::NewType {
+                id: "wondering".into(),
+                label: "wondering".into(),
+                match_text: "musing without a claim yet".into(),
+                prompt: None,
+                tier: crate::model::ProbeTier::Heavy,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+        db::entries::set_classification(
+            &conn,
+            &id,
+            "indexes trade writes",
+            Role::Position,
+            Register::Neutral,
+            "wondering",
+            None,
+            None,
+        )
+        .unwrap();
+        let provider = ScriptedProvider::with(&[&reply("faster reads")]);
+
+        assert!(ask(&conn, &provider, &id, None, None).is_ok());
     }
 
     /// §3.6 rule 2: a note offers nothing to push on, and asking anyway is the

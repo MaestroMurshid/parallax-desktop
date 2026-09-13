@@ -235,6 +235,7 @@ pub fn run() {
             commands::corpus::reopen_entry,
             commands::corpus::correct_transcript,
             commands::corpus::set_register,
+            commands::corpus::set_entry_type,
             commands::corpus::entry_mdx,
             commands::corpus::ensure_enriched,
             commands::corpus::import_corpus,

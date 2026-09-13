@@ -20,7 +20,7 @@ const SCHEMA: &str = include_str!("schema.sql");
 /// Bumped whenever `schema.sql` changes shape. `user_version` is a SQLite
 /// integer stored in the file header, so the database says which migration it
 /// is on without a table of its own.
-const SCHEMA_VERSION: i32 = 7;
+const SCHEMA_VERSION: i32 = 8;
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -125,6 +125,13 @@ fn migrate(conn: &Connection) -> Result<()> {
                  created_at TEXT    NOT NULL
              );",
         )?;
+    }
+    if current < 8 {
+        // A manually assigned type has to survive the next re-classification,
+        // which needs somewhere to record that a type was chosen on purpose.
+        let _ = conn.execute_batch(
+            "ALTER TABLE entries ADD COLUMN type_locked INTEGER NOT NULL DEFAULT 0;",
+        );
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -309,6 +316,37 @@ mod tests {
         types::ensure_built_ins(&conn).unwrap();
 
         assert_eq!(types::list(&conn).unwrap().len(), 3);
+        let version: i32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        // Running it again must not throw: migrate is called on every open.
+        migrate(&conn).unwrap();
+    }
+
+    /// A manually assigned type has to survive an install that predates the
+    /// column recording that one was ever chosen by hand.
+    #[test]
+    fn version_eight_adds_type_locked_to_an_existing_corpus() {
+        let conn = open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO entries (id, transcript, created_at, x, y, role, register,
+             type_id, resolved, title, duration_ms, unfinished, local_only, is_sample)
+             VALUES ('e1', 'said', '2024-01-01T00:00:00Z', 0, 0, 'position', 'neutral',
+             'position', 0, 't', 40000, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch("ALTER TABLE entries DROP COLUMN type_locked;")
+            .unwrap();
+        conn.pragma_update(None, "user_version", 7).unwrap();
+        migrate(&conn).unwrap();
+
+        let locked: i64 = conn
+            .query_row("SELECT type_locked FROM entries WHERE id = 'e1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(locked, 0, "an existing entry defaults to unlocked");
         let version: i32 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();

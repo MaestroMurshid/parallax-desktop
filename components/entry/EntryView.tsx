@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getBridge } from '@/lib/bridge';
-import { hasOwnSpan, invokedProbes, probeLabel, resolveTypes, slotFor, typeLabel } from '@/lib/scene/classification';
+import { hasOwnSpan, invokedProbes, probeLabel, resolveTypes, slotFor } from '@/lib/scene/classification';
 import { useApp } from '@/lib/store';
 import type { Edge, Entry, Question, Span } from '@/lib/types';
 import styles from './EntryView.module.css';
@@ -106,6 +106,8 @@ export default function EntryView({
   const upsertEntry = useApp((s) => s.upsertEntry);
   const [registerBusy, setRegisterBusy] = useState(false);
   const [registerError, setRegisterError] = useState(false);
+  const [typeBusy, setTypeBusy] = useState(false);
+  const [typeError, setTypeError] = useState(false);
   const setOverlay = useApp((s) => s.setOverlay);
   const [probing, setProbing] = useState<string | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
@@ -337,9 +339,38 @@ export default function EntryView({
         {/* Secondary column, smaller and dimmer, so the tidy version never wins (§1.1). */}
         <div className={styles.side}>
           {entry.summary && <p className={styles.summary}>{entry.summary}</p>}
-          <p className={styles.type}>
-            {typeLabel(entry, resolveTypes(customTypes), liveRegister)}
-          </p>
+          {/* A picker, not a label: the editor's own hint has always said
+              "manual" tags entries yourself, and this is the door that opens.
+              The live-register suffix (`typeLabel`'s " · live") is display
+              only and never a value this can select, so it is shown beside
+              the picker rather than folded into an option. */}
+          <div className={styles.typeRow}>
+            <select
+              className={styles.typeSelect}
+              value={entry.typeId}
+              disabled={typeBusy}
+              onChange={(ev) => {
+                const typeId = ev.target.value;
+                setTypeBusy(true);
+                setTypeError(false);
+                void getBridge()
+                  .setEntryType(entry.id, typeId)
+                  .then(upsertEntry)
+                  .catch(() => setTypeError(true))
+                  .finally(() => setTypeBusy(false));
+              }}
+            >
+              {resolveTypes(customTypes).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            {liveRegister && entry.register === 'live' && (
+              <span className={styles.type}>· live</span>
+            )}
+          </div>
+          {typeError && <p className={styles.type}>that did not save — try again</p>}
 
           {/* The user overruling the classifier on one note. Offered only while
               the facet is switched on, because with it off the answer changes

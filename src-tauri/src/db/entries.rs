@@ -399,23 +399,6 @@ fn reanchor_action_items(conn: &Connection, entry_id: &str, transcript: &str) ->
     Ok(())
 }
 
-/// Type ids the classifier may choose between. Falls back to the built-in set
-/// when the table is empty, because an empty enum would constrain the reply to
-/// nothing at all.
-pub fn type_ids(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT id FROM types ORDER BY built_in DESC, created_at ASC")?;
-    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
-    let found: Vec<String> = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-    if found.is_empty() {
-        return Ok(vec![
-            "position".to_string(),
-            "evidence".to_string(),
-            "note".to_string(),
-        ]);
-    }
-    Ok(found)
-}
-
 /// True when no classification has ever been written for this note.
 ///
 /// Read off `move_phrase` because it is the one column only `set_classification`
@@ -466,8 +449,9 @@ pub fn set_classification(
     move_phrase: Option<&str>,
 ) -> Result<()> {
     let changed = conn.execute(
-        "UPDATE entries SET title = ?2, role = ?3, register = ?4, type_id = ?5, summary = ?6,
-         move_phrase = ?7
+        "UPDATE entries SET title = ?2, role = ?3, register = ?4,
+         type_id = CASE WHEN type_locked = 1 THEN type_id ELSE ?5 END,
+         summary = ?6, move_phrase = ?7
          WHERE id = ?1",
         params![
             id,
@@ -478,6 +462,24 @@ pub fn set_classification(
             summary,
             move_phrase
         ],
+    )?;
+    if changed == 0 {
+        return Err(crate::error::Error::NotFound(format!("no entry {id}")));
+    }
+    Ok(())
+}
+
+/// Assigns a type by hand and locks it against the next re-classification.
+///
+/// Locking rather than merely writing `type_id` is the whole point: without
+/// it, correcting a typo in the transcript re-runs the classifier and quietly
+/// takes back a choice someone made on purpose. Nothing but this function and
+/// `db::types::delete`'s fallback (which is not a person's choice, so it does
+/// not lock) may change `type_id` on a locked entry from here on.
+pub fn set_entry_type(conn: &Connection, id: &str, type_id: &str) -> Result<()> {
+    let changed = conn.execute(
+        "UPDATE entries SET type_id = ?2, type_locked = 1 WHERE id = ?1",
+        params![id, type_id],
     )?;
     if changed == 0 {
         return Err(crate::error::Error::NotFound(format!("no entry {id}")));
@@ -711,6 +713,65 @@ mod tests {
     fn an_unknown_note_is_not_reported_as_unclassified() {
         let conn = open_in_memory().unwrap();
         assert!(!never_classified(&conn, "nope").unwrap());
+    }
+
+    /// The rule this column exists for: a person's manual choice survives the
+    /// next pass, which happens whenever the transcript is corrected or
+    /// `ensure_enriched` fires on a note that predates a reasoning model.
+    #[test]
+    fn a_manually_set_type_survives_reclassification() {
+        let conn = open_in_memory().unwrap();
+        let made = entry("e1", "2024-01-01T00:00:00Z", false);
+        insert(&conn, &made).unwrap();
+
+        set_entry_type(&conn, "e1", "wondering").unwrap();
+        set_classification(
+            &conn,
+            "e1",
+            "a new title",
+            Role::Position,
+            Register::Neutral,
+            "position",
+            Some("a fresh summary"),
+            Some("trades one cost for another"),
+        )
+        .unwrap();
+
+        let after = get(&conn, "e1").unwrap().unwrap();
+        assert_eq!(after.type_id, "wondering", "the manual type was overwritten");
+        // Nothing else the classifier decided is held back by the lock --
+        // only type_id is a person's to keep, not the whole classification.
+        assert_eq!(after.title, "a new title");
+        assert_eq!(after.role, Role::Position);
+    }
+
+    /// Before anyone has touched it, classification still writes type_id
+    /// normally -- the lock is opt-in, not the default.
+    #[test]
+    fn an_unlocked_entrys_type_still_updates_on_reclassification() {
+        let conn = open_in_memory().unwrap();
+        let made = entry("e1", "2024-01-01T00:00:00Z", false);
+        insert(&conn, &made).unwrap();
+
+        set_classification(
+            &conn,
+            "e1",
+            "t",
+            Role::Position,
+            Register::Neutral,
+            "position",
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(get(&conn, "e1").unwrap().unwrap().type_id, "position");
+    }
+
+    #[test]
+    fn setting_the_type_of_an_unknown_entry_is_an_error() {
+        let conn = open_in_memory().unwrap();
+        assert!(set_entry_type(&conn, "nope", "wondering").is_err());
     }
 
     /// `quoted` is the one place a span offset has to become a byte offset:

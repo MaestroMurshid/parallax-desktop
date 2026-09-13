@@ -86,6 +86,17 @@ export interface Bridge {
   setRegister(entryId: string, register: Register): Promise<Entry>;
 
   /**
+   * Assigns a type by hand (§3.6 -- the editor's hint has always said to
+   * write "manual" and tag entries yourself; nothing did until now).
+   *
+   * Locks the type against the next re-classification on the Rust side, so a
+   * transcript correction or `ensureEnriched` catching up an old note cannot
+   * silently take the choice back. Returns the entry so the caller takes what
+   * was actually stored.
+   */
+  setEntryType(entryId: string, typeId: string): Promise<Entry>;
+
+  /**
    * One note as the file it would be exported to: JSON frontmatter, then the
    * transcript verbatim.
    *

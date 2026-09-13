@@ -8,7 +8,7 @@
 //!
 //! Port of the gates in `lib/scene/classification.ts`.
 
-use crate::model::{Entry, Register, Role};
+use crate::model::{Entry, ProbeTier, Register, Role};
 
 /// §3.2 -- under this, nothing fires on its own.
 pub const MIN_AUTOMATIC_MS: i64 = 10_000;
@@ -131,10 +131,18 @@ pub fn has_own_span(entry: &Entry) -> bool {
 /// other -- the stored value is left alone rather than rewritten, so turning
 /// the setting back on restores the old behaviour instead of having quietly
 /// destroyed what the model decided.
-pub fn automatic_probes(entry: &Entry, live_register: bool) -> Vec<Probe> {
+///
+/// `tier` is the entry's *custom* type's tier -- `None` for a built-in or a
+/// type that no longer exists, since a built-in's own `tier` column is
+/// decorative (`db::types::tier_for`). §3.6: a type may only ever narrow what
+/// role/register/duration/provenance already allow, never widen it -- silent
+/// and heavy both close the automatic path, safe leaves it exactly as role
+/// already decided.
+pub fn automatic_probes(entry: &Entry, live_register: bool, tier: Option<ProbeTier>) -> Vec<Probe> {
     if (live_register && entry.register == Register::Live)
         || entry.duration_ms < MIN_AUTOMATIC_MS
         || !has_own_span(entry)
+        || matches!(tier, Some(ProbeTier::Silent) | Some(ProbeTier::Heavy))
     {
         return Vec::new();
     }
@@ -177,8 +185,12 @@ pub fn offer(candidates: &[Probe], seed: u128) -> Vec<Probe> {
 
 /// What may fire when the user selects a passage and asks. Register does not
 /// gate here: §3.2 gives the invoked path to the user, so the risk is theirs.
-pub fn invoked_probes(entry: &Entry) -> Vec<Probe> {
-    if !has_own_span(entry) {
+///
+/// `tier`, as in `automatic_probes` -- `None` unless the entry carries a
+/// custom type. Only silent closes this path: heavy is "only when you ask",
+/// so an invited question is exactly what it still allows.
+pub fn invoked_probes(entry: &Entry, tier: Option<ProbeTier>) -> Vec<Probe> {
+    if !has_own_span(entry) || tier == Some(ProbeTier::Silent) {
         return Vec::new();
     }
 
@@ -231,13 +243,13 @@ mod tests {
         let live = entry(Role::Position, Register::Live, 60_000);
 
         assert!(
-            automatic_probes(&live, true).is_empty(),
+            automatic_probes(&live, true, None).is_empty(),
             "with the facet on, a live note is still left alone"
         );
         let neutral = entry(Role::Position, Register::Neutral, 60_000);
         assert_eq!(
-            automatic_probes(&live, false),
-            automatic_probes(&neutral, true),
+            automatic_probes(&live, false, None),
+            automatic_probes(&neutral, true, None),
             "with the facet off, a live position is probed like any other"
         );
     }
@@ -248,7 +260,7 @@ mod tests {
     fn turning_the_register_off_does_not_lift_the_other_gates() {
         let brief = entry(Role::Position, Register::Neutral, 1_000);
         assert!(
-            automatic_probes(&brief, false).is_empty(),
+            automatic_probes(&brief, false, None).is_empty(),
             "a note under 10s was probed because the register was off"
         );
 
@@ -259,7 +271,7 @@ mod tests {
             attributed: true,
         }];
         assert!(
-            automatic_probes(&borrowed, false).is_empty(),
+            automatic_probes(&borrowed, false, None).is_empty(),
             "a wholly attributed note was probed because the register was off"
         );
     }
@@ -269,7 +281,7 @@ mod tests {
     #[test]
     fn the_setting_does_not_rewrite_what_the_classifier_decided() {
         let live = entry(Role::Position, Register::Live, 60_000);
-        let _ = automatic_probes(&live, false);
+        let _ = automatic_probes(&live, false, None);
         assert_eq!(live.register, Register::Live);
     }
 
@@ -278,20 +290,20 @@ mod tests {
     #[test]
     fn a_live_entry_is_never_asked_about_unprompted() {
         let e = entry(Role::Position, Register::Live, 120_000);
-        assert!(automatic_probes(&e, true).is_empty());
+        assert!(automatic_probes(&e, true, None).is_empty());
     }
 
     #[test]
     fn something_said_in_under_ten_seconds_is_left_alone() {
         let e = entry(Role::Position, Register::Neutral, 9_900);
-        assert!(automatic_probes(&e, true).is_empty());
+        assert!(automatic_probes(&e, true, None).is_empty());
     }
 
     /// The boundary is inclusive: ten seconds exactly is eligible, not skipped.
     #[test]
     fn ten_seconds_exactly_is_eligible() {
         let e = entry(Role::Position, Register::Neutral, 10_000);
-        assert!(!automatic_probes(&e, true).is_empty());
+        assert!(!automatic_probes(&e, true, None).is_empty());
     }
 
     #[test]
@@ -303,7 +315,7 @@ mod tests {
             attributed: true,
         }];
         assert!(!has_own_span(&e));
-        assert!(automatic_probes(&e, true).is_empty());
+        assert!(automatic_probes(&e, true, None).is_empty());
     }
 
     #[test]
@@ -315,7 +327,7 @@ mod tests {
             attributed: true,
         }];
         assert!(has_own_span(&e), "only part of it is borrowed");
-        assert!(!automatic_probes(&e, true).is_empty());
+        assert!(!automatic_probes(&e, true, None).is_empty());
     }
 
     /// Span offsets are UTF-16 units, so the coverage check has to be too.
@@ -331,7 +343,7 @@ mod tests {
             attributed: true,
         }];
         assert!(!has_own_span(&e));
-        assert!(automatic_probes(&e, true).is_empty());
+        assert!(automatic_probes(&e, true, None).is_empty());
     }
 
     /// Found in the packaged app: every question on a position was the same
@@ -343,7 +355,7 @@ mod tests {
     #[test]
     fn a_position_offers_every_debate_tactic_whether_asked_or_not() {
         let e = entry(Role::Position, Register::Neutral, 120_000);
-        let automatic = automatic_probes(&e, true);
+        let automatic = automatic_probes(&e, true, None);
         for tactic in [
             Probe::Boundary,
             Probe::Disconfirming,
@@ -356,7 +368,7 @@ mod tests {
         ] {
             assert!(automatic.contains(&tactic), "{tactic:?} is not offered");
         }
-        assert_eq!(automatic, invoked_probes(&e));
+        assert_eq!(automatic, invoked_probes(&e, None));
     }
 
     /// A deliberate departure from "never F": being asked to say something
@@ -389,23 +401,78 @@ mod tests {
         assert!(offer(&[], 7).is_empty());
     }
 
+    /// §3.6: a custom type may only narrow what role already allows. A silent
+    /// custom type on a position closes both paths -- the same effect as the
+    /// built-in `note` role has, arrived at from a different role entirely.
+    #[test]
+    fn a_silent_custom_type_closes_both_paths_on_a_position() {
+        let e = entry(Role::Position, Register::Neutral, 120_000);
+        assert!(automatic_probes(&e, true, Some(ProbeTier::Silent)).is_empty());
+        assert!(invoked_probes(&e, Some(ProbeTier::Silent)).is_empty());
+    }
+
+    /// Heavy is "only when you ask": the automatic path closes, but the
+    /// invoked one is untouched -- narrower than safe, not narrower than
+    /// invoking already is.
+    #[test]
+    fn a_heavy_custom_type_closes_only_the_automatic_path() {
+        let e = entry(Role::Position, Register::Neutral, 120_000);
+        assert!(automatic_probes(&e, true, Some(ProbeTier::Heavy)).is_empty());
+        assert!(!invoked_probes(&e, Some(ProbeTier::Heavy)).is_empty());
+    }
+
+    /// Safe behaves exactly as if there were no custom type at all -- it
+    /// narrows nothing, which is what makes it "asks on its own".
+    #[test]
+    fn a_safe_custom_type_behaves_like_its_role() {
+        let e = entry(Role::Position, Register::Neutral, 120_000);
+        assert_eq!(
+            automatic_probes(&e, true, Some(ProbeTier::Safe)),
+            automatic_probes(&e, true, None)
+        );
+        assert_eq!(
+            invoked_probes(&e, Some(ProbeTier::Safe)),
+            invoked_probes(&e, None)
+        );
+    }
+
+    /// A note offers nothing whatever role allows, and a tier is not allowed
+    /// to widen that -- only narrow it.
+    #[test]
+    fn a_tier_never_widens_what_a_note_offers() {
+        let e = entry(Role::Note, Register::Neutral, 120_000);
+        assert!(automatic_probes(&e, true, Some(ProbeTier::Safe)).is_empty());
+        assert!(invoked_probes(&e, Some(ProbeTier::Safe)).is_empty());
+    }
+
+    /// The evidence branch had no tier check at all before this: a custom
+    /// type with heavy tier on an evidence-role entry still auto-fired
+    /// feynman, which is exactly the automatic question heavy exists to
+    /// suppress.
+    #[test]
+    fn a_heavy_custom_type_on_evidence_does_not_auto_fire_feynman() {
+        let e = entry(Role::Evidence, Register::Neutral, 120_000);
+        assert!(automatic_probes(&e, true, Some(ProbeTier::Heavy)).is_empty());
+        assert!(invoked_probes(&e, Some(ProbeTier::Heavy)).contains(&Probe::Feynman));
+    }
+
     #[test]
     fn evidence_opens_with_feynman() {
-        let probes = automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true);
+        let probes = automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true, None);
         assert_eq!(probes, vec![Probe::Feynman]);
     }
 
     #[test]
     fn a_note_is_silent() {
-        assert!(automatic_probes(&entry(Role::Note, Register::Neutral, 120_000), true).is_empty());
+        assert!(automatic_probes(&entry(Role::Note, Register::Neutral, 120_000), true, None).is_empty());
     }
 
     /// The invoked path is the user's own risk, so register does not gate it.
     #[test]
     fn a_live_entry_can_still_be_asked_about_when_invited() {
         let e = entry(Role::Position, Register::Live, 120_000);
-        assert!(automatic_probes(&e, true).is_empty());
-        assert!(!invoked_probes(&e).is_empty(), "asking is the user's call");
+        assert!(automatic_probes(&e, true, None).is_empty());
+        assert!(!invoked_probes(&e, None).is_empty(), "asking is the user's call");
     }
 
     /// Duration gates the automatic path only. A short note you select a
@@ -413,8 +480,8 @@ mod tests {
     #[test]
     fn a_short_entry_can_still_be_asked_about_when_invited() {
         let e = entry(Role::Position, Register::Neutral, 5_000);
-        assert!(automatic_probes(&e, true).is_empty());
-        assert!(!invoked_probes(&e).is_empty());
+        assert!(automatic_probes(&e, true, None).is_empty());
+        assert!(!invoked_probes(&e, None).is_empty());
     }
 
     /// Feynman needs only "not a note" -- it is the one move that makes the
@@ -422,14 +489,14 @@ mod tests {
     /// least reachable thing in the app.
     #[test]
     fn evidence_can_be_asked_to_explain_itself_but_not_steelmanned() {
-        let probes = invoked_probes(&entry(Role::Evidence, Register::Neutral, 120_000));
+        let probes = invoked_probes(&entry(Role::Evidence, Register::Neutral, 120_000), None);
         assert!(probes.contains(&Probe::Feynman));
         assert!(!probes.contains(&Probe::Steelman));
     }
 
     #[test]
     fn a_note_reaches_nothing_even_when_invited() {
-        assert!(invoked_probes(&entry(Role::Note, Register::Neutral, 120_000)).is_empty());
+        assert!(invoked_probes(&entry(Role::Note, Register::Neutral, 120_000), None).is_empty());
     }
 
     /// Provenance gates both paths, unlike register and duration.
@@ -441,7 +508,7 @@ mod tests {
             end: e.transcript.len() as u32,
             attributed: true,
         }];
-        assert!(invoked_probes(&e).is_empty());
+        assert!(invoked_probes(&e, None).is_empty());
     }
 
     /// Reachable: an entry recorded before a transcription model is installed
@@ -540,7 +607,7 @@ mod tests {
             expected.sort();
 
             let mut actual: Vec<String> =
-                automatic_probes(&entry(Role::Position, Register::Neutral, 120_000), true)
+                automatic_probes(&entry(Role::Position, Register::Neutral, 120_000), true, None)
                     .iter()
                     .map(|p| p.id().to_string())
                     .collect();
@@ -549,7 +616,7 @@ mod tests {
             assert_eq!(actual, expected);
 
             let automatic_on_evidence =
-                automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true);
+                automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true, None);
             assert_eq!(
                 automatic_on_evidence
                     .iter()
@@ -566,7 +633,7 @@ mod tests {
             expected.sort();
 
             let mut actual: Vec<String> =
-                invoked_probes(&entry(Role::Position, Register::Neutral, 120_000))
+                invoked_probes(&entry(Role::Position, Register::Neutral, 120_000), None)
                     .iter()
                     .map(|p| p.id().to_string())
                     .collect();
