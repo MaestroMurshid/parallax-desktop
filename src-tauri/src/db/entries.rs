@@ -182,8 +182,19 @@ pub fn list(conn: &Connection) -> Result<Vec<Entry>> {
 /// These ids in the order the notes were recorded; ids no longer present are
 /// dropped.
 pub fn oldest_first(conn: &Connection, ids: &[String]) -> Result<Vec<String>> {
-    let _ = (conn, ids);
-    todo!()
+    let wanted: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+    // The same order `load` reads the field in, so a bulk pass and placement
+    // can never disagree about which note came first.
+    let mut stmt = conn.prepare("SELECT id FROM entries ORDER BY created_at ASC")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for id in rows {
+        let id = id?;
+        if wanted.contains(id.as_str()) {
+            out.push(id);
+        }
+    }
+    Ok(out)
 }
 
 /// Answers to this entry. A manual or proposed connection is an edge and has

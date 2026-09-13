@@ -98,9 +98,7 @@ pub fn load_sample_corpus(app: tauri::AppHandle, state: State<AppState>) -> Resu
     // rather than whatever happened to be true by the time they ran.
     let enriching = inserted > 0 && state.reasoning_available();
 
-    for id in fresh {
-        crate::commands::capture::enrich_later(&app, id);
-    }
+    crate::commands::capture::enrich_in_order(&app, fresh);
 
     Ok(SampleLoad {
         inserted,

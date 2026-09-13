@@ -41,16 +41,22 @@ pub fn propose(
             continue;
         };
 
-        // The new note is the second, because the relation is what it does to
-        // the one already there.
-        let Some(proposal) = judge(provider, &other, &mine)? else {
+        // The later note is the second, because the relation is what it does to
+        // the one already there. Usually that is the note just enriched, but not
+        // on a bulk load or when an old note is opened for its first pass.
+        let (first, second) = if other.created_at <= mine.created_at {
+            (&other, &mine)
+        } else {
+            (&mine, &other)
+        };
+        let Some(proposal) = judge(provider, first, second)? else {
             continue;
         };
 
         let edge = Edge {
             id: format!("edge-{}", uuid::Uuid::new_v4()),
-            entry_a: other_id,
-            entry_b: entry_id.to_string(),
+            entry_a: first.id.clone(),
+            entry_b: second.id.clone(),
             relation: proposal.relation,
             question: Some(proposal.question),
             status: EdgeStatus::Proposed,
