@@ -127,8 +127,19 @@ const PROPOSE_CAP: usize = 8;
 /// exit including failure. A single event on success only would leave the
 /// indicator spinning forever on the paths that are most likely to be taken --
 /// no model installed, or a model that threw.
-fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
+pub fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
     let app = app.clone();
+    {
+        // One pass per note at a time. Opening a note asks for one if it never
+        // got a pass, and a note can be opened again while the first is still
+        // running -- each of which would append its own question, since
+        // `questions` carries no uniqueness constraint the way edges do.
+        let state = app.state::<AppState>();
+        let mut in_flight = state.enriching.lock().unwrap_or_else(|p| p.into_inner());
+        if !in_flight.insert(entry_id.clone()) {
+            return;
+        }
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         // Emitted before with_reasoning, which is where a cold llama-server is
@@ -168,6 +179,11 @@ fn enrich_later(app: &tauri::AppHandle, entry_id: String) {
             }
             Err(e) => eprintln!("enrichment failed for {entry_id}: {e}"),
         }
+        state
+            .enriching
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&entry_id);
         let _ = app.emit("entry://enriched", &entry_id);
     });
 }

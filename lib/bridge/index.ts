@@ -10,6 +10,7 @@ import type {
   Entry,
   ModelInfo,
   Question,
+  Register,
   Settings,
   Span,
   SystemProfile,
@@ -71,6 +72,42 @@ export interface Bridge {
    */
   correctTranscript(entryId: string, transcript: string): Promise<Entry>;
 
+  /**
+   * Overrules the classifier on one note's register.
+   *
+   * §3.2 gives the invoked path to the user because the risk is theirs to
+   * spend; this is the same argument one step earlier. The model guesses what
+   * is at stake in a note, and the person who spoke it knows.
+   *
+   * Returns the entry so the caller takes what was stored rather than assuming
+   * the write landed as sent.
+   */
+  setRegister(entryId: string, register: Register): Promise<Entry>;
+
+  /**
+   * One note as the file it would be exported to: JSON frontmatter, then the
+   * transcript verbatim.
+   *
+   * A viewer, not an editor. SQLite stays authoritative and offsets are frozen
+   * at insert (§5.1), so this renders what a file *would* contain rather than
+   * offering a way to write one. Built from the same assembly the exporter
+   * uses, so the two cannot drift.
+   */
+  entryMdx(entryId: string): Promise<string>;
+
+  /**
+   * Asks for an enrichment pass on a note that never got one.
+   *
+   * §9.4 lets the reasoning model arrive late, and "late" used to mean
+   * "never" for anything captured before it landed: the pass fires once, at
+   * capture, and nothing retried. Opening a note is when someone is actually
+   * looking at it, so it is when the gap is worth closing.
+   *
+   * Resolves true when a pass started. False means there was nothing to do —
+   * already classified, or still no model to do it with.
+   */
+  ensureEnriched(entryId: string): Promise<boolean>;
+
   // -- search ---------------------------------------------------------------
   /**
    * Case-insensitive search over transcripts. Substring by default, because
@@ -79,6 +116,11 @@ export interface Bridge {
    * any word containing it (`ai` otherwise finds maintain and explaining).
    */
   searchEntries(query: string): Promise<SearchHit[]>;
+
+  /**
+   * Generates a conversational answer using the local LLM and semantic search.
+   */
+  askRecall(query: string): Promise<{ answer: string; hits: Entry[] }>;
 
   // -- capture ------------------------------------------------------------
   /**
@@ -171,7 +213,7 @@ export interface Bridge {
   // -- sample corpus ------------------------------------------------------
   /** Offered from the empty state, never forced. Sample entries stay marked
    *  so they can never be mistaken for the user's own. */
-  loadSampleCorpus(): Promise<void>;
+  loadSampleCorpus(): Promise<SampleLoad>;
   clearSampleCorpus(): Promise<void>;
 
   /** Restores a previously exported corpus. 'merge' keeps existing ids. */
@@ -180,9 +222,8 @@ export interface Bridge {
 
 let instance: Bridge | null = null;
 
-/** True when running inside the Tauri webview rather than a browser tab. */
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI_IPC__' in window || 'isTauri' in window);
 }
 
 export function getBridge(): Bridge {
@@ -198,12 +239,29 @@ export function getBridge(): Bridge {
 export async function initBridge(): Promise<Bridge> {
   if (instance) return instance;
   const forceMock = process.env.NEXT_PUBLIC_BRIDGE === 'mock';
-  if (isTauri() && !forceMock) {
+  const tauri = isTauri();
+
+  // Opt-in, and deliberately not keyed to NODE_ENV: the case worth diagnosing
+  // is a packaged build failing to inject its IPC, which is a production build
+  // by definition, so a dev-only guard would switch this off exactly where it
+  // is needed. Off unless asked for, because the title bar is the app's name to
+  // the person using it, not a place to leave instrumentation.
+  const diagnose = process.env.NEXT_PUBLIC_BRIDGE_DIAG === '1';
+  const report = (which: string) => {
+    if (!diagnose) return;
+    const diag = `isTauri=${tauri} forceMock=${forceMock} t_internals=${typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window} t_ipc=${typeof window !== 'undefined' && '__TAURI_IPC__' in window} t_isTauri=${typeof window !== 'undefined' && 'isTauri' in window}`;
+    console.log(`[bridge] → ${which}`, diag);
+    if (typeof document !== 'undefined') document.title = `Parallax [${which}] ${diag}`;
+  };
+
+  if (tauri && !forceMock) {
     const { TauriBridge } = await import('./tauri');
     instance = new TauriBridge();
+    report('TauriBridge');
   } else {
     const { MockBridge } = await import('./mock');
     instance = new MockBridge();
+    report('MockBridge');
   }
   return instance;
 }
@@ -214,6 +272,18 @@ export function __setBridge(b: Bridge): void {
 }
 
 export type ImportMode = 'merge' | 'replace';
+
+/** What loading the sample set in motion, so the app can say so. */
+export interface SampleLoad {
+  /** Notes inserted by this call. Zero on a second load. */
+  inserted: number;
+  /**
+   * False when there is no reasoning model to read them back yet. The notes are
+   * there and searchable either way; without one they keep the title derived
+   * from their first words, which otherwise looks like all the sample is.
+   */
+  enriching: boolean;
+}
 
 export interface CorpusImport {
   entries: Entry[];

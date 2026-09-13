@@ -398,6 +398,40 @@ pub fn type_ids(conn: &Connection) -> Result<Vec<String>> {
     Ok(found)
 }
 
+/// True when no classification has ever been written for this note.
+///
+/// Read off `move_phrase` because it is the one column only `set_classification`
+/// ever writes. Title, summary, role and register all have innocent values a
+/// real classification can produce -- a live note legitimately has no summary,
+/// and §1.1 is why -- so none of them can tell "not yet" from "decided".
+pub fn never_classified(conn: &Connection, id: &str) -> Result<bool> {
+    let missing: Option<bool> = conn
+        .query_row(
+            "SELECT move_phrase IS NULL FROM entries WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(missing.unwrap_or(false))
+}
+
+/// Changes one note's register, leaving everything else the classifier decided
+/// alone.
+///
+/// Separate from `set_classification` because this is the user overruling one
+/// judgement, not enrichment rewriting its own work: reusing that would make
+/// the caller resupply a title and summary it has no business restating.
+pub fn set_register(conn: &Connection, id: &str, register: Register) -> Result<()> {
+    let changed = conn.execute(
+        "UPDATE entries SET register = ?2 WHERE id = ?1",
+        params![id, register_str(register)],
+    )?;
+    if changed == 0 {
+        return Err(crate::error::Error::NotFound(format!("no entry {id}")));
+    }
+    Ok(())
+}
+
 /// Enrichment's only write to an entry. The move phrase has no column yet, so
 /// the caller drops it; it belongs with embeddings, which do not exist.
 pub fn set_classification(
@@ -616,6 +650,49 @@ mod tests {
             }],
             is_sample: Some(true),
         }
+    }
+
+    /// The signal that decides whether opening a note asks for a pass. Title,
+    /// summary, role and register all have innocent values a real
+    /// classification produces -- a live note has no summary by design (§1.1) --
+    /// so only the column classification alone writes can tell "not yet" from
+    /// "decided".
+    #[test]
+    fn a_note_is_unclassified_until_a_move_phrase_is_written() {
+        let conn = open_in_memory().unwrap();
+        let made = entry("e1", "2024-01-01T00:00:00Z", false);
+        insert(&conn, &made).unwrap();
+
+        assert!(
+            never_classified(&conn, "e1").unwrap(),
+            "a freshly inserted note read as already classified"
+        );
+
+        set_classification(
+            &conn,
+            "e1",
+            "a title",
+            Role::Position,
+            Register::Live,
+            "position",
+            // A live note carries no summary, which is exactly why the summary
+            // cannot be the signal.
+            None,
+            Some("trades one cost for another"),
+        )
+        .unwrap();
+
+        assert!(
+            !never_classified(&conn, "e1").unwrap(),
+            "a classified live note still read as never classified"
+        );
+    }
+
+    /// A note that is not there has nothing owing.
+    #[test]
+    fn an_unknown_note_is_not_reported_as_unclassified() {
+        let conn = open_in_memory().unwrap();
+        assert!(!never_classified(&conn, "nope").unwrap());
     }
 
     /// `quoted` is the one place a span offset has to become a byte offset:

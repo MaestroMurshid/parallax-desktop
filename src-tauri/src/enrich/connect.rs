@@ -44,32 +44,21 @@ struct Reply {
 }
 
 const CONNECT_SYSTEM: &str = "\
-You are shown two notes someone recorded at different times. Say how the second
-relates to the first, or say that it does not. Answer the fields in the order
-they are listed. An earlier answer cannot be revised once a later one is given.
+You are shown two notes someone recorded at different times. Say how the second relates to the first.
+Follow these constraints strictly. Answer the fields in the exact order listed.
 
-relation -- what the second note does to the first:
-  contradicts: it asserts something that cannot hold alongside the first.
-  extends: it carries the first further, on the same line of thought.
-  same move: different subjects, but the same shape of argument -- a mechanism
-  meant to help making things worse, a property turning out to be structural.
-  returns to: it comes back to something the first left open or unfinished.
-  questions: it doubts the first rather than answering it.
-  example of: it is a concrete instance of what the first says generally.
-  none: they are about similar things and neither does anything to the other.
+### Fields to Extract
 
-none is the ordinary answer. Two notes on one subject are not connected by
-being on one subject. Say none unless you can name what the second does to the
-first, and quote the words that do it.
-
-quoteA and quoteB: copy the passage from each note that carries the relation,
-word for word, as it appears. A short phrase, not the whole note. Transcribe it
-rather than recall it -- a quote that is not in the note is discarded and the
-connection with it.
-
-question: what the two together put to the speaker. One sentence, about the
-claims rather than about the notes. It is the only thing the connection shows
-them, so it has to be worth reading.";
+- **relation**: What the second note does to the first. Choose exactly one:
+  - `contradicts`: Asserts something that cannot hold alongside the first.
+  - `extends`: Carries the first further on the same line of thought.
+  - `same move`: Different subjects, same shape of argument.
+  - `returns to`: Comes back to something the first left open.
+  - `questions`: Doubts the first rather than answering it.
+  - `example of`: A concrete instance of what the first says generally.
+  - `none`: Default. Use if they are merely on similar subjects.
+- **quoteA** & **quoteB**: Copy the verbatim short passage from each note that carries the relation.
+- **question**: One sentence asking what the two together put to the speaker, about the claims, not the notes.";
 
 fn connect_schema() -> Value {
     let mut relations: Vec<String> = vec![NONE.into()];
@@ -134,13 +123,10 @@ Second note, {}:
 {}",
         a.created_at, a.transcript, b.created_at, b.transcript
     );
-    let mut ask = Ask::new(CONNECT_SYSTEM, &user).constrained(connect_schema());
-    // Two quotes and a question, each bounded at 300 characters by the schema.
-    ask.max_tokens = 500;
+    let ask = Ask::new(CONNECT_SYSTEM, &user).constrained(connect_schema());
 
     let raw = provider.ask(ask)?;
-    let reply: Reply = serde_json::from_str(&raw)
-        .map_err(|e| crate::error::Error::Other(format!("the judge was not readable: {e}")))?;
+    let reply: Reply = super::repair_and_parse_json(&raw)?;
 
     if reply.relation.trim() == NONE {
         return Ok(None);

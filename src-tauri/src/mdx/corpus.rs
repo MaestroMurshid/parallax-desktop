@@ -19,6 +19,36 @@ pub fn filename(note: &Note) -> String {
     format!("{}.mdx", note.entry.id)
 }
 
+/// One note, assembled exactly as `export` assembles each of its own.
+///
+/// Same assembly deliberately: the viewer is showing what the file would be,
+/// so a second way of building it would eventually show something the export
+/// does not write.
+pub fn note_for(conn: &Connection, entry_id: &str) -> Result<Note> {
+    let entry = db::entries::get(conn, entry_id)?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("no entry {entry_id}")))?;
+
+    let (mut anchors, mut topics) = (Vec::new(), Vec::new());
+    for tag in db::tags::for_entry(conn, entry_id)? {
+        match tag.kind {
+            Kind::Anchor => anchors.push(tag.name),
+            Kind::Topic => topics.push(tag.name),
+        }
+    }
+
+    Ok(Note {
+        questions: db::questions::list_for(conn, entry_id)?,
+        // Only the ones leaving this note, matching `export`.
+        edges: db::edges::list(conn)?
+            .into_iter()
+            .filter(|e| e.entry_a == entry_id)
+            .collect(),
+        anchors,
+        topics,
+        entry,
+    })
+}
+
 /// Every note the corpus holds.
 pub fn export(conn: &Connection) -> Result<Vec<Note>> {
     let questions = db::questions::list(conn)?;

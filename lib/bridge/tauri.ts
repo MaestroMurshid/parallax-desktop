@@ -12,6 +12,7 @@ import type {
   Entry,
   ModelInfo,
   Question,
+  Register,
   Settings,
   Span,
   SystemProfile,
@@ -21,6 +22,7 @@ import type {
   CorpusImport,
   ImportMode,
   NewEntryDraft,
+  SampleLoad,
   SearchHit,
   Unsubscribe,
 } from './index';
@@ -81,10 +83,26 @@ export class TauriBridge implements Bridge {
     return invoke('correct_transcript', { entryId, transcript });
   }
 
+  setRegister(entryId: string, register: Register): Promise<Entry> {
+    return invoke('set_register', { entryId, register });
+  }
+
+  entryMdx(entryId: string): Promise<string> {
+    return invoke('entry_mdx', { entryId });
+  }
+
+  ensureEnriched(entryId: string): Promise<boolean> {
+    return invoke('ensure_enriched', { entryId });
+  }
+
   // -- search ---------------------------------------------------------------
 
   searchEntries(query: string): Promise<SearchHit[]> {
     return invoke('search_entries', { query });
+  }
+
+  askRecall(query: string): Promise<{ answer: string; hits: Entry[] }> {
+    return invoke('ask_recall', { query });
   }
 
   // -- capture ------------------------------------------------------------
@@ -232,7 +250,7 @@ export class TauriBridge implements Bridge {
 
   // -- sample corpus ------------------------------------------------------
 
-  loadSampleCorpus(): Promise<void> {
+  loadSampleCorpus(): Promise<SampleLoad> {
     return invoke('load_sample_corpus');
   }
 

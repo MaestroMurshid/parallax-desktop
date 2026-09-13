@@ -89,8 +89,13 @@ pub fn has_own_span(entry: &Entry) -> bool {
 /// and role may only ever *narrow* what is offered -- classification suppresses
 /// and never selects, so a misclassification costs a missing question rather
 /// than an intrusive one.
-pub fn automatic_probes(entry: &Entry) -> Vec<Probe> {
-    if entry.register == Register::Live
+/// `live_register` is the app-wide setting. When it is off the facet is not
+/// consulted at all, so a note the classifier called live is probed like any
+/// other -- the stored value is left alone rather than rewritten, so turning
+/// the setting back on restores the old behaviour instead of having quietly
+/// destroyed what the model decided.
+pub fn automatic_probes(entry: &Entry, live_register: bool) -> Vec<Probe> {
+    if (live_register && entry.register == Register::Live)
         || entry.duration_ms < MIN_AUTOMATIC_MS
         || !has_own_span(entry)
     {
@@ -157,18 +162,69 @@ mod tests {
         }
     }
 
+    /// The setting exists because the classifier calls a note live when it uses
+    /// a personal example to argue an impersonal point -- the example mentions
+    /// the speaker's life, so nothing is at stake but the prompt reads as if
+    /// something is. That costs the probe, which is the thing the note was
+    /// worth keeping for.
+    #[test]
+    fn turning_the_register_off_probes_a_live_note() {
+        let live = entry(Role::Position, Register::Live, 60_000);
+
+        assert!(
+            automatic_probes(&live, true).is_empty(),
+            "with the facet on, a live note is still left alone"
+        );
+        assert_eq!(
+            automatic_probes(&live, false),
+            vec![Probe::Boundary, Probe::Disconfirming],
+            "with the facet off, a live position is probed like any other"
+        );
+    }
+
+    /// Off means only the register stops applying. The other two gates are not
+    /// about what the note is about, and §3.2 does not hand those to a setting.
+    #[test]
+    fn turning_the_register_off_does_not_lift_the_other_gates() {
+        let brief = entry(Role::Position, Register::Neutral, 1_000);
+        assert!(
+            automatic_probes(&brief, false).is_empty(),
+            "a note under 30s was probed because the register was off"
+        );
+
+        let mut borrowed = entry(Role::Position, Register::Neutral, 60_000);
+        borrowed.spans = vec![Span {
+            start: 0,
+            end: borrowed.transcript.encode_utf16().count() as u32,
+            attributed: true,
+        }];
+        assert!(
+            automatic_probes(&borrowed, false).is_empty(),
+            "a wholly attributed note was probed because the register was off"
+        );
+    }
+
+    /// A note is still filed as live, so re-enabling the setting brings the
+    /// suppression back rather than finding the value overwritten.
+    #[test]
+    fn the_setting_does_not_rewrite_what_the_classifier_decided() {
+        let live = entry(Role::Position, Register::Live, 60_000);
+        let _ = automatic_probes(&live, false);
+        assert_eq!(live.register, Register::Live);
+    }
+
     /// The three unconditional suppressions. Each of these on its own is
     /// enough to keep the app quiet.
     #[test]
     fn a_live_entry_is_never_asked_about_unprompted() {
         let e = entry(Role::Position, Register::Live, 120_000);
-        assert!(automatic_probes(&e).is_empty());
+        assert!(automatic_probes(&e, true).is_empty());
     }
 
     #[test]
     fn something_said_in_under_thirty_seconds_is_left_alone() {
         let e = entry(Role::Position, Register::Neutral, MIN_AUTOMATIC_MS - 1);
-        assert!(automatic_probes(&e).is_empty());
+        assert!(automatic_probes(&e, true).is_empty());
     }
 
     #[test]
@@ -180,7 +236,7 @@ mod tests {
             attributed: true,
         }];
         assert!(!has_own_span(&e));
-        assert!(automatic_probes(&e).is_empty());
+        assert!(automatic_probes(&e, true).is_empty());
     }
 
     #[test]
@@ -192,7 +248,7 @@ mod tests {
             attributed: true,
         }];
         assert!(has_own_span(&e), "only part of it is borrowed");
-        assert!(!automatic_probes(&e).is_empty());
+        assert!(!automatic_probes(&e, true).is_empty());
     }
 
     /// Span offsets are UTF-16 units, so the coverage check has to be too.
@@ -208,14 +264,14 @@ mod tests {
             attributed: true,
         }];
         assert!(!has_own_span(&e));
-        assert!(automatic_probes(&e).is_empty());
+        assert!(automatic_probes(&e, true).is_empty());
     }
 
     /// §3.2 -- a position opens with safe probes only. A steelman on an entry
     /// nobody asked about is the failure the tiers exist to prevent.
     #[test]
     fn a_position_opens_with_safe_probes_and_never_a_steelman() {
-        let probes = automatic_probes(&entry(Role::Position, Register::Neutral, 120_000));
+        let probes = automatic_probes(&entry(Role::Position, Register::Neutral, 120_000), true);
 
         assert!(probes.contains(&Probe::Boundary));
         assert!(probes.contains(&Probe::Disconfirming));
@@ -229,20 +285,20 @@ mod tests {
     /// want it.
     #[test]
     fn evidence_opens_with_feynman() {
-        let probes = automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000));
+        let probes = automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true);
         assert_eq!(probes, vec![Probe::Feynman]);
     }
 
     #[test]
     fn a_note_is_silent() {
-        assert!(automatic_probes(&entry(Role::Note, Register::Neutral, 120_000)).is_empty());
+        assert!(automatic_probes(&entry(Role::Note, Register::Neutral, 120_000), true).is_empty());
     }
 
     /// The invoked path is the user's own risk, so register does not gate it.
     #[test]
     fn a_live_entry_can_still_be_asked_about_when_invited() {
         let e = entry(Role::Position, Register::Live, 120_000);
-        assert!(automatic_probes(&e).is_empty());
+        assert!(automatic_probes(&e, true).is_empty());
         assert!(!invoked_probes(&e).is_empty(), "asking is the user's call");
     }
 
@@ -251,7 +307,7 @@ mod tests {
     #[test]
     fn a_short_entry_can_still_be_asked_about_when_invited() {
         let e = entry(Role::Position, Register::Neutral, 5_000);
-        assert!(automatic_probes(&e).is_empty());
+        assert!(automatic_probes(&e, true).is_empty());
         assert!(!invoked_probes(&e).is_empty());
     }
 
@@ -414,7 +470,7 @@ mod tests {
             expected.sort();
 
             let mut actual: Vec<String> =
-                automatic_probes(&entry(Role::Position, Register::Neutral, 120_000))
+                automatic_probes(&entry(Role::Position, Register::Neutral, 120_000), true)
                     .iter()
                     .map(|p| p.id().to_string())
                     .collect();
@@ -432,7 +488,7 @@ mod tests {
                 "the exception moved"
             );
             let automatic_on_evidence =
-                automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000));
+                automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true);
             assert_eq!(
                 automatic_on_evidence
                     .iter()

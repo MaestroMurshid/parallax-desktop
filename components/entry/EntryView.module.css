@@ -813,3 +813,22 @@
 .correctOpen:hover {
   color: var(--title);
 }
+
+/* The note as its export file. Monospace and scrollable in its own box: the
+   frontmatter is JSON and wrapping it would make the shape unreadable, and the
+   panel must not grow a horizontal scrollbar of its own. */
+.mdx {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  max-height: 340px;
+  overflow: auto;
+  background: var(--raised, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--stroke-faint, rgba(0, 0, 0, 0.08));
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  line-height: 1.6;
+  color: var(--meta);
+  white-space: pre;
+  tab-size: 2;
+}

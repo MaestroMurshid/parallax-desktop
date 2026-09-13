@@ -45,6 +45,7 @@ export default function TopBar() {
   const setView = useApp((s) => s.setView);
   const chatOpen = useApp((s) => s.chatOpen);
   const setChatOpen = useApp((s) => s.setChatOpen);
+  const askAbout = useApp((s) => s.askAbout);
   const taskCount = useApp((s) => s.actionItems.filter((a) => !a.done).length);
 
   // Close the results panel on an outside click; Escape is handled separately.
@@ -69,6 +70,18 @@ export default function TopBar() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // The same words, asked rather than matched. Substring search answers
+    // "where did I say this"; the question you actually had is usually "what
+    // did I think about this", and that was behind a word nobody reads as a
+    // verb. Enter is the one key everybody already presses in a search box.
+    if (e.key === 'Enter') {
+      const query = e.currentTarget.value.trim();
+      if (query.length < MIN_QUERY) return;
+      e.preventDefault();
+      setOpen(false);
+      askAbout(query);
+      return;
+    }
     if (e.key !== 'Escape') return;
     e.stopPropagation(); // don't also trigger the app-wide Escape handling
     setValue('');
@@ -102,6 +115,14 @@ export default function TopBar() {
         />
         {showPanel && (
           <div className={styles.results}>
+            {/* First, and above the matches, because it answers the question
+                the matches only point at. Also the only place the feature is
+                discoverable now that it is not a word in the chrome. */}
+            <button type="button" className={styles.ask} onMouseDown={() => { setOpen(false); askAbout(trimmed); }}>
+              <span className={styles.askVerb}>ask</span>
+              <span className={styles.askQuery}>what my notes say about &ldquo;{trimmed}&rdquo;</span>
+              <kbd className={styles.askKey}>↵</kbd>
+            </button>
             {hits.length === 0 && <p className={styles.empty}>no matches</p>}
             {/* Discoverable where it is needed: you find out `ai` matched
                 `maintain` by reading the snippets, and this is where they are. */}
@@ -173,7 +194,7 @@ export default function TopBar() {
           aria-pressed={chatOpen}
           onClick={() => setChatOpen(!chatOpen)}
         >
-          recall
+          ask
         </button>
         <button
           type="button"

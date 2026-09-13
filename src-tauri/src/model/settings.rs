@@ -62,6 +62,21 @@ pub struct Settings {
     /// build -- a CUDA one, most likely; absent for everyone else.
     #[serde(default)]
     pub llama_server_path: Option<String>,
+
+    /// Whether the live register is consulted at all.
+    ///
+    /// On by default, because §3.2's asymmetry is the safe direction. Off is
+    /// for the case that made this a setting: a note arguing an impersonal
+    /// point *through* a personal example reads as live to the classifier --
+    /// the example is about the speaker's life -- so the note that most wanted
+    /// a question is the one that silently never gets one. Turning it off
+    /// suppresses nothing and rewrites nothing; it stops the facet being read.
+    #[serde(default = "yes")]
+    pub live_register: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -78,6 +93,7 @@ impl Default for Settings {
             transcription_backend: ComputeBackend::Auto,
             reasoning_backend: ComputeBackend::Auto,
             llama_server_path: None,
+            live_register: true,
         }
     }
 }

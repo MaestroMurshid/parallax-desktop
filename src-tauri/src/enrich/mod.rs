@@ -16,6 +16,26 @@ use crate::model::{Entry, Register, Role};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+pub(crate) fn repair_and_parse_json<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
+    if let Ok(parsed) = serde_json::from_str(raw) {
+        return Ok(parsed);
+    }
+
+    // Attempt simple repairs by appending closing braces in case of truncation
+    let fixes = ["}", "]}", "]}}", "\"}", "\"}]}", "\"}]}}"];
+
+    for fix in fixes {
+        let repaired = format!("{}{}", raw.trim_end(), fix);
+        if let Ok(parsed) = serde_json::from_str(&repaired) {
+            return Ok(parsed);
+        }
+    }
+
+    // If it still fails, return the original parse error
+    serde_json::from_str(raw)
+        .map_err(|e| Error::Other(format!("JSON parsing failed even after repair: {e}")))
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Classification {
@@ -40,57 +60,40 @@ pub struct Classification {
 }
 
 const CLASSIFY_SYSTEM: &str = "\
-You are filing a spoken note. Answer about the note, never about the speaker.
+You are an expert librarian filing a spoken note. Answer about the note, never about the speaker.
+Follow these constraints strictly. Answer the fields in the exact order listed.
 
-Answer the fields in the order they are listed. An earlier answer cannot be
-revised once a later one has been given.
+### Fields to Extract
 
-title: three or four words taken from the speaker's own phrasing. Not a
-description of the note. Lowercase unless the words are names.
+- **title**: 3-5 words taken from the speaker's own phrasing. Not a description. Lowercase unless names.
+- **role**: What the note mostly does. Choose from:
+  - `evidence`: Reports something observed, measured or learned.
+  - `note`: Records something to do or keep (errands, lists, intents).
+  - `position`: The speaker's own reasoning, asserted with grounds (argues, weighs, doubts).
+- **register**: 
+  - `live`: When something personal is at stake (life, relationships, work).
+  - `neutral`: Otherwise (including uncertain or technical weighing).
+- **typeId**: Use the value equal to `role` unless another allowed value plainly fits better.
+- **summary**: One line, third person, summarizing the core claim of the note. Omit conversational context or personal details (e.g., who the speaker was talking to) unless absolutely crucial to the claim. Required if register is neutral. If live, return an empty string.
+- **movePhrase**: What the note does as a move, with its subject removed (verb phrase). e.g., 'trades one cost for another'.
+- **anchors**: 2-3 short, precise phrases. What this note is specifically about, in the speaker's exact words (e.g., 'hash-table-lookup').
+- **topics**: 1-2 broad fields for shelving (e.g., 'databases', 'distributed-systems'). Does not have to be in the text.";
 
-role -- what the note mostly does:
-  evidence: reports something observed, measured or learned. A figure, a reading
-  or a result is actually in it. Saying a measurement has not been taken is not
-  evidence; it is the absence of one.
-  note: records something to do or to keep -- errands, lists, intents,
-  reminders. Mostly items means note.
-  position: the speaker's own reasoning, asserted with grounds. It argues,
-  weighs or doubts rather than reporting or listing.
-A note that weighs a tradeoff, doubts itself, or admits it has not checked
-something is arguing, so it is a position even where measuring is mentioned.
+/// The one sentence the live-register setting has to change, and the reason it
+/// is swapped rather than post-processed: the model is told to return an empty
+/// summary for a live note, so with the facet off there was nothing for the
+/// code to un-suppress. It had never been asked for a summary at all.
+const LIVE_SUMMARY_RULE: &str = "Required if register is neutral. If live, return an empty string.";
 
-register -- live when something personal is at stake in it: the speaker's own
-life, a relationship, work they might leave, something raw or unresolved about
-themselves. Neutral otherwise, and that includes a note that is uncertain,
-weighing a tradeoff, or admitting it has not checked something. Doubt about an
-idea is not personal stake. Answer live only when personal stake is genuinely
-unclear.
-
-typeId: which drawer the note is filed in. Use the value equal to role unless
-another allowed value plainly fits the note better.
-
-summary: one line, third person, saying what the note says. Required whenever
-register is neutral -- an empty summary there is an error. When register is
-live, return an empty string and nothing else: a tidy sentence about something
-raw is worse than nothing.
-
-movePhrase: what the note does as a move, with its subject removed, so that two
-notes about different things can be recognised as doing the same thing. Say it
-as a verb phrase about an unnamed claim.
-
-anchors: two or three. What this note is specifically about, in the speaker's
-own words -- the thing it argues about, the system it describes, the mechanism
-it turns on. Use words that are actually in the note, and be precise:
-hash-table-lookup, write-amplification, sunk-cost. An anchor whose words are
-not in the note is discarded.
-
-topics: one or two, and these are the opposite. A topic is the broad field a
-librarian would shelve this note under, so that a note about b-trees and a note
-about lock contention end up on the same shelf. It does not have to appear in
-the note: a note about hash table lookup has the topic databases even if the
-word database is never said. Prefer the ordinary, obvious name for the field.
-Do not invent a topic narrower than the field, and do not reach for one so
-broad it would fit any note at all.";
+/// `CLASSIFY_SYSTEM` with that rule lifted when the facet is switched off. The
+/// rest is left byte-identical: this is the setting reaching the model, not an
+/// edit to how anything is classified.
+fn classify_system(live_register: bool) -> std::borrow::Cow<'static, str> {
+    if live_register {
+        return std::borrow::Cow::Borrowed(CLASSIFY_SYSTEM);
+    }
+    std::borrow::Cow::Owned(CLASSIFY_SYSTEM.replace(LIVE_SUMMARY_RULE, "Always required."))
+}
 
 /// The type list is built from the registry at call time, so a user-defined
 /// type becomes a value the model may return -- and constrained decoding makes
@@ -126,19 +129,19 @@ pub fn classify(
     provider: &dyn LlmProvider,
     transcript: &str,
     type_ids: &[String],
+    live_register: bool,
 ) -> Result<Classification> {
-    // 400 truncated a real summary mid-string, and a constrained reply that stops
-    // early is unparseable rather than short.
-    let mut ask = Ask::new(CLASSIFY_SYSTEM, transcript).constrained(classify_schema(type_ids));
-    ask.max_tokens = 700;
+    let system = classify_system(live_register);
+    let ask = Ask::new(&system, transcript).constrained(classify_schema(type_ids));
     let reply = provider.ask(ask)?;
 
-    let mut parsed: Classification = serde_json::from_str(&reply)
-        .map_err(|e| Error::Other(format!("classification was not readable: {e}")))?;
+    let mut parsed: Classification = repair_and_parse_json(&reply)?;
 
     // §1.1 enforced here rather than trusted: a summary of a live entry
-    // flattens the exact thing that made it worth keeping.
-    if parsed.register == Register::Live {
+    // flattens the exact thing that made it worth keeping. Skipped when the
+    // facet is off -- what the model answered is still stored, so re-enabling
+    // the setting restores the rule, but nothing acts on it meanwhile.
+    if live_register && parsed.register == Register::Live {
         parsed.summary = None;
     }
     if parsed.summary.as_deref().is_some_and(str::is_empty) {
@@ -185,19 +188,22 @@ pub fn classify(
 /// having no filter.
 ///
 /// The rule is the one `title` already follows -- the speaker's own phrasing --
-/// and the discipline §3.4 applies to quotes. Matching is on a five-character
-/// stem so "index" still finds "indexes"; crude, and wrong in the safe
-/// direction, since a dropped tag costs a connection that might have been
-/// found and a kept one costs a connection that should not exist (§3.2).
+/// and the discipline §3.4 applies to quotes. Matching is on a Porter stem, so
+/// "index" still finds "indexes" and "argued" finds "argue"; wrong in the safe
+/// direction either way, since a dropped tag costs a connection that might have
+/// been found and a kept one costs a connection that should not exist (§3.2).
 fn grounded(tag: &str, transcript: &str) -> bool {
+    use rust_stemmers::{Algorithm, Stemmer};
+    let en_stemmer = Stemmer::create(Algorithm::English);
+
     let haystack = transcript.to_lowercase();
     let mut words = tag.split('-').filter(|w| w.len() > 2).peekable();
     if words.peek().is_none() {
         return false;
     }
     words.all(|word| {
-        let stem: String = word.chars().take(5).collect();
-        haystack.contains(&stem)
+        let stem = en_stemmer.stem(word);
+        haystack.contains(&stem.to_string())
     })
 }
 
@@ -244,13 +250,16 @@ fn trim_anchor(anchor: &str) -> String {
 ///
 /// Measured: `movePhrase` is an unbounded string and the model loops inside
 /// it -- "for faster reads of data storage systems and databases that use
-/// indexes" repeated until the 700-token ceiling, on three of the first four
-/// fixtures, with the JSON unterminated. A `maxLength` in the grammar stops
-/// the runaway but cuts mid-word and drags in whatever token happens to fit,
-/// CJK included, so the bound is the safety net and the real cut happens
-/// here -- the division of labour `trim_quote` already uses.
+/// indexes" repeated on three of the first four fixtures, with the JSON
+/// unterminated. That run stopped against a 700-token `max_tokens`; the cap has
+/// since been removed, so the same loop now runs to the 4096-token context
+/// instead, and `repair_and_parse_json` may close the truncated string rather
+/// than failing. A `maxLength` in the grammar stops the runaway but cuts
+/// mid-word and drags in whatever token happens to fit, CJK included, so the
+/// bound is the safety net and the real cut happens here -- the division of
+/// labour `trim_quote` already uses.
 fn trim_phrase(phrase: &str) -> String {
-    const MOST: usize = 14;
+    const MOST: usize = 20;
     let words: Vec<&str> = phrase.split_whitespace().collect();
     if words.len() <= MOST {
         return words.join(" ");
@@ -259,46 +268,21 @@ fn trim_phrase(phrase: &str) -> String {
 }
 
 const QUESTION_SYSTEM: &str = "\
-You ask one question about a note someone recorded. You may ask. You may not
-conclude. Answer the two fields in the order they are listed.
+You ask one insightful question about a note someone recorded.
+Follow these constraints strictly. Answer the fields in the exact order listed.
 
-quote: first choose the passage the question will be about, and copy it out of
-the note. The shortest passage that carries the claim -- a phrase, under twenty
-words, never the whole note. Transcribe it rather than recall it: read the
-characters off the note in order. Substituting a word the note uses elsewhere
-makes the question uncheckable, and it is discarded.
+### Fields to Extract
 
-text: then write the question about that passage. One question, ending in a
-question mark. Never the passage again, never a statement, never a list.
+- **quote**: A verbatim passage from the note that the question will be about. The shortest passage that carries the claim (under 20 words). Do not modify it.
+- **text**: One question, ending in a question mark.
 
-The move you are asked to make decides the shape of the question, and it is not
-always a request for evidence. Asked where something stops holding, name the
-condition it needs. Asked what would overturn it, ask for the observation that
-would. Asked to steelman, put the claim at its strongest and then press the part
-that is still weak. Asked to follow the reasons down, ask what the reason given
-rests on in turn. Asked to apply it somewhere new, bring a case the note has not
-considered and ask what it gives there. Follow the move; do not fall back on
-asking for evidence every time.
+### Question Guidelines
 
-Push on the reasoning, not the conclusion: \"this holds if X -- is X true?\"
-produces thinking, \"you are wrong about X\" produces a rebuttal. One question is
-an invitation; five objections is an attack.
-
-Aim at the load-bearing part -- the assumption the rest of it rests on -- and not
-at the topic. A question that asks what something means, or asks for a
-definition, moves nothing; a question that asks what it would take for the claim
-to be wrong, or what it commits the speaker to, moves a great deal.
-
-Ask about the claim, never about the note and never about the speaker. Asking
-what the note means, considers, or treats as true makes someone interpret their
-own words back, and nothing moves. Do not write \"does the note\", \"according to
-the note\", or \"the note considers\". Name the thing itself.
-
-Open with what, which, where, how or why. A question opening with is, does, can,
-has or would can be answered with yes, and yes is not an answer.
-
-It has to be answerable out loud, in a sentence or two, out of what the speaker
-already knows. Not a literature question and not a research task.";
+- Push on the reasoning, not the conclusion. \"This holds if X -- is X true?\"
+- Aim at the load-bearing part, the underlying assumption, not just the topic.
+- Ask about the claim, never about the note or the speaker (no \"does the note\" or \"according to the note\").
+- Open with what, which, where, how, or why. Avoid yes/no questions.
+- It must be answerable out loud, in a sentence or two.";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Asked {
@@ -344,10 +328,10 @@ pub fn ask_about_passage(
         "The note:\n\n{}\n{selected}\nWhat to ask: {}",
         entry.transcript, probe_hint
     );
-    let reply = provider.ask(Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema()))?;
+    let ask = Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema());
+    let reply = provider.ask(ask)?;
 
-    let mut asked: Asked = serde_json::from_str(&reply)
-        .map_err(|e| Error::Other(format!("the question was not readable: {e}")))?;
+    let mut asked: Asked = repair_and_parse_json(&reply)?;
 
     if asked.text.trim().is_empty() {
         return Err(Error::Other("the model returned an empty question".into()));
@@ -524,6 +508,7 @@ mod tests {
             &p,
             "Free will and moral luck pull against each other here.",
             &["position".into()],
+            true,
         )
         .unwrap();
 
@@ -543,7 +528,7 @@ mod tests {
             r#"{"title":"t","role":"note","register":"neutral","typeId":"note",
                 "summary":"s","movePhrase":"m"}"#,
         );
-        let c = classify(&p, "said", &["note".into()]).unwrap();
+        let c = classify(&p, "said", &["note".into()], true).unwrap();
         assert!(c.anchors.is_empty() && c.topics.is_empty());
     }
 
@@ -561,6 +546,7 @@ mod tests {
             &p,
             "Hash table lookup is O(1) on average, which is the guarantee an index leans on.",
             &["position".into()],
+            true,
         )
         .unwrap();
         assert_eq!(c.anchors, vec!["hash-tables".to_string()]);
@@ -596,6 +582,7 @@ mod tests {
             &p,
             "Buy a new charger and send the reimbursement form.",
             &["note".into()],
+            true,
         )
         .unwrap();
         assert!(
@@ -615,6 +602,7 @@ mod tests {
             &p,
             "I don't think free will requires...",
             &["position".into()],
+            true,
         )
         .unwrap();
 
@@ -633,7 +621,7 @@ mod tests {
                 "typeId":"position","summary":"Reflects on a relationship that ended.",
                 "movePhrase":"states a loss"}"#,
         );
-        let c = classify(&p, "...", &["position".into()]).unwrap();
+        let c = classify(&p, "...", &["position".into()], true).unwrap();
 
         assert_eq!(c.register, Register::Live);
         assert!(
@@ -648,7 +636,7 @@ mod tests {
             r#"{"title":"a list","role":"note","register":"neutral","typeId":"note",
                 "summary":"","movePhrase":"records errands"}"#,
         );
-        assert!(classify(&p, "...", &["note".into()])
+        assert!(classify(&p, "...", &["note".into()], true)
             .unwrap()
             .summary
             .is_none());
@@ -663,7 +651,7 @@ mod tests {
                 "summary":"s","movePhrase":"m"}"#,
         );
         let types = vec!["position".to_string(), "wondering".to_string()];
-        let c = classify(&p, "...", &types).unwrap();
+        let c = classify(&p, "...", &types, true).unwrap();
 
         assert_eq!(c.type_id, "wondering");
         let schema = p.last_schema().unwrap();
@@ -697,10 +685,40 @@ mod tests {
         assert!(ask_about(&p, &entry("something"), "hint").is_err());
     }
 
+    /// The half of the setting that was inert: the gate stopped consulting the
+    /// register but the model was still being told to leave a live note without
+    /// a summary, so the note the setting exists for still got none.
+    #[test]
+    fn turning_the_register_off_stops_asking_for_an_empty_summary() {
+        let on = classify_system(true);
+        let off = classify_system(false);
+
+        assert!(
+            on.contains(LIVE_SUMMARY_RULE),
+            "the rule went missing with the facet on"
+        );
+        assert!(
+            !off.contains(LIVE_SUMMARY_RULE),
+            "the model is still told to omit it"
+        );
+        assert!(
+            off.contains("Always required."),
+            "nothing asks for the summary now"
+        );
+
+        // Only that sentence moves. The rest of the prompt is not the setting's
+        // to rewrite, and a drifting prompt would change classification itself.
+        assert_eq!(
+            on.replace(LIVE_SUMMARY_RULE, ""),
+            off.replace("Always required.", ""),
+            "the setting changed more of the prompt than the summary rule"
+        );
+    }
+
     #[test]
     fn unreadable_output_is_an_error_not_a_panic() {
         let p = FakeProvider::replying("not json at all");
-        assert!(classify(&p, "...", &["position".into()]).is_err());
+        assert!(classify(&p, "...", &["position".into()], true).is_err());
         assert!(ask_about(&p, &entry("x"), "hint").is_err());
     }
 }

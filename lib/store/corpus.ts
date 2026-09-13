@@ -65,7 +65,6 @@ export interface CorpusSlice {
   /** Layers behind an entry's rings (§6.2). Children never get their own blob. */
   returnsFor(entryId: string): number;
   edgesFor(entryId: string): Edge[];
-  hasUnansweredQuestion(entryId: string): boolean;
   /** Entries with no drawn edge — dimmed fill, the honest case (§5.3). */
   isIsolated(entryId: string): boolean;
 }
@@ -119,10 +118,19 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
 
   async refreshEntry(id) {
     const bridge = getBridge();
-    const [entry, question] = await Promise.all([bridge.getEntry(id), bridge.getQuestion(id)]);
+    // Edges come back too. The pass that classifies a note also proposes its
+    // connections, and reading only the entry meant every connection the app
+    // found sat in the database until the next full load -- so the one mechanic
+    // worth watching happen was the one that never appeared while you watched.
+    const [entry, question, edges] = await Promise.all([
+      bridge.getEntry(id),
+      bridge.getQuestion(id),
+      bridge.listEdges(),
+    ]);
     // Deleted while enrichment was running.
     if (!entry) return;
     get().upsertEntry(entry);
+    set({ edges });
 
     // Merged by id rather than replaced. Overwriting with `[question]` dropped
     // every earlier question on the entry — getQuestion returns only the open
@@ -294,10 +302,6 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
 
   edgesFor(entryId) {
     return get().edges.filter((e) => drawn(e) && (e.entryA === entryId || e.entryB === entryId));
-  },
-
-  hasUnansweredQuestion(entryId) {
-    return (get().questions.get(entryId) ?? []).some((q) => !q.answered && !q.dismissed);
   },
 
   isIsolated(entryId) {

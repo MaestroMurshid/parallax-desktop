@@ -54,8 +54,10 @@ export const SLOTS: Record<SlotId, RenderSlot> = {
  * setting the old `felt` type had — but an entry keeps its role underneath, so
  * a live position is still a position everywhere retrieval looks.
  */
-export function applyRegister(slot: RenderSlot, register: Register): RenderSlot {
-  if (register !== 'live') return slot;
+export function applyRegister(slot: RenderSlot, register: Register, liveRegister = true): RenderSlot {
+  // Off means the facet is not read at all, so the treatment goes with it --
+  // a note still filed as live simply draws as what its role is.
+  if (!liveRegister || register !== 'live') return slot;
   return { ...slot, edge: 'soft', tracking: slot.tracking + 0.6, opacity: slot.opacity * 0.8 };
 }
 
@@ -128,9 +130,13 @@ export function slotFor(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES):
 }
 
 /** What the canvas draws: role letterform with register composed on top. */
-export function treatmentFor(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): RenderSlot | null {
+export function treatmentFor(
+  entry: Entry,
+  types: TypeDefinition[] = BUILT_IN_TYPES,
+  liveRegister = true,
+): RenderSlot | null {
   const slot = slotFor(entry, types);
-  return slot ? applyRegister(slot, entry.register) : null;
+  return slot ? applyRegister(slot, entry.register, liveRegister) : null;
 }
 
 /** A user type's own mark wins; otherwise the role's drawn glyph. */
@@ -145,10 +151,14 @@ export function markFor(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES):
  * What the entry panel shows. §3.6 says render the collapse, so this is the
  * legend's own vocabulary — never a raw registry key the legend never taught.
  */
-export function typeLabel(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): string {
+export function typeLabel(
+  entry: Entry,
+  types: TypeDefinition[] = BUILT_IN_TYPES,
+  liveRegister = true,
+): string {
   const def = definitionFor(entry, types);
   const base = def?.label ?? roleOf(entry, types);
-  return entry.register === 'live' ? `${base} · live` : base;
+  return liveRegister && entry.register === 'live' ? `${base} · live` : base;
 }
 
 export interface LegendRow {
@@ -252,8 +262,15 @@ const ALL_PROBES: Probe[] = [
  * user thinks to ask means the one move that makes learning stick only fires
  * for someone who already knows to want it.
  */
-export function automaticProbes(entry: Entry, types: TypeDefinition[] = BUILT_IN_TYPES): Probe[] {
-  if (entry.register === 'live') return [];
+export function automaticProbes(
+  entry: Entry,
+  types: TypeDefinition[] = BUILT_IN_TYPES,
+  liveRegister = true,
+): Probe[] {
+  // Only the register is the setting's to lift. Duration and having words of
+  // your own are not about what the note is about, and §3.2 does not hand
+  // those to a preference -- the Rust gate makes the same distinction.
+  if (liveRegister && entry.register === 'live') return [];
   if (entry.durationMs < 30_000) return [];
   if (!hasOwnSpan(entry)) return [];
 

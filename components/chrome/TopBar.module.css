@@ -196,3 +196,51 @@
   width: max(calc(100% + 8px), 24px);
   height: max(calc(100% + 10px), 24px);
 }
+
+/* Sits above the matches because it answers the question they only point at,
+   and because with the word gone from the chrome this is where the feature is
+   found at all. Reads as a sentence, not a button: the verb is the label. */
+.ask {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--edge);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--size-meta);
+  color: var(--meta);
+}
+
+.ask:hover,
+.ask:focus-visible {
+  background: var(--edge);
+  color: var(--title);
+}
+
+.askVerb {
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.08em;
+  color: var(--title);
+}
+
+.askQuery {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.askKey {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  padding: 1px 5px;
+  border: 1px solid var(--edge);
+  border-radius: 2px;
+  opacity: 0.7;
+}

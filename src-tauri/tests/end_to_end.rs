@@ -58,7 +58,19 @@ fn the_sample_corpus_loads_and_is_searchable() {
 
         let entries = db::entries::list(&conn).unwrap();
         assert!(entries.len() >= 10, "got {} entries", entries.len());
-        assert!(!db::edges::list(&conn).unwrap().is_empty(), "edges too");
+        // Edges and questions belong to enrichment now: the fixture is raw
+        // material rather than a finished corpus, so the loader seeding either
+        // would be the regression. Asserted rather than dropped, because the
+        // old assertion going green again is exactly what must not happen
+        // quietly.
+        assert!(
+            db::edges::list(&conn).unwrap().is_empty(),
+            "the loader seeded edges instead of leaving them to enrichment"
+        );
+        assert!(
+            db::questions::list(&conn).unwrap().is_empty(),
+            "the loader seeded questions instead of leaving them to enrichment"
+        );
 
         // Something from the fixture, found by a phrase half-remembered.
         let hits = db::search::search(&conn, "reasoning").unwrap();

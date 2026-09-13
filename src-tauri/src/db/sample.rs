@@ -11,7 +11,7 @@
 
 use crate::db;
 use crate::error::Result;
-use crate::model::{Edge, EdgeStatus, Entry, Question, Register, Relation, Role, Span};
+use crate::model::{Entry, Register, Role, Span};
 use rusqlite::Connection;
 use serde::Deserialize;
 
@@ -20,8 +20,6 @@ const SEED: &str = include_str!("../../../fixtures/corpus.json");
 #[derive(Debug, Deserialize)]
 struct Seed {
     entries: Vec<SeedEntry>,
-    edges: Vec<SeedEdge>,
-    questions: Vec<SeedQuestion>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,11 +28,6 @@ struct SeedEntry {
     id: String,
     created_at: String,
     transcript: String,
-    title: String,
-    summary: Option<String>,
-    role: Role,
-    register: Register,
-    type_id: String,
     duration_ms: i64,
     #[serde(default)]
     audio: bool,
@@ -53,26 +46,6 @@ struct SeedEntry {
     action_items: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct SeedEdge {
-    a: String,
-    b: String,
-    relation: Relation,
-    status: EdgeStatus,
-    question: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SeedQuestion {
-    entry_id: String,
-    text: String,
-    span_quote: Option<String>,
-    #[serde(default)]
-    answered: bool,
-    provider_name: String,
-}
-
 /// Finds a quote in the transcript rather than trusting an offset, which is
 /// the same rule corrections follow. A quote that is not there is dropped.
 fn span_for(transcript: &str, quote: &str, attributed: bool) -> Option<Span> {
@@ -83,15 +56,21 @@ fn span_for(transcript: &str, quote: &str, attributed: bool) -> Option<Span> {
     })
 }
 
-pub fn load(conn: &Connection) -> Result<()> {
+/// Returns the ids actually inserted, which is not every id in the fixture: a
+/// second load skips what is already there. The caller enriches what comes
+/// back rather than every sample entry, because re-running the pass over an
+/// already-classified note appends a second question to it -- questions have no
+/// uniqueness constraint the way edges do.
+pub fn load(conn: &Connection) -> Result<Vec<String>> {
     load_seed(conn, SEED)
 }
 
 /// Takes the seed as an argument so a test can exercise paths the shipped
 /// fixture happens not to reach -- a question on a suppressed entry, an edge
 /// naming an id that is not there.
-pub fn load_seed(conn: &Connection, raw: &str) -> Result<()> {
+pub fn load_seed(conn: &Connection, raw: &str) -> Result<Vec<String>> {
     let seed: Seed = serde_json::from_str(raw)?;
+    let mut inserted: Vec<String> = Vec::new();
 
     // One transaction. A failure part-way used to leave entries written and
     // questions absent, and the next attempt was worse than a no-op: the
@@ -118,11 +97,6 @@ pub fn load_seed(conn: &Connection, raw: &str) -> Result<()> {
         })
         .collect();
 
-    // Which entries the fixture actually contains, so an edge naming a
-    // mistyped id is dropped rather than aborting the load on a foreign key.
-    let known: std::collections::HashSet<&str> =
-        seed.entries.iter().map(|e| e.id.as_str()).collect();
-
     // Placement order is the order every read uses, so the field is solved in
     // the order it will be seen in.
     let mut ordered: Vec<&SeedEntry> = seed.entries.iter().collect();
@@ -133,54 +107,20 @@ pub fn load_seed(conn: &Connection, raw: &str) -> Result<()> {
             continue;
         }
 
-        let (half_w, half_h) = db::create::title_box(&s.title, s.duration_ms);
-        // A stated relation is better evidence than a cosine guess, and it is
-        // the thing that gets drawn -- a line long enough to cross the map is
-        // a line nobody can trace. The fixture has the edges; use them.
-        let links: Vec<String> = seed
-            .edges
-            .iter()
-            .filter_map(|e| match (e.a.as_str(), e.b.as_str()) {
-                (a, b) if a == s.id => Some(b.to_string()),
-                (a, b) if b == s.id => Some(a.to_string()),
-                _ => None,
-            })
-            .filter(|id| field.iter().any(|n| &n.id == id))
-            .collect();
-
+        let title = crate::db::create::derive_title(&s.transcript);
+        let (half_w, half_h) = db::create::title_box(&title, s.duration_ms);
         let spot = crate::scene::placement::place(
             &crate::scene::placement::Candidate {
                 id: s.id.clone(),
                 vec: Vec::new(),
                 half_w,
                 half_h,
-                links,
+                links: Vec::new(),
             },
             &field,
             &std::collections::HashMap::new(),
             crate::scene::placement::Options::default(),
         );
-
-        let spans: Vec<Span> = s
-            .attributed_quotes
-            .iter()
-            .filter_map(|q| span_for(&s.transcript, q, true))
-            .collect();
-
-        let action_items = s
-            .action_items
-            .iter()
-            .enumerate()
-            .filter_map(|(i, text)| {
-                span_for(&s.transcript, text, false).map(|span| crate::model::ActionItem {
-                    id: format!("{}-task-{i}", s.id),
-                    entry_id: s.id.clone(),
-                    span,
-                    text: text.clone(),
-                    done: false,
-                })
-            })
-            .collect();
 
         let entry = Entry {
             id: s.id.clone(),
@@ -195,18 +135,15 @@ pub fn load_seed(conn: &Connection, raw: &str) -> Result<()> {
             y: spot.y,
             parent_entry_id: None,
             answers_question_id: None,
-            role: s.role,
-            register: s.register,
-            type_id: s.type_id.clone(),
+            role: Role::Position,
+            register: Register::Live,
+            type_id: "position".into(),
+            // A closed thread is time depth too, and resolving is a user
+            // action rather than something the classifier decides.
             resolved: s.resolved,
             resolution_text: s.resolution_text.clone(),
-            title: s.title.clone(),
-            // Belt and braces over the fixture: a live entry never carries one.
-            summary: if s.register == Register::Live {
-                None
-            } else {
-                s.summary.clone()
-            },
+            title: title.clone(),
+            summary: None,
             duration_ms: s.duration_ms,
             fingerprint: if s.audio {
                 synthetic_fingerprint(&s.id, s.duration_ms)
@@ -215,12 +152,29 @@ pub fn load_seed(conn: &Connection, raw: &str) -> Result<()> {
             },
             unfinished: db::create::detect_unfinished(&s.transcript),
             local_only: s.local_only,
-            spans,
-            action_items,
+            spans: s
+                .attributed_quotes
+                .iter()
+                .filter_map(|q| span_for(&s.transcript, q, true))
+                .collect(),
+            action_items: s
+                .action_items
+                .iter()
+                .filter_map(|text| {
+                    span_for(&s.transcript, text, false).map(|span| crate::model::ActionItem {
+                        id: format!("{}-task-{}", s.id, span.start),
+                        entry_id: s.id.clone(),
+                        span,
+                        text: text.clone(),
+                        done: false,
+                    })
+                })
+                .collect(),
             is_sample: Some(true),
         };
 
         db::entries::insert(&tx, &entry)?;
+        inserted.push(entry.id.clone());
         field.push(crate::scene::placement::PlacedNode {
             id: entry.id.clone(),
             x: spot.x,
@@ -231,69 +185,12 @@ pub fn load_seed(conn: &Connection, raw: &str) -> Result<()> {
         });
     }
 
-    for e in &seed.edges {
-        // An edge naming an entry the fixture does not contain is a typo, not
-        // a connection. Dropped, rather than aborting on a foreign key.
-        if !known.contains(e.a.as_str()) || !known.contains(e.b.as_str()) {
-            continue;
-        }
-        let created_at = seed
-            .entries
-            .iter()
-            .find(|s| s.id == e.b)
-            .map(|s| s.created_at.clone())
-            .unwrap_or_default();
-
-        db::edges::insert(
-            &tx,
-            &Edge {
-                // Derived from what the edge is, not where it sits in the
-                // file. A positional id means adding one edge renumbers the
-                // rest, and re-loading then collides an old id with a new pair.
-                id: format!("edge-{}-{}", e.a, e.b),
-                entry_a: e.a.clone(),
-                entry_b: e.b.clone(),
-                relation: e.relation,
-                question: e.question.clone(),
-                status: e.status,
-                created_at,
-            },
-        )?;
-    }
-
-    for (i, q) in seed.questions.iter().enumerate() {
-        let Some(entry) = db::entries::get(&tx, &q.entry_id)? else {
-            continue;
-        };
-        // §3.2 is structural, not advisory: the three facets decide what may
-        // carry a question, whatever the fixture says.
-        if crate::enrich::gate::automatic_probes(&entry).is_empty() {
-            continue;
-        }
-
-        let span = q
-            .span_quote
-            .as_ref()
-            .and_then(|quote| span_for(&entry.transcript, quote, false));
-
-        db::questions::insert(
-            &tx,
-            &Question {
-                id: format!("question-{}-{i}", q.entry_id),
-                entry_id: q.entry_id.clone(),
-                text: q.text.clone(),
-                span,
-                answered: q.answered,
-                dismissed: false,
-                provider_name: q.provider_name.clone(),
-                created_at: entry.created_at.clone(),
-            },
-            &entry.transcript,
-        )?;
-    }
+    // Edges and questions are deliberately not seeded: discovering them is the
+    // mechanic the sample exists to show, so a recording of the result would
+    // demonstrate nothing.
 
     tx.commit()?;
-    Ok(())
+    Ok(inserted)
 }
 
 /// The fixture has no audio, so the bars are generated -- stable per entry,
@@ -369,7 +266,14 @@ mod tests {
         let entries = db::entries::list(&conn).unwrap();
         assert!(entries.len() >= 10, "got {}", entries.len());
         assert!(entries.iter().all(|e| e.is_sample == Some(true)));
-        assert!(!db::edges::list(&conn).unwrap().is_empty());
+        // Raw corpus: no edges or questions inserted; the model does that later.
+        assert!(db::edges::list(&conn).unwrap().is_empty());
+        assert!(db::questions::list(&conn).unwrap().is_empty());
+        // All entries should be unclassified (Position/Live) since the model
+        // hasn't run yet.
+        assert!(entries.iter().all(|e| e.role == Role::Position));
+        assert!(entries.iter().all(|e| e.register == Register::Live));
+        assert!(entries.iter().all(|e| e.summary.is_none()));
     }
 
     /// Loading twice used to produce two copies of every edge, and a repeated
@@ -404,21 +308,34 @@ mod tests {
         }
     }
 
-    /// A seeded question on an entry the gate would silence must not survive
-    /// the loader -- suppression is structural, not advisory.
+    /// The raw loader inserts no questions — the model generates them later.
+    /// The guard against a second "load sample" hanging a duplicate question off
+    /// every note still on the canvas: enrichment runs on what came back, and
+    /// the second load inserts nothing.
     #[test]
-    fn seeded_questions_still_pass_the_gate() {
+    fn a_second_load_reports_nothing_to_enrich() {
+        let conn = open_in_memory().unwrap();
+        let first = load(&conn).unwrap();
+        assert!(!first.is_empty(), "the first load inserted nothing");
+
+        let second = load(&conn).unwrap();
+        assert!(
+            second.is_empty(),
+            "a second load offered {} entries for re-enrichment",
+            second.len()
+        );
+        assert_eq!(
+            db::entries::list(&conn).unwrap().len(),
+            first.len(),
+            "the second load duplicated entries"
+        );
+    }
+
+    #[test]
+    fn no_questions_seeded() {
         let conn = open_in_memory().unwrap();
         load(&conn).unwrap();
-
-        for q in db::questions::list(&conn).unwrap() {
-            let entry = db::entries::get(&conn, &q.entry_id).unwrap().unwrap();
-            assert!(
-                !crate::enrich::gate::automatic_probes(&entry).is_empty(),
-                "{} carries a question the gate would suppress",
-                entry.id
-            );
-        }
+        assert!(db::questions::list(&conn).unwrap().is_empty());
     }
 
     #[test]
@@ -505,7 +422,30 @@ mod tests {
     fn clearing_unlinks_answers_to_sample_questions() {
         let conn = open_in_memory().unwrap();
         load(&conn).unwrap();
-        let question = db::questions::list(&conn).unwrap().remove(0);
+
+        // The raw loader no longer seeds questions, so create one manually
+        // against a sample entry to exercise the unlinking path.
+        let sample_entry = db::entries::list(&conn)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.is_sample == Some(true))
+            .expect("sample entries should exist");
+        let question_id = "test-question-for-unlink";
+        db::questions::insert(
+            &conn,
+            &crate::model::Question {
+                id: question_id.into(),
+                entry_id: sample_entry.id.clone(),
+                text: "Does this hold?".into(),
+                span: None,
+                answered: false,
+                dismissed: false,
+                provider_name: "boundary".into(),
+                created_at: sample_entry.created_at.clone(),
+            },
+            &sample_entry.transcript,
+        )
+        .unwrap();
 
         let answer = db::create::create(
             &conn,
@@ -521,7 +461,7 @@ mod tests {
         .unwrap();
         conn.execute(
             "UPDATE entries SET answers_question_id = ?2 WHERE id = ?1",
-            rusqlite::params![answer.id, question.id],
+            rusqlite::params![answer.id, question_id],
         )
         .unwrap();
 

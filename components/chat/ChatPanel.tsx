@@ -40,6 +40,8 @@ interface Answer {
    *  the reply is "nothing matched". */
   searched: string[];
   hits: Array<{ hit: SearchHit; term: string }>;
+  answerText?: string;
+  ragHits?: Entry[];
 }
 
 interface Recalled {
@@ -105,10 +107,14 @@ export default function ChatPanel() {
   const loaded = useApp((s) => s.loaded);
   const openEntry = useApp((s) => s.openEntry);
 
+  const chatSeed = useApp((s) => s.chatSeed);
+  const clearChatSeed = useApp((s) => s.clearChatSeed);
+
   const [value, setValue] = useState('');
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [status, setStatus] = useState<Status>('idle');
 
+  const askRef = useRef<((q: string) => void) | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -135,11 +141,35 @@ export default function ChatPanel() {
       const found = await Promise.all(
         terms.map(async (term) => ({ term: bare(term), hits: await bridge.searchEntries(term) })),
       );
+
+      let answerText = undefined;
+      let ragHits = undefined;
+      // Read off the question as typed, not off the derived terms. `termsFor`
+      // quotes any subject word of three letters or fewer to keep substring
+      // matching honest, so asking about tax, job or dad produced a leading
+      // quote that read here as "the user demanded a verbatim search" and
+      // silently skipped recall for the shortest, most ordinary questions.
+      const verbatim = asked.length > 2 && asked.startsWith('"') && asked.endsWith('"');
+      if (!verbatim) {
+        // Its own boundary: recall needs two optional local models, and a
+        // machine without them still has perfectly good substring matches to
+        // show. Losing those to the same catch was the whole panel going dark.
+        try {
+          const rag = await bridge.askRecall(asked);
+          answerText = rag.answer || undefined;
+          ragHits = rag.hits.length > 0 ? rag.hits : undefined;
+        } catch {
+          // Left undefined; the verbatim half below is still worth showing.
+        }
+      }
+
       if (runRef.current !== run) return; // a later question already went out
       setAnswer({
         question: asked,
         searched: terms.map(bare),
         hits: found.flatMap(({ term, hits }) => hits.map((hit) => ({ hit, term }))),
+        answerText,
+        ragHits,
       });
       setStatus('answered');
     } catch {
@@ -147,6 +177,19 @@ export default function ChatPanel() {
       setStatus('failed');
     }
   }, []);
+
+  // Kept in a ref so the effect below can run the search without listing `ask`
+  // as a dependency and re-firing every time the callback identity changes.
+  askRef.current = ask;
+
+  // A question handed over from the search box: asked once, then forgotten, so
+  // reopening the panel later does not re-run a question you have moved on from.
+  useEffect(() => {
+    if (!chatSeed) return;
+    setValue(chatSeed);
+    void askRef.current?.(chatSeed);
+    clearChatSeed();
+  }, [chatSeed, clearChatSeed]);
 
   const recalled = useMemo<Recalled[]>(() => {
     if (!answer) return [];
@@ -160,6 +203,14 @@ export default function ChatPanel() {
       // Two terms can land on one passage; the note shows it once either way.
       group.passages.set(`${hit.start}:${hit.end}`, hit);
       group.matched.add(term);
+    }
+
+    if (answer.ragHits) {
+      for (const entry of answer.ragHits) {
+        if (!byEntry.has(entry.id)) {
+          byEntry.set(entry.id, { passages: new Map(), matched: new Set(['semantic search']) });
+        }
+      }
     }
 
     const out: Recalled[] = [];
@@ -215,11 +266,11 @@ export default function ChatPanel() {
   return (
     <aside className={styles.sheet} aria-label="Recall" onKeyDown={onPanelKeyDown}>
       <header className={styles.header}>
-        <span className={styles.meta}>recall</span>
+        <span className={styles.meta}>ask your notes</span>
         <button
           type="button"
           className={styles.close}
-          aria-label="Close recall"
+          aria-label="Close"
           onClick={() => setChatOpen(false)}
         >
           esc
@@ -272,6 +323,12 @@ export default function ChatPanel() {
         {status === 'answered' && recalled.length === 0 && 'no matches'}
       </p>
 
+      {answer?.answerText && status !== 'searching' && (
+        <div className={styles.searched} style={{ color: 'var(--text-1)', paddingBottom: '16px', lineHeight: '1.5' }}>
+          {answer.answerText}
+        </div>
+      )}
+
       {answer && status !== 'searching' && (
         <p className={styles.searched}>
           searched{' '}
@@ -322,7 +379,12 @@ export default function ChatPanel() {
                   {marked(hit.snippet, hit.snippetStart, hit.snippetEnd)}
                 </span>
               ))}
-              {answer && answer.searched.length > 1 && (
+              {passages.length === 0 && (
+                <span className={styles.passage} style={{ opacity: 0.6 }}>
+                  {entry.transcript.slice(0, 90)}…
+                </span>
+              )}
+              {answer && (answer.searched.length > 1 || passages.length === 0) && (
                 <span className={styles.matched}>matched {matched.join(' · ')}</span>
               )}
             </button>

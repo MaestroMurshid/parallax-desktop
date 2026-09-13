@@ -7,7 +7,7 @@ use crate::llm::LlmProvider;
 use crate::model::TranscriptionModel;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// A recording thrown away but not yet gone. §4 keeps it for a minute rather
 /// than asking "are you sure", because a confirmation dialog on every discard
@@ -50,6 +50,17 @@ pub struct AppState {
     /// cannot share one. Tens of megabytes on the CPU, so keeping it costs
     /// little and starting it per capture would cost a second every time.
     pub embedder: Mutex<Option<crate::embed::llama::LlamaEmbedder>>,
+    /// How many downloads that gate something are in flight. Process-wide
+    /// because the reasoning model's download yields to them, and it can only
+    /// do that by observing the same counter they raise.
+    pub downloads: Arc<crate::model::download::Gate>,
+    /// Entries with an enrichment pass in flight.
+    ///
+    /// Opening a note now asks for one if it never got it, and a note can be
+    /// opened repeatedly while the first pass is still running -- each of which
+    /// would otherwise append its own question, since `questions` has no
+    /// uniqueness constraint the way edges do.
+    pub enriching: Mutex<std::collections::HashSet<String>>,
 }
 
 impl AppState {
@@ -64,6 +75,8 @@ impl AppState {
             llama_dir: Mutex::new(None),
             llama: Mutex::new(None),
             embedder: Mutex::new(None),
+            downloads: crate::model::download::Gate::new(),
+            enriching: Mutex::new(std::collections::HashSet::new()),
         })
     }
 
@@ -127,6 +140,23 @@ impl AppState {
     /// Starts the reasoning server if it is not already up, and runs `f` against
     /// it. Returns `Ok(None)` when there is no binary or no model: enrichment is
     /// allowed to be absent (§9.4), and absent is not an error.
+    /// Whether an enrichment pass would find a model to run against, without
+    /// starting one to find out.
+    ///
+    /// The same two conditions `with_reasoning` checks before it spawns
+    /// anything. Asked so the sample can say plainly that it will stay as
+    /// spoken until the model lands, rather than looking like that is all the
+    /// sample is.
+    pub fn reasoning_available(&self) -> bool {
+        let Some(_) = self.llama_binary() else {
+            return false;
+        };
+        let Ok(settings) = db::settings::get(&self.db()) else {
+            return false;
+        };
+        self.reasoning_model(settings.model_id.as_deref()).is_some()
+    }
+
     pub fn with_reasoning<T>(
         &self,
         f: impl FnOnce(&dyn crate::llm::LlmProvider) -> Result<T>,

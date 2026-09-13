@@ -61,7 +61,11 @@ export default function Page() {
     if (panel) document.documentElement.dataset.window = 'panel';
     void (async () => {
       await initBridge();
-      setSettings(await getBridge().getSettings());
+      const loadedSettings = await getBridge().getSettings();
+      setSettings(loadedSettings);
+      // The canvas and the list draw the register treatment without being
+      // handed the whole Settings object, so the store carries this one field.
+      useApp.getState().setLiveRegister(loadedSettings.liveRegister);
       await useApp.getState().loadCorpus();
     })();
   }, []);
@@ -195,6 +199,14 @@ export default function Page() {
         return;
       }
       if (e.key === 'Escape') {
+        // Capture first, and in both windows. Mid-capture the only thing
+        // escape can plausibly mean is "not this one" -- an overlay behind a
+        // recording is not what the key is reaching for.
+        if (state.captureState === 'recording' || state.captureState === 'transcribing') {
+          e.preventDefault();
+          void state.cancelCapture();
+          return;
+        }
         if (state.connectSource) state.setConnectSource(null);
         else if (state.composing) state.setComposing(false);
         else if (state.overlay !== 'none') state.closeOverlay();
@@ -270,9 +282,19 @@ export default function Page() {
           the list also collapsed everything inside it, so opening a note from a
           list row produced a sheet with no width and no height. An overlay
           belongs to the window, not to whichever view is underneath it. */}
-      {overlay === 'entry' && settings && <EntryView hotkey={settings.hotkey} />}
+      {overlay === 'entry' && settings && (
+        <EntryView hotkey={settings.hotkey} liveRegister={settings.liveRegister} />
+      )}
       {overlay === 'tasks' && <TaskList />}
-      {overlay === 'settings' && settings && <SettingsPanel settings={settings} onChange={setSettings} />}
+      {overlay === 'settings' && settings && (
+        <SettingsPanel
+          settings={settings}
+          onChange={(next) => {
+            setSettings(next);
+            useApp.getState().setLiveRegister(next.liveRegister);
+          }}
+        />
+      )}
       <CapturePanel />
       <ConnectPicker />
       <RelationPicker />

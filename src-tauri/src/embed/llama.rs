@@ -53,10 +53,12 @@ impl LlamaEmbedder {
     pub fn spawn(binary: &PathBuf, model: &PathBuf, model_id: &str) -> Result<Self> {
         let port = crate::llm::llama_server::free_port()?;
 
-        let child = Command::new(binary)
+        let mut command = Command::new(binary);
+        command
             .args(Self::spawn_args(model, port))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        let child = crate::llm::without_a_console(&mut command)
             .spawn()
             .map_err(|e| Error::Other(format!("could not start the embedder: {e}")))?;
 

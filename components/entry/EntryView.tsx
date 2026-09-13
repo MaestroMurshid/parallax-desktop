@@ -41,17 +41,30 @@ function letterform(target: Entry): CSSProperties {
  * say the same eleven words. Name the reason, and the guardrail becomes the
  * feature rather than reading as a failure.
  */
-function silenceReason(entry: Entry): string {
+function silenceReason(entry: Entry, liveRegister: boolean): string {
   if (entry.role === 'note') return 'A note — kept as written.';
   if (!hasOwnSpan(entry)) return "Every word here is someone else's. Nothing of yours to push on.";
   // Register first: evidence opens on its own now, so when a live one is quiet
   // the reason is the register, not the role.
-  if (entry.register === 'live') return 'Left alone — this one reads as live. Select a sentence to take it on anyway.';
-  if (entry.durationMs < 30_000) return 'Under thirty seconds — said once, not interrogated.';
+  if (liveRegister && entry.register === 'live')
+    return 'Left alone — this one reads as live. Select a sentence to take it on anyway.';
+  // A typed note's duration is read off its word count, so it is short rather
+  // than brief — and nothing was said, which the spoken wording claims.
+  if (entry.durationMs < 30_000) {
+    return entry.audioPath === null
+      ? 'Short enough to stand as written, not interrogated.'
+      : 'Under thirty seconds — said once, not interrogated.';
+  }
   return 'Nothing proposed for this entry.';
 }
 
-export default function EntryView({ hotkey }: { hotkey: string }) {
+export default function EntryView({
+  hotkey,
+  liveRegister,
+}: {
+  hotkey: string;
+  liveRegister: boolean;
+}) {
   const id = useApp((s) => s.selectedEntryId);
   const entry = useApp((s) => (id ? s.entries.get(id) : undefined));
   const questions = useApp((s) => (id ? s.questions.get(id) : undefined)) ?? EMPTY;
@@ -84,6 +97,11 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   const [correcting, setCorrecting] = useState(false);
   const [correctionDraft, setCorrectionDraft] = useState('');
   const [savingCorrection, setSavingCorrection] = useState(false);
+  const upsertEntry = useApp((s) => s.upsertEntry);
+  const [registerBusy, setRegisterBusy] = useState(false);
+  const [registerError, setRegisterError] = useState(false);
+  /** null while hidden; the rendered file once asked for. */
+  const [mdx, setMdx] = useState<string | null>(null);
   const [probing, setProbing] = useState<string | null>(null);
   const [selection, setSelection] = useState<Span | null>(null);
   const [selectAt, setSelectAt] = useState<{ x: number; y: number } | null>(null);
@@ -106,6 +124,24 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
   useEffect(() => {
     setCorrecting(false);
     setCorrectionDraft('');
+    setMdx(null);
+  }, [id]);
+
+  // A note captured before the reasoning model landed never got a pass, and
+  // nothing retried it (§9.4 lets the model arrive late, which had been letting
+  // it arrive never). Opening the note is when someone is looking at it, so it
+  // is when the gap is worth closing. Rust decides whether there is anything to
+  // do; this only asks.
+  useEffect(() => {
+    if (!id) return;
+    void getBridge()
+      .ensureEnriched(id)
+      .then((started) => {
+        if (started) useApp.getState().setEnriching(id, true);
+      })
+      .catch(() => {
+        // No model, or nothing to do. The note reads the same either way.
+      });
   }, [id]);
 
   if (!entry) return null;
@@ -126,7 +162,6 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
           {' · '}
           {Math.round(entry.durationMs / 1000)}s
           {entry.audioPath === null && ' · typed'}
-          {entry.localOnly && ' · local only'}
           {/* The title, role and type on screen right now are placeholders
               derived from the words; saying so beats letting them read as the
               model's answer. */}
@@ -271,11 +306,59 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
         {/* Secondary column, smaller and dimmer, so the tidy version never wins (§1.1). */}
         <div className={styles.side}>
           {entry.summary && <p className={styles.summary}>{entry.summary}</p>}
-          <p className={styles.type}>{typeLabel(entry, resolveTypes(customTypes))}</p>
+          <p className={styles.type}>
+            {typeLabel(entry, resolveTypes(customTypes), liveRegister)}
+          </p>
+
+          {/* The user overruling the classifier on one note. Offered only while
+              the facet is switched on, because with it off the answer changes
+              nothing and the control would be a switch wired to nothing. */}
+          {liveRegister && (
+            <button
+              type="button"
+              className={styles.correctOpen}
+              disabled={registerBusy}
+              onClick={() => {
+                setRegisterBusy(true);
+                void getBridge()
+                  .setRegister(entry.id, entry.register === 'live' ? 'neutral' : 'live')
+                  .then(upsertEntry)
+                  .catch(() => setRegisterError(true))
+                  .finally(() => setRegisterBusy(false));
+              }}
+            >
+              {entry.register === 'live' ? 'not personal — open it up' : 'personal — leave it alone'}
+            </button>
+          )}
+          {registerError && (
+            <p className={styles.type}>that did not save — try again</p>
+          )}
+
+          {/* §9 keeps SQLite authoritative, so this shows what a file would
+              contain rather than offering a way to write one. */}
+          <button
+            type="button"
+            className={styles.correctOpen}
+            onClick={() => {
+              if (mdx !== null) {
+                setMdx(null);
+                return;
+              }
+              void getBridge()
+                .entryMdx(entry.id)
+                .then(setMdx)
+                .catch(() => setMdx('could not render this note as a file'));
+            }}
+          >
+            {mdx === null ? 'view as file' : 'hide file'}
+          </button>
           {/* Quiet, and named for the only thing it does. A prominent "edit"
               here would invite rewriting the thought, which is the one change
-              a commonplace book cannot take. */}
-          {!correcting && (
+              a commonplace book cannot take.
+
+              Withheld from a typed note: nothing misheard it, so the only edit
+              it could offer is the rewrite the affordance exists to avoid. */}
+          {!correcting && entry.audioPath !== null && (
             <button
               type="button"
               className={styles.correctOpen}
@@ -289,6 +372,13 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
           )}
         </div>
       </div>
+
+      {/* The file the note would be exported as. Read-only on purpose: §5.1
+          freezes offsets at insert, so the frontmatter is a record of what was
+          decided, not a form to edit them in. */}
+      {mdx !== null && (
+        <pre className={styles.mdx}>{mdx}</pre>
+      )}
 
       {items.length > 0 && (
         <section className={styles.tasks}>
@@ -522,7 +612,7 @@ export default function EntryView({ hotkey }: { hotkey: string }) {
               yet -- "kept as written" on an entry about to be classified as a
               position is the wrong thing to have said. */}
           {questions.length === 0 && proposed.length === 0 && (
-            <p className={styles.nothing}>{thinking ? 'Reading it back…' : silenceReason(entry)}</p>
+            <p className={styles.nothing}>{thinking ? 'Reading it back…' : silenceReason(entry, liveRegister)}</p>
           )}
 
           {/* Nothing is waiting, but this is the entry you came back to. */}

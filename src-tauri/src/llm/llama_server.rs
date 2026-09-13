@@ -73,7 +73,7 @@ impl LlamaServer {
             }
         }
 
-        let child = command
+        let child = super::without_a_console(&mut command)
             .spawn()
             .map_err(|e| Error::Other(format!("could not start llama-server: {e}")))?;
 
@@ -148,7 +148,6 @@ impl LlmProvider for LlamaServer {
                 { "role": "user", "content": ask.user },
             ],
             "temperature": ask.temperature,
-            "max_tokens": ask.max_tokens,
             // Qwen3 thinks by default, and measured it spent all 400 tokens
             // doing it: finish_reason was length, reasoning_content held 2kB,
             // and content -- the only thing the grammar applies to -- was empty.
@@ -156,6 +155,10 @@ impl LlmProvider for LlamaServer {
             // Templates without the flag ignore it.
             "chat_template_kwargs": { "enable_thinking": false },
         });
+
+        if let Some(max) = ask.max_tokens {
+            body["max_tokens"] = json!(max);
+        }
 
         if let Some(schema) = ask.schema {
             body["response_format"] = json!({

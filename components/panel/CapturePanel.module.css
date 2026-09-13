@@ -44,12 +44,39 @@
 
 /* A rough draft, and shaped to read as one: dimmed, small, and capped so a long
    note scrolls rather than growing the panel under the cursor. */
+/* Two lines at most and never a scrollbar: the text is being appended to while
+   it is read, so a scroll position is something the next update takes away. */
 .partial {
   margin: 0.5rem 0 0;
-  max-height: 4.5em;
-  overflow-y: auto;
   font-size: 0.8125rem;
   line-height: 1.35;
   color: var(--dimmed-fg);
   text-align: left;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+/* Sits under everything else and stays out of the way. Capture is the one
+   moment the app is over another window, so this has to read as a footnote
+   rather than as a control competing with what is behind it. */
+.cancelHint {
+  margin: 0.45rem 0 0;
+  font-size: 0.6875rem;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--dimmed-fg);
+  opacity: 0.65;
+  text-align: left;
+}
+
+.key {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.8;
 }

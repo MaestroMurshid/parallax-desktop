@@ -10,6 +10,26 @@ pub mod llama_server;
 use crate::error::Result;
 use serde_json::Value;
 
+/// Starts a child without giving it a console window.
+///
+/// llama-server and `--list-devices` are console programs, and a release build
+/// is `windows_subsystem = "windows"`, so it has no console of its own to lend
+/// them. Windows then allocates each child a fresh one: capturing a note put
+/// two black terminals on screen, one for the reasoning server and one for the
+/// embedder. Redirecting stdout and stderr does not prevent this -- the console
+/// is allocated for the process, not for its streams, so the flag is the only
+/// thing that suppresses it.
+pub fn without_a_console(command: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW. Named here rather than pulled from winapi, which
+        // this crate does not otherwise depend on.
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
+
 pub struct Ask<'a> {
     pub system: &'a str,
     pub user: &'a str,
@@ -21,7 +41,7 @@ pub struct Ask<'a> {
     /// not injected into the prompt, so the shape still has to be described in
     /// words if the model is meant to understand it.
     pub schema: Option<Value>,
-    pub max_tokens: u32,
+    pub max_tokens: Option<u32>,
     pub temperature: f32,
 }
 
@@ -31,7 +51,7 @@ impl<'a> Ask<'a> {
             system,
             user,
             schema: None,
-            max_tokens: 400,
+            max_tokens: None,
             // Low but not zero. Deterministic output makes a bad question
             // reproducible, which is not the same as making it better.
             temperature: 0.3,
