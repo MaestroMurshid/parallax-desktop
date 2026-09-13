@@ -38,10 +38,22 @@ export interface CaptureSlice {
   /** Which question the recording is answering, when the user picked one. */
   answeringQuestionId: string | null;
   discardedAt: number | null;
+  /**
+   * Set when escape is pressed with transcription already in flight.
+   *
+   * Transcription cannot be called off once it has started -- there is no
+   * cancel token through whisper, and the samples are already handed over -- so
+   * what is cancelled is the note, not the work. The entry is deleted the
+   * moment it arrives, which is what "cancel" means to someone who has decided
+   * they do not want it.
+   */
+  cancelRequested: boolean;
 
   startRecording(answeringEntryId?: string | null, answeringQuestionId?: string | null): Promise<void>;
   stopRecording(): Promise<void>;
   discardRecording(): Promise<void>;
+  /** Escape, whichever half of capture is running. */
+  cancelCapture(): Promise<void>;
   undoDiscard(): Promise<void>;
   tickElapsed(): void;
   dismissPanel(): void;
@@ -78,11 +90,13 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
   answeringEntryId: null,
   answeringQuestionId: null,
   discardedAt: null,
+  cancelRequested: false,
 
   async startRecording(answeringEntryId = null, answeringQuestionId = null) {
     if (get().captureState !== 'idle') return;
     await getBridge().startRecording();
     set({
+      cancelRequested: false,
       captureState: 'recording',
       startedAt: Date.now(),
       elapsedMs: 0,
@@ -99,6 +113,23 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
     const answering = get().answeringEntryId;
     const targeted = get().answeringQuestionId;
     const entry: Entry = await getBridge().stopRecording(answering, targeted);
+
+    // Escape landed while this was in flight. Delete rather than keep-and-hide:
+    // the audio goes with the row, and a note the user cancelled is not
+    // something to leave lying in the corpus for them to find later.
+    if (get().cancelRequested) {
+      await getBridge().deleteEntry(entry.id);
+      set({
+        captureState: 'idle',
+        startedAt: null,
+        elapsedMs: 0,
+        answeringEntryId: null,
+        answeringQuestionId: null,
+        cancelRequested: false,
+      });
+      return;
+    }
+
     get().upsertEntry(entry);
 
     // An answer closes the question it replies to, then goes on to be a note
@@ -151,6 +182,22 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
       answeringEntryId: null,
       discardedAt: Date.now(),
     });
+  },
+
+  /**
+   * One key for both halves, because the person pressing it is answering the
+   * same question either way -- they have decided they do not want this note,
+   * and which stage the machinery happens to be in is not their problem.
+   */
+  async cancelCapture() {
+    const state = get().captureState;
+    if (state === 'recording') {
+      await get().discardRecording();
+      return;
+    }
+    // Nothing to undo here: discard keeps its sixty-second window because the
+    // recording still exists to put back, and a deleted entry does not.
+    if (state === 'transcribing') set({ cancelRequested: true });
   },
 
   async undoDiscard() {

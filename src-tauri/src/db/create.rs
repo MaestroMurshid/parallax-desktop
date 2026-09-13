@@ -39,7 +39,7 @@ const STOPWORDS: &[&str] = &[
 
 /// A handle drawn from the speaker's own words, so the canvas is readable
 /// before the model has looked at anything. Replaced by enrichment.
-fn derive_title(transcript: &str) -> String {
+pub fn derive_title(transcript: &str) -> String {
     let cleaned: String = transcript
         .to_lowercase()
         .chars()

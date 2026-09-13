@@ -118,3 +118,46 @@
   letter-spacing: 0.05em;
   color: var(--title);
 }
+
+/* Sits in the role slot while the filing is still being worked out, so the row
+   does not change width when the answer replaces it. Same pulse as the status
+   strip: one motion vocabulary for "a model is working", wherever it appears. */
+.reading {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--size-micro);
+  letter-spacing: 0.05em;
+  color: var(--meta);
+  opacity: 0.75;
+}
+
+.readingDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: listReadingPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes listReadingPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Motion is information here, not decoration: with it suppressed the dot still
+   reads as present, just not as pulsing. */
+@media (prefers-reduced-motion: reduce) {
+  .readingDot {
+    animation: none;
+    opacity: 0.6;
+  }
+}

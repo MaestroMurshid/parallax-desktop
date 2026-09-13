@@ -23,8 +23,13 @@ function progressOf(model: ModelInfo | undefined): { label: string; pct: number 
   if (!model) return { label: '', pct: 0 };
   switch (model.state.kind) {
     case 'downloading': {
-      const pct = Math.round((model.state.receivedBytes / model.state.totalBytes) * 100);
-      return { label: `${model.name} · ${pct}%`, pct };
+      const pct = (model.state.receivedBytes / model.state.totalBytes) * 100;
+      // Megabytes below one percent, because percent is the wrong unit at a
+      // trickle: a yielding 5GB download gains about two megabytes over the
+      // whole of onboarding, which rounds to `0%` and reads exactly as dead as
+      // the `queued` this replaced. The megabyte figure actually climbs.
+      const shown = pct < 1 ? mb(model.state.receivedBytes) : `${Math.round(pct)}%`;
+      return { label: `${model.name} · ${shown}`, pct };
     }
     case 'ready':
       return { label: `${model.name} · ready`, pct: 100 };
@@ -123,6 +128,7 @@ export default function Onboarding({
     reasoning?.state.kind === 'ready' &&
     embedding?.state.kind === 'ready';
   const speechProgress = progressOf(speech);
+  const embeddingProgress = progressOf(embedding);
   const reasoningProgress = progressOf(reasoning);
 
   /** Record the choices, move on, and fetch in the background. */
@@ -139,14 +145,11 @@ export default function Onboarding({
     }
     setStep('field');
 
-    // Transcription first and alone. It is about 59MB against 2.5GB, so sharing
-    // the line means the first notes come back with no transcript at all —
-    // which reads as the app being broken rather than as still arriving.
+    // Two lanes rather than one queue. Speech and the embedder take the line in
+    // turn — speech first because it gates recording, the embedder second
+    // because it is tens of megabytes against the reasoning model's gigabytes.
     void (async () => {
-      // Speech first because it gates recording, then the embedder, which is
-      // tens of megabytes against the reasoning model's gigabytes and would
-      // otherwise sit behind it for the whole download.
-      for (const id of [speech?.id, embeddingId, modelId]) {
+      for (const id of [speech?.id, embeddingId]) {
         if (!id) continue;
         try {
           await bridge.downloadModel(id);
@@ -155,6 +158,14 @@ export default function Onboarding({
         }
       }
     })();
+
+    // The reasoning model starts in the same breath and yields to both of them
+    // (`Pace::WhenIdle`, download.rs), taking the whole line the moment they are
+    // done. Queuing it cost the small ones nothing but left 5GB showing no sign
+    // of being fetched at all for as long as onboarding lasts.
+    if (modelId) {
+      void bridge.downloadModel(modelId).catch(() => {});
+    }
   };
 
   const start = async () => {
@@ -397,6 +408,7 @@ export default function Onboarding({
               <line x1="95" y1="50" x2="215" y2="148" />
               <line x1="420" y1="74" x2="245" y2="150" />
               <line x1="255" y1="158" x2="400" y2="198" />
+              <line x1="193" y1="164" x2="122" y2="207" />
             </svg>
 
             <div className={styles.node} style={{ left: '4%', top: '10%' }}>
@@ -447,10 +459,15 @@ export default function Onboarding({
               <span className={styles.m}>{reasoningProgress.label || 'arriving'}</span>
             </div>
 
+            <div className={styles.node} style={{ left: '5%', top: '70%' }}>
+              <span className={styles.t}>Connections</span>
+              <span className={styles.m}>{embeddingProgress.label || 'arriving'}</span>
+            </div>
+
           </div>
         )}
 
-        {step === 'field' && (
+        {step !== 'models' && (
           <div className={styles.downloads}>
             <div className={styles.download}>
               <span className={styles.downloadName}>speech</span>
@@ -458,6 +475,13 @@ export default function Onboarding({
                 <div className={styles.fill} style={{ width: `${speechProgress.pct}%` }} />
               </div>
               <span className={styles.progressLabel}>{speechProgress.label}</span>
+            </div>
+            <div className={styles.download}>
+              <span className={styles.downloadName}>connections</span>
+              <div className={styles.track}>
+                <div className={styles.fill} style={{ width: `${embeddingProgress.pct}%` }} />
+              </div>
+              <span className={styles.progressLabel}>{embeddingProgress.label}</span>
             </div>
             <div className={styles.download}>
               <span className={styles.downloadName}>question</span>

@@ -17,6 +17,16 @@ export interface UiSlice {
   /** Retrieval against dated transcripts. It recalls; it never writes (§8). */
   chatOpen: boolean;
   setChatOpen(v: boolean): void;
+  /**
+   * A question handed over from the search box, consumed once by the panel.
+   *
+   * Searching and asking were two inputs for what is, from the outside, one
+   * act: you have a half-remembered thing and you want it back. Typing it twice
+   * is the tax that made the second one not worth finding.
+   */
+  chatSeed: string | null;
+  askAbout(query: string): void;
+  clearChatSeed(): void;
   overlay: Overlay;
   theme: Theme;
   setTheme(t: Theme): void;
@@ -29,6 +39,17 @@ export interface UiSlice {
   analysisOpen: boolean;
   /** Sample corpus is offered from the empty state and always stays marked. */
   sampleLoaded: boolean;
+  /**
+   * Mirror of the setting of the same name, so the canvas and the list can
+   * honour it without every component that draws a letterform being handed the
+   * whole `Settings` object.
+   *
+   * A mirror and not the source: `page.tsx` writes it whenever settings load or
+   * change, and nothing else does. Rust re-decides the same thing for the
+   * questions it actually asks, so this only governs what is drawn.
+   */
+  liveRegister: boolean;
+  setLiveRegister(v: boolean): void;
   /**
    * In-flight drag position (§5.1). Lives here rather than in the corpus so a
    * drag never rewrites entries 60 times a second; renderer and label overlay
@@ -71,6 +92,9 @@ export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set
   setView: (view) => set({ view }),
   chatOpen: false,
   setChatOpen: (chatOpen) => set({ chatOpen }),
+  chatSeed: null,
+  askAbout: (query) => set({ chatSeed: query, chatOpen: true }),
+  clearChatSeed: () => set({ chatSeed: null }),
   overlay: 'none',
   theme: 'light',
   setTheme: (theme) => set({ theme }),
@@ -78,6 +102,9 @@ export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set
   hoveredEntryId: null,
   analysisOpen: true,
   sampleLoaded: false,
+  // Matches the Rust default. A false here would show every note as neutral
+  // for the moment before real settings arrive.
+  liveRegister: true,
   enriching: new Set<string>(),
   setEnriching: (id, on) =>
     set((s) => {
@@ -110,6 +137,9 @@ export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set
   },
   setSampleLoaded(v) {
     set({ sampleLoaded: v });
+  },
+  setLiveRegister(v) {
+    set({ liveRegister: v });
   },
   setComposing(v) {
     set({ composing: v });

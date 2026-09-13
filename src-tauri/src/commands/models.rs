@@ -4,6 +4,7 @@
 //! reasoning model, and the question simply arrives when one lands.
 
 use crate::error::{Error, Result};
+use crate::model::download::Pace;
 use crate::model::{ModelInfo, ModelKind, ModelState, SystemProfile};
 use crate::state::AppState;
 use std::path::PathBuf;
@@ -401,6 +402,16 @@ pub async fn download_model(
         .ok_or_else(|| Error::NotFound(format!("no model called {model_id}")))?;
     let dest = state.models_dir().join(format!("{}.gguf", info.id));
 
+    // §9.4 decides the lane, not the caller. Transcription gates recording and
+    // the embedder is tens of megabytes in front of gigabytes, so both take the
+    // line; the reasoning model starts at once and yields to them, because a
+    // 5GB bar showing nothing for the whole of onboarding reads as broken while
+    // costing the small ones nothing to avoid.
+    let pace = match info.kind {
+        ModelKind::Transcription | ModelKind::Embedding => Pace::now(state.downloads.clone()),
+        ModelKind::Reasoning => Pace::when_idle(state.downloads.clone()),
+    };
+
     // Already here: announce it and stop. Re-onboarding, or asking twice, must
     // not spend 2.5GB of someone's connection on a file they already have.
     if let Ok(on_disk) = std::fs::metadata(&dest) {
@@ -416,12 +427,12 @@ pub async fn download_model(
     }
 
     // Off the runtime thread: this runs for minutes and `fetch` is blocking.
-    tauri::async_runtime::spawn_blocking(move || run_download(app, info, dest))
+    tauri::async_runtime::spawn_blocking(move || run_download(app, info, dest, pace))
         .await
         .map_err(|e| Error::Other(format!("the download task did not finish: {e}")))?
 }
 
-fn run_download(app: AppHandle, info: ModelInfo, dest: PathBuf) -> Result<()> {
+fn run_download(app: AppHandle, info: ModelInfo, dest: PathBuf, pace: Pace) -> Result<()> {
     let announce = |state: ModelState| {
         let mut snapshot = info.clone();
         snapshot.state = state;
@@ -442,7 +453,7 @@ fn run_download(app: AppHandle, info: ModelInfo, dest: PathBuf) -> Result<()> {
         });
     };
 
-    let outcome = crate::model::download::fetch(&info.url, &dest, &mut report);
+    let outcome = crate::model::download::fetch_paced(&info.url, &dest, &mut report, pace);
     drop(report);
 
     announce(match &outcome {

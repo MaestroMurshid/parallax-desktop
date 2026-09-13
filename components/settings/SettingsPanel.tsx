@@ -110,18 +110,25 @@ export default function SettingsPanel({
         </div>
 
         <div className={styles.row}>
-          <span className={styles.label}>local-only</span>
+          <span className={styles.label}>live register</span>
           <div className={styles.control}>
             <label className={styles.toggle}>
               <input
                 type="checkbox"
-                checked={settings.defaultLocalOnly}
-                onChange={(e) => void update({ defaultLocalOnly: e.target.checked })}
+                checked={settings.liveRegister}
+                onChange={(e) => void update({ liveRegister: e.target.checked })}
               />
-              <span>new entries default to local-only</span>
+              <span>leave notes with something personal at stake alone</span>
             </label>
           </div>
         </div>
+        {/* Says what turning it off costs: the default is the safe direction
+            and the trade is not obvious from the label alone. */}
+        <p className={styles.helper}>
+          {settings.liveRegister
+            ? 'A note the classifier reads as live is never opened on its own, and carries no summary. Selecting a sentence still asks.'
+            : 'Every note is treated as neutral. Nothing filed is rewritten, so turning this back on restores what was decided.'}
+        </p>
       </section>
 
       <section className={styles.section}>

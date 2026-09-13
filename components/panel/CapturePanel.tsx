@@ -12,6 +12,23 @@ function elapsed(ms: number): string {
 }
 
 /**
+ * The tail of what has been heard, not all of it.
+ *
+ * The whole transcript in a fixed box grew a scrollbar nobody can use: the text
+ * is being appended to while you read it, so scrolling up fights the next
+ * update. What the panel is for is the reassurance that the microphone is
+ * hearing words -- the last handful carries that as well as a page does, and
+ * the entry is where the transcript is actually read.
+ */
+const TAIL_WORDS = 9;
+
+function tail(text: string): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= TAIL_WORDS) return words.join(' ');
+  return `… ${words.slice(-TAIL_WORDS).join(' ')}`;
+}
+
+/**
  * §4 said bars and elapsed time and nothing else, on the grounds that reading
  * your own words back makes you self-edit next time. Reversed deliberately: with
  * no transcript and bars that were not moving, a working microphone was
@@ -76,7 +93,16 @@ export default function CapturePanel() {
       </div>
       {state === 'recording' && partial && (
         <p className={styles.partial} aria-live="polite">
-          {partial}
+          {tail(partial)}
+        </p>
+      )}
+      {/* Quiet, and only while there is something to call off. Not a button:
+          the panel is not focusable in the window it floats over, so naming the
+          key is the only affordance that actually works from there. */}
+      {(state === 'recording' || state === 'transcribing') && (
+        <p className={styles.cancelHint}>
+          <kbd className={styles.key}>esc</kbd>
+          {state === 'recording' ? ' to discard' : ' to cancel'}
         </p>
       )}
     </div>

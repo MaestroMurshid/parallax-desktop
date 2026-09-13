@@ -282,4 +282,15 @@ export interface Settings {
    */
   transcriptionBackend: ComputeBackend;
   reasoningBackend: ComputeBackend;
+  /**
+   * Whether the live register is consulted at all (§3.2). On by default,
+   * because suppressing a question is the recoverable direction.
+   *
+   * Off is for the case it exists for: a note that argues an impersonal point
+   * *through* a personal example reads as live to the classifier, so the note
+   * that most wanted a question is the one that silently never gets one.
+   * Turning it off stops the facet being read; it rewrites nothing, so turning
+   * it back on restores what the classifier decided.
+   */
+  liveRegister: boolean;
 }

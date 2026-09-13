@@ -16,7 +16,6 @@ export interface SceneEntry {
   /** World-space text box — in lexicon the title is the node. */
   box: TitleBox;
   returns: number;
-  hasUnansweredQuestion: boolean;
   isolated: boolean;
 }
 

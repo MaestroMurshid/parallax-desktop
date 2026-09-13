@@ -24,7 +24,6 @@ function buildScene(state: ReturnType<typeof useApp.getState>): SceneInput {
       entry,
       box: titleBox(entry),
       returns: state.returnsFor(id),
-      hasUnansweredQuestion: state.hasUnansweredQuestion(id),
       isolated: state.isIsolated(id),
     });
   }

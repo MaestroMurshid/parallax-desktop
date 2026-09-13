@@ -9,8 +9,98 @@ use crate::error::{Error, Result};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 const CHUNK: usize = 64 * 1024;
+
+/// The share of the line a yielding download may take while one that gates
+/// something is still running, as a divisor: 50 is one fiftieth.
+///
+/// A share rather than a byte rate because the denominator is unknown. 64KB/s
+/// is a trickle on fibre and the entire line on a 2Mbps connection, so a fixed
+/// rate would starve exactly the machines that can least afford it.
+const BACKGROUND_SHARE: u32 = 50;
+
+/// A window ends at whichever of these comes first. Bytes so that per-chunk
+/// buffering averages out before anything is decided from the timing; time so
+/// that a slow line does not spend minutes measuring one window, and so the
+/// idle it implies stays short enough not to look like a stall.
+const WINDOW_BYTES: u64 = 256 * 1024;
+const WINDOW_TIME: Duration = Duration::from_millis(300);
+
+/// Idle in slices, rechecking between them. The whole point is that finishing
+/// the download which gates recording hands the line over immediately; one long
+/// sleep would leave it idle for up to a minute after there was nothing left to
+/// yield to.
+const YIELD_SLICE: Duration = Duration::from_millis(200);
+
+/// How many downloads that gate something are in flight.
+///
+/// Shared rather than passed, because the thing being expressed is one download
+/// observing another: §9.4 makes transcription gate recording and leaves the
+/// reasoning model free to arrive late, so they are not peers competing for the
+/// same line.
+#[derive(Debug, Default)]
+pub struct Gate(AtomicUsize);
+
+/// Held for as long as a gating download runs. A guard rather than a pair of
+/// calls so that an early return or an error still releases the line.
+pub struct Busy(Arc<Gate>);
+
+impl Gate {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self(AtomicUsize::new(0)))
+    }
+
+    fn enter(self: &Arc<Self>) -> Busy {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Busy(self.clone())
+    }
+
+    fn busy(&self) -> bool {
+        self.0.load(Ordering::SeqCst) > 0
+    }
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        self.0 .0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// What a download is allowed to do to the line.
+#[derive(Clone)]
+pub enum Pace {
+    /// Takes the line, and is what background downloads yield to.
+    Now(Arc<Gate>),
+    /// Yields while any `Now` download is in flight, then takes the whole line.
+    /// The divisor is carried rather than read from the constant so a test can
+    /// make the effect unmistakable without waiting for a real one.
+    WhenIdle(Arc<Gate>, u32),
+}
+
+impl Pace {
+    pub fn now(gate: Arc<Gate>) -> Self {
+        Pace::Now(gate)
+    }
+
+    pub fn when_idle(gate: Arc<Gate>) -> Self {
+        Pace::WhenIdle(gate, BACKGROUND_SHARE)
+    }
+}
+
+/// How long a download must stay idle to hold `1/share` of the line, given a
+/// window that took `took` to read.
+///
+/// Idling is what actually releases the bandwidth: not reading closes the
+/// receive window and stalls the sender, where merely reading more slowly would
+/// not. The first window after a pause is served partly from whatever was
+/// already in flight, which over gigabytes is a rounding error.
+fn idle_after(took: Duration, share: u32) -> Duration {
+    took * share.saturating_sub(1)
+}
 
 pub fn part_path(dest: &Path) -> PathBuf {
     let mut name = dest.file_name().unwrap_or_default().to_os_string();
@@ -21,6 +111,22 @@ pub fn part_path(dest: &Path) -> PathBuf {
 /// Downloads to `dest`, resuming any `.part` beside it. `on_progress` is called
 /// with bytes received and the expected total.
 pub fn fetch(url: &str, dest: &Path, on_progress: &mut dyn FnMut(u64, u64)) -> Result<()> {
+    fetch_paced(url, dest, on_progress, Pace::now(Gate::new()))
+}
+
+/// `fetch`, taking the share of the line this download is entitled to.
+pub fn fetch_paced(
+    url: &str,
+    dest: &Path,
+    on_progress: &mut dyn FnMut(u64, u64),
+    pace: Pace,
+) -> Result<()> {
+    // Held for the whole fetch, including every early return below: a gating
+    // download that failed is no longer gating anything.
+    let _busy = match &pace {
+        Pace::Now(gate) => Some(gate.enter()),
+        Pace::WhenIdle(..) => None,
+    };
     if let Some(dir) = dest.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -65,6 +171,7 @@ pub fn fetch(url: &str, dest: &Path, on_progress: &mut dyn FnMut(u64, u64)) -> R
 
     let mut received = already;
     let mut buf = vec![0u8; CHUNK];
+    let mut window = Window::new();
     on_progress(received, total);
     loop {
         let n = response
@@ -75,7 +182,10 @@ pub fn fetch(url: &str, dest: &Path, on_progress: &mut dyn FnMut(u64, u64)) -> R
         }
         file.write_all(&buf[..n])?;
         received += n as u64;
+        // Before the idle, not after: a bar that only moves once the wait is
+        // over is the state this exists to remove.
         on_progress(received, total);
+        window.paced(n as u64, &pace);
     }
     file.flush()?;
     drop(file);
@@ -83,6 +193,48 @@ pub fn fetch(url: &str, dest: &Path, on_progress: &mut dyn FnMut(u64, u64)) -> R
     // Only now is it a model rather than a prefix of one.
     std::fs::rename(&part, dest)?;
     Ok(())
+}
+
+/// Measures a window of reading and then idles for the rest of its share.
+struct Window {
+    started: Instant,
+    bytes: u64,
+}
+
+impl Window {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            bytes: 0,
+        }
+    }
+
+    fn paced(&mut self, read: u64, pace: &Pace) {
+        let Pace::WhenIdle(gate, share) = pace else {
+            return;
+        };
+        self.bytes += read;
+        if self.bytes < WINDOW_BYTES && self.started.elapsed() < WINDOW_TIME {
+            return;
+        }
+        // Checked here rather than on entry so an open gate still closes the
+        // window: the next one then measures fresh timings instead of charging
+        // this download for however long it spent unthrottled.
+        if gate.busy() {
+            wait_out(idle_after(self.started.elapsed(), *share), gate);
+        }
+        self.bytes = 0;
+        self.started = Instant::now();
+    }
+}
+
+/// Idles, but stops the moment there is nothing left to yield to.
+fn wait_out(mut remaining: Duration, gate: &Gate) {
+    while remaining > Duration::ZERO && gate.busy() {
+        let slice = remaining.min(YIELD_SLICE);
+        std::thread::sleep(slice);
+        remaining -= slice;
+    }
 }
 
 #[cfg(test)]
@@ -274,6 +426,216 @@ mod tests {
 
         fetch(&server.url(), &dest, &mut |_, _| {}).unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), want);
+    }
+
+    // -- pacing -------------------------------------------------------------
+
+    /// The arithmetic the whole scheme rests on. Holding a fiftieth of the line
+    /// means being idle for forty-nine times as long as reading took.
+    #[test]
+    fn idling_is_the_share_of_whatever_the_line_delivered() {
+        assert_eq!(
+            idle_after(Duration::from_millis(10), 50),
+            Duration::from_millis(490)
+        );
+        assert_eq!(
+            idle_after(Duration::from_millis(10), 2),
+            Duration::from_millis(10)
+        );
+        // A share of one is the whole line, so there is nothing to wait out.
+        assert_eq!(idle_after(Duration::from_millis(10), 1), Duration::ZERO);
+        assert_eq!(idle_after(Duration::from_millis(10), 0), Duration::ZERO);
+    }
+
+    /// Scales with the line rather than against a fixed rate: a window that took
+    /// ten times as long to read buys ten times the idle, so the share is the
+    /// same on fibre and on a 2Mbps link.
+    #[test]
+    fn the_share_is_of_the_line_not_a_fixed_rate() {
+        let fast = idle_after(Duration::from_millis(10), BACKGROUND_SHARE);
+        let slow = idle_after(Duration::from_millis(100), BACKGROUND_SHARE);
+        assert_eq!(slow, fast * 10);
+    }
+
+    #[test]
+    fn the_gate_is_busy_only_while_something_holds_it() {
+        let gate = Gate::new();
+        assert!(!gate.busy());
+        let held = gate.enter();
+        assert!(gate.busy());
+        drop(held);
+        assert!(
+            !gate.busy(),
+            "the gate stayed shut after the download finished"
+        );
+    }
+
+    /// Speech and the embedder both gate, and they overlap at the handover.
+    /// Counting rather than flagging is what stops the first one to finish from
+    /// opening the line while the second is still running.
+    #[test]
+    fn the_gate_counts_rather_than_flags() {
+        let gate = Gate::new();
+        let speech = gate.enter();
+        let embedder = gate.enter();
+        drop(speech);
+        assert!(
+            gate.busy(),
+            "the line opened while the embedder was still running"
+        );
+        drop(embedder);
+        assert!(!gate.busy());
+    }
+
+    /// A foreground download must never wait on the gate it is itself holding.
+    #[test]
+    fn a_gating_download_does_not_yield_to_itself() {
+        let want = body(600_000);
+        let server = Server::start(want.clone(), false);
+        let dest = temp_dest("pace-foreground");
+        let gate = Gate::new();
+
+        let started = Instant::now();
+        fetch_paced(
+            &server.url(),
+            &dest,
+            &mut |_, _| {},
+            Pace::now(gate.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), want);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "a foreground download paced itself: {:?}",
+            started.elapsed()
+        );
+        assert!(
+            !gate.busy(),
+            "the gate was not released when the fetch returned"
+        );
+    }
+
+    /// Nothing to yield to, so a background download takes the whole line.
+    #[test]
+    fn a_background_download_is_unpaced_when_nothing_gates() {
+        let want = body(600_000);
+        let server = Server::start(want.clone(), false);
+        let dest = temp_dest("pace-idle");
+        let gate = Gate::new();
+
+        let started = Instant::now();
+        fetch_paced(
+            &server.url(),
+            &dest,
+            &mut |_, _| {},
+            Pace::WhenIdle(gate, 5_000),
+        )
+        .unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), want);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "it paced itself against an open gate: {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// The behaviour asked for: the 5GB download starts immediately and gets out
+    /// of the way of the one that gates recording.
+    #[test]
+    fn a_background_download_yields_while_something_gates() {
+        let want = body(600_000);
+        let server = Server::start(want.clone(), false);
+        let dest = temp_dest("pace-yield");
+        let gate = Gate::new();
+        let _held = gate.enter();
+
+        let started = Instant::now();
+        fetch_paced(
+            &server.url(),
+            &dest,
+            &mut |_, _| {},
+            // Extreme share so the wait is unmistakable rather than a margin.
+            Pace::WhenIdle(gate.clone(), 5_000),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            want,
+            "throttling corrupted the file"
+        );
+        assert!(
+            started.elapsed() > Duration::from_millis(400),
+            "it did not yield at all: {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// "If speech finishes, we go full bandwidth" — and without waiting out the
+    /// idle it had already committed to.
+    #[test]
+    fn clearing_the_gate_hands_the_line_over_immediately() {
+        let want = body(600_000);
+        let server = Server::start(want.clone(), false);
+        let dest = temp_dest("pace-release");
+        let gate = Gate::new();
+        let held = gate.enter();
+
+        // Long enough that a download which waited out its full idle could not
+        // possibly finish inside the assertion below.
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+
+        let started = Instant::now();
+        fetch_paced(
+            &server.url(),
+            &dest,
+            &mut |_, _| {},
+            Pace::WhenIdle(gate, 100_000),
+        )
+        .unwrap();
+        let took = started.elapsed();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), want);
+        assert!(
+            took < Duration::from_secs(3),
+            "it kept yielding after the gate cleared: {:?}",
+            took
+        );
+    }
+
+    /// Progress is what the onboarding bar reads, and a throttled download still
+    /// has to report it — a bar that only moves at the end is the state this
+    /// whole change exists to remove.
+    #[test]
+    fn a_throttled_download_still_reports_progress_as_it_goes() {
+        let want = body(600_000);
+        let server = Server::start(want.clone(), false);
+        let dest = temp_dest("pace-progress");
+        let gate = Gate::new();
+        let _held = gate.enter();
+
+        let mut seen: Vec<u64> = Vec::new();
+        fetch_paced(
+            &server.url(),
+            &dest,
+            &mut |got, _| seen.push(got),
+            Pace::WhenIdle(gate, 2_000),
+        )
+        .unwrap();
+
+        let partial = seen
+            .iter()
+            .filter(|&&g| g > 0 && g < want.len() as u64)
+            .count();
+        assert!(
+            partial > 0,
+            "no progress was reported before the end: {seen:?}"
+        );
     }
 
     #[test]

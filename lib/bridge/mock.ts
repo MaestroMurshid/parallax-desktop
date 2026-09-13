@@ -10,6 +10,7 @@ import type {
   Entry,
   ModelInfo,
   Question,
+  Register,
   Role,
   Settings,
   SystemProfile,
@@ -26,6 +27,7 @@ import type {
   CorpusImport,
   ImportMode,
   NewEntryDraft,
+  SampleLoad,
   SearchHit,
   Unsubscribe,
 } from './index';
@@ -43,6 +45,11 @@ const SEARCH_MAX_PER_ENTRY = 3;
 const SPEECH_WORDS_PER_SEC = 1.15;
 /** What an enrichment pass costs on this laptop once the model is warm. */
 const MOCK_ENRICH_MS = 3400;
+/** Gap between one sample note being picked up and the next. Sixteen dots
+ *  pulsing in unison is a loading screen; one after another is a corpus being
+ *  read. Short enough that the whole sample has landed before you have finished
+ *  looking at the first note. */
+const MOCK_SAMPLE_STAGGER_MS = 520;
 
 interface PlaceholderNote {
   /**
@@ -139,6 +146,7 @@ export class MockBridge implements Bridge {
     transcriptionModel: 'base',
     transcriptionBackend: 'auto',
     reasoningBackend: 'auto',
+    liveRegister: true,
   };
 
   // Mirrors the Rust catalogue in commands/models.rs; a mock that lists
@@ -295,6 +303,10 @@ export class MockBridge implements Bridge {
       actionItems: [],
     };
     this.entries.set(id, entry);
+    // The same pass a capture gets. Typing is another way in, not another kind
+    // of note (§4 gives a typed entry no audio and no fingerprint, and nothing
+    // else).
+    this.announceEnrichment(id);
     return entry;
   }
 
@@ -320,6 +332,54 @@ export class MockBridge implements Bridge {
    * span; for a single correction that is the same thing. JS indexes UTF-16
    * already, so unlike the Rust there is no conversion here.
    */
+  async setRegister(entryId: string, register: Register): Promise<Entry> {
+    const entry = this.entries.get(entryId);
+    if (!entry) throw new Error(`No entry ${entryId}`);
+    // §1.1 in the same place Rust keeps it: a live note carries no summary,
+    // so flipping to live drops one and flipping back cannot invent one.
+    entry.register = register;
+    if (register === 'live') entry.summary = null;
+    this.entries.set(entryId, entry);
+    return { ...entry };
+  }
+
+  /** Shaped like the real file rather than rendered like one: the mock has no
+   *  exporter, so this shows the frontmatter-then-transcript form the viewer
+   *  has to lay out without pretending the fields are what Rust would write. */
+  /** Mirrors the native rule: a note is unclassified only if nothing has ever
+   *  decided a move phrase for it. The fixture has none before it is read back,
+   *  so this fires for exactly the notes the staggered load has not reached. */
+  async ensureEnriched(entryId: string): Promise<boolean> {
+    const entry = this.entries.get(entryId);
+    if (!entry || entry.summary !== null) return false;
+    this.announceEnrichment(entryId);
+    return true;
+  }
+
+  async entryMdx(entryId: string): Promise<string> {
+    const entry = this.entries.get(entryId);
+    if (!entry) throw new Error(`No entry ${entryId}`);
+    const front = {
+      id: entry.id,
+      createdAt: entry.createdAt,
+      role: entry.role,
+      register: entry.register,
+      typeId: entry.typeId,
+      title: entry.title,
+      summary: entry.summary,
+      x: entry.x,
+      y: entry.y,
+      durationMs: entry.durationMs,
+      spans: entry.spans,
+    };
+    return `---
+${JSON.stringify(front, null, 2)}
+---
+
+${entry.transcript}
+`;
+  }
+
   async correctTranscript(entryId: string, transcript: string): Promise<Entry> {
     const entry = this.entries.get(entryId);
     if (!entry) throw new Error(`No entry ${entryId}`);
@@ -423,6 +483,23 @@ export class MockBridge implements Bridge {
       }
     }
     return hits;
+  }
+
+  async askRecall(query: string): Promise<{ answer: string; hits: Entry[] }> {
+    await new Promise((r) => setTimeout(r, 2000)); // Simulate LLM latency
+    const hits = await this.searchEntries(query);
+    const entries = Array.from(
+      new Map(
+        hits
+          .map((h) => this.entries.get(h.entryId))
+          .filter((e): e is Entry => e !== undefined)
+          .map((e) => [e.id, e])
+      ).values()
+    );
+    return {
+      answer: "This is a mocked LLM response. In a real environment, the LLM would synthesize an answer based on your notes.",
+      hits: entries,
+    };
   }
 
   // -- capture ------------------------------------------------------------
@@ -724,6 +801,19 @@ export class MockBridge implements Bridge {
     return this.models.map((m) => ({ ...m }));
   }
 
+  /** Mirrors `Pace` in download.rs: the reasoning model takes a fiftieth of the
+   *  line while anything that gates recording is still fetching. Modelled here
+   *  rather than left as three equal bars because the onboarding screen is read
+   *  against this backend, and a mock where every download runs at full speed
+   *  would show a shape the real one never produces. */
+  private static readonly BACKGROUND_SHARE = 50;
+
+  /** How many downloads that gate something are in flight, as `Gate` counts. */
+  private gatingDownloads = 0;
+
+  /** Resolves when the file is there, as the Tauri command does. Returning
+   *  early made every download look concurrent in the browser build, which is
+   *  the one thing this screen exists to show the shape of. */
   async downloadModel(modelId: string): Promise<void> {
     const model = this.models.find((m) => m.id === modelId);
     if (!model) throw new Error(`No model ${modelId}`);
@@ -732,16 +822,29 @@ export class MockBridge implements Bridge {
     // work without it, and the question surfaces when the model lands (§9.4).
     // Ticks scale with size, so the small transcription model lands first.
     const ticks = Math.max(6, Math.round(model.sizeBytes / 1.2e8));
-    const step = model.sizeBytes / ticks;
-    const timer = setInterval(() => {
-      received = Math.min(model.sizeBytes, received + step);
-      model.state =
-        received >= model.sizeBytes
+    const full = model.sizeBytes / ticks;
+    const gating = model.kind !== 'reasoning';
+    if (gating) this.gatingDownloads += 1;
+
+    return new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        const yielding = !gating && this.gatingDownloads > 0;
+        received = Math.min(
+          model.sizeBytes,
+          received + (yielding ? full / MockBridge.BACKGROUND_SHARE : full),
+        );
+        const done = received >= model.sizeBytes;
+        model.state = done
           ? { kind: 'ready' }
           : { kind: 'downloading', receivedBytes: received, totalBytes: model.sizeBytes };
-      for (const cb of this.modelListeners) cb({ ...model });
-      if (received >= model.sizeBytes) clearInterval(timer);
-    }, 220);
+        for (const cb of this.modelListeners) cb({ ...model });
+        if (done) {
+          clearInterval(timer);
+          if (gating) this.gatingDownloads -= 1;
+          resolve();
+        }
+      }, 220);
+    });
   }
 
   /** No bytes exist in the fixture corpus, so the pill runs its own clock. */
@@ -804,24 +907,76 @@ export class MockBridge implements Bridge {
 
   // -- sample corpus ------------------------------------------------------
 
-  async loadSampleCorpus(): Promise<void> {
+/**
+   * Loads the sample the way Rust does: raw first, then read back one note at a
+   * time.
+   *
+   * The fixture holds the finished corpus, and handing all of it over at once
+   * was the shape the native backend stopped producing -- so the browser build
+   * could not show the thing the sample now exists to show. Here the finished
+   * fields are held back and released per note on the same two events, which
+   * makes the live build something that can actually be looked at without a
+   * model installed.
+   */
+  async loadSampleCorpus(): Promise<SampleLoad> {
     const seeded = loadSeedCorpus();
-    for (const e of seeded.entries) {
-      const o = this.overrides[e.id];
-      this.entries.set(e.id, o ? { ...e, x: o.x, y: o.y } : e);
-    }
-    // Idempotent: the sample is offered from the empty state and from settings,
-    // and seeded ids are stable, so a second load must not append a second copy
-    // of every edge and task. A repeated edge id is also a repeated React key,
+    // A second load must not append a second copy of every edge and task:
+    // seeded ids are stable, and a repeated edge id is a repeated React key,
     // which strands label elements at the overlay origin.
-    const knownEdges = new Set(this.edges.map((e) => e.id));
-    this.edges = [...this.edges, ...seeded.edges.filter((e) => !knownEdges.has(e.id))];
-    for (const q of seeded.questions) this.questions.set(q.entryId, [q]);
+    const fresh = seeded.entries.filter((e) => !this.entries.has(e.id));
+
+    for (const e of fresh) {
+      const o = this.overrides[e.id];
+      const placed = o ? { ...e, x: o.x, y: o.y } : e;
+      // As spoken: the title is the one derived from the first words, and
+      // nothing has been decided about it yet.
+      this.entries.set(e.id, {
+        ...placed,
+        title: deriveTitle(placed.transcript),
+        summary: null,
+        role: 'position',
+        register: 'live',
+        typeId: 'position',
+      });
+    }
+
+    // Attached with the entry, not released during the read-back, because that
+    // is where they come from natively: the loader inserts them, and nothing in
+    // the app creates one. Releasing them later meant `loadCorpus` had already
+    // run and the tasks pane stayed empty for the whole session.
     const knownItems = new Set(this.actionItems.map((a) => a.id));
     this.actionItems = [
       ...this.actionItems,
-      ...seeded.actionItems.filter((a) => !knownItems.has(a.id)),
+      ...seeded.actionItems.filter(
+        (a) => !knownItems.has(a.id) && fresh.some((e) => e.id === a.entryId),
+      ),
     ];
+
+    // Staggered rather than all at once, because what is being shown is notes
+    // arriving one after another -- sixteen dots pulsing in unison is a loading
+    // screen, not a corpus being read.
+    fresh.forEach((entry, i) => {
+      setTimeout(() => {
+        for (const cb of this.enrichingListeners) cb(entry.id);
+        setTimeout(() => {
+          const o = this.overrides[entry.id];
+          this.entries.set(entry.id, o ? { ...entry, x: o.x, y: o.y } : entry);
+
+          const knownEdges = new Set(this.edges.map((x) => x.id));
+          this.edges = [
+            ...this.edges,
+            ...seeded.edges.filter((x) => !knownEdges.has(x.id) && x.entryA === entry.id),
+          ];
+          for (const q of seeded.questions.filter((x) => x.entryId === entry.id)) {
+            this.questions.set(q.entryId, [q]);
+          }
+
+          for (const cb of this.enrichedListeners) cb(entry.id);
+        }, MOCK_ENRICH_MS);
+      }, i * MOCK_SAMPLE_STAGGER_MS);
+    });
+
+    return { inserted: fresh.length, enriching: fresh.length > 0 };
   }
 
   async importCorpus(data: CorpusImport, mode: ImportMode): Promise<void> {

@@ -70,28 +70,6 @@
   color: var(--meta);
 }
 
-.question {
-  margin-top: auto;
-  padding-top: 12px;
-  border-top: 1px solid var(--edge);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex: none;
-}
-
-.questionLabel {
-  font-size: var(--size-micro);
-  color: var(--meta);
-}
-
 /* `live` is the only word in the app that does not say what it is, and it is
    the one that decides whether the app speaks. Show the treatment beside it. */
 .registerRow {

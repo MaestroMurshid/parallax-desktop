@@ -280,8 +280,11 @@
   max-width: 34ch;
 }
 
-/* Two downloads, two bars: the small one lands first and that asymmetry is
-   the whole point — speech gates recording, the question does not. */
+/* One bar per model, in the order they are actually fetched. The asymmetry is
+   the whole point — speech and the embedder are tens of megabytes and land
+   while you read this, the question is gigabytes and does not. A model with no
+   bar reads as a model not being fetched, which is what the embedder looked
+   like. */
 .downloads {
   display: flex;
   flex-direction: column;
@@ -295,9 +298,13 @@
   gap: 10px;
 }
 
+/* Both fixed widths are measured against the widest string the catalogue can
+   produce — "connections" here, "Nomic embed · queued" on the label — because
+   the three bars only read as one scale if their tracks start and end together.
+   A name that wraps also doubles its row height, which is what 54px did. */
 .downloadName {
   flex: none;
-  width: 54px;
+  width: 88px;
   font-family: var(--font-mono);
   font-size: var(--size-micro);
   letter-spacing: 0.1em;
@@ -320,7 +327,7 @@
 
 .progressLabel {
   flex: none;
-  width: 108px;
+  width: 144px;
   text-align: right;
   font-family: var(--font-mono);
   font-size: var(--size-micro);

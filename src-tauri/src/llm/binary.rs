@@ -92,8 +92,8 @@ pub fn best_device(devices: &[Device]) -> Option<&Device> {
 }
 
 pub fn devices(binary: &Path) -> Vec<Device> {
-    Command::new(binary)
-        .arg("--list-devices")
+    // Short-lived, but still a console flash on every device probe.
+    super::without_a_console(Command::new(binary).arg("--list-devices"))
         .output()
         .ok()
         .map(|o| {

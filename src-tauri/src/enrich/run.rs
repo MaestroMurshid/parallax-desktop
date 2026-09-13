@@ -78,11 +78,15 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
+    // Read once, so the classification and the gate below cannot disagree
+    // about it halfway through a pass.
+    let live_register = db::settings::get(conn)?.live_register;
+
     let type_ids = db::entries::type_ids(conn)?;
     // The vocabulary is deliberately not sent. Offered as an enum it stopped
     // the model coining at all and froze the corpus at one tag; reuse happens
     // below, where `upsert` folds a repeated name into the existing row.
-    let classification = super::classify(provider, &entry.transcript, &type_ids)?;
+    let classification = super::classify(provider, &entry.transcript, &type_ids, live_register)?;
     db::entries::set_classification(
         conn,
         entry_id,
@@ -105,7 +109,10 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
-    let Some(probe) = gate::automatic_probes(&entry).first().copied() else {
+    let Some(probe) = gate::automatic_probes(&entry, live_register)
+        .first()
+        .copied()
+    else {
         return Ok(Enriched {
             classified: true,
             question_id: None,

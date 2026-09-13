@@ -120,6 +120,43 @@ pub fn similar(conn: &Connection, entry_id: &str, k: usize) -> Result<Vec<(Strin
     Ok(scored)
 }
 
+/// The notes most semantically similar to an arbitrary vector, best first.
+pub fn search(
+    conn: &Connection,
+    model: &str,
+    query_vec: &[f32],
+    k: usize,
+) -> Result<Vec<(String, f32)>> {
+    let length = vector::norm(query_vec);
+    if !length.is_finite() || length == 0.0 {
+        return Ok(Vec::new());
+    }
+    let unit: Vec<f32> = query_vec.iter().map(|x| x / length).collect();
+
+    let mut stmt = conn.prepare(
+        "SELECT entry_id, vec FROM entry_vectors
+         WHERE model = ?1 AND dims = ?2",
+    )?;
+    let rows = stmt.query_map(params![model, unit.len() as i64], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+    })?;
+
+    let mut scored: Vec<(String, f32)> = rows
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .map(|(id, blob)| {
+            // Both sides are unit vectors, so the dot product is the cosine.
+            let score = vector::dot(&unit, &decode(&blob));
+            (id, score)
+        })
+        .collect();
+
+    // Ties broken by id so the result set is stable.
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    scored.truncate(k);
+    Ok(scored)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

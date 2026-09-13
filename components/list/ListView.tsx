@@ -65,6 +65,8 @@ export default function ListView({ filter = 'all' }: ListViewProps) {
   const entries = useApp((s) => s.entries);
   const questions = useApp((s) => s.questions);
   const customTypes = useApp((s) => s.customTypes);
+  const liveRegister = useApp((s) => s.liveRegister);
+  const enriching = useApp((s) => s.enriching);
   const loaded = useApp((s) => s.loaded);
   const openEntry = useApp((s) => s.openEntry);
   const listRef = useRef<HTMLUListElement>(null);
@@ -150,14 +152,24 @@ export default function ListView({ filter = 'all' }: ListViewProps) {
                       may be spent. Without it the list would be the only surface
                       that cannot tell you which notes are still open. */}
                   {open && <span className={styles.open} role="img" aria-label="open question" />}
-                  <span className={styles.role}>{typeLabel(entry, types)}</span>
+                  {/* The filing is what is being worked out, so the wait is
+                      shown in the slot the answer will land in. A note whose
+                      title is still the one derived from its first words is
+                      visibly mid-thought rather than just quiet. */}
+                  {enriching.has(entry.id) ? (
+                    <span className={styles.reading}>
+                      <span className={styles.readingDot} aria-hidden />
+                      reading back
+                    </span>
+                  ) : (
+                    <span className={styles.role}>{typeLabel(entry, types, liveRegister)}</span>
+                  )}
                 </span>
                 <span className={styles.meta}>
                   {dateFmt.format(new Date(entry.createdAt))}
                   {' · '}
                   {Math.round(entry.durationMs / 1000)}s
                   {entry.audioPath === null && ' · typed'}
-                  {entry.localOnly && ' · local only'}
                 </span>
                 <span className={styles.excerpt}>{excerpt(entry.transcript)}</span>
               </button>

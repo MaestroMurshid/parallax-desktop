@@ -43,7 +43,7 @@ export default function TypedComposer({ onClose }: { onClose(): void }) {
     <div className={styles.composer}>
       <div className={styles.head}>
         <span className={styles.label}>typed note</span>
-        <span className={styles.hint}>no audio, no question — the text is the record</span>
+        <span className={styles.hint}>no audio — read back and filed like any other note</span>
       </div>
 
       <textarea

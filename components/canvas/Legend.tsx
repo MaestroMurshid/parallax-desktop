@@ -33,6 +33,7 @@ function Row({ row }: { row: LegendRow }) {
 
 export default function Legend() {
   const customTypes = useApp((s) => s.customTypes);
+  const liveRegister = useApp((s) => s.liveRegister);
   const rows = legend(resolveTypes(customTypes));
   const built = rows.filter((r) => r.builtIn);
   const custom = rows.filter((r) => !r.builtIn);
@@ -59,18 +60,20 @@ export default function Legend() {
         </>
       )}
 
-      <div className={styles.divider} />
-      <div className={styles.registerRow}>
-        <span className={styles.registerSample}>live</span>
-        <span className={styles.gloss}>
-          something personal is at stake in it, so it is left alone unless you ask
-        </span>
-      </div>
-
-      <div className={styles.question}>
-        <span className={styles.dot} />
-        <span className={styles.questionLabel}>open question</span>
-      </div>
+      {/* Only while the facet is switched on. A legend is a promise about what
+          the marks mean, and teaching a treatment nothing is applying is the
+          same mistake as the open-question row that sat here. */}
+      {liveRegister && (
+        <>
+          <div className={styles.divider} />
+          <div className={styles.registerRow}>
+            <span className={styles.registerSample}>live</span>
+            <span className={styles.gloss}>
+              something personal is at stake in it, so it is left alone unless you ask
+            </span>
+          </div>
+        </>
+      )}
     </aside>
   );
 }
