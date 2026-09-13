@@ -179,6 +179,13 @@ pub fn list(conn: &Connection) -> Result<Vec<Entry>> {
     load(conn, "1 = 1", &[])
 }
 
+/// These ids in the order the notes were recorded; ids no longer present are
+/// dropped.
+pub fn oldest_first(conn: &Connection, ids: &[String]) -> Result<Vec<String>> {
+    let _ = (conn, ids);
+    todo!()
+}
+
 /// Answers to this entry. A manual or proposed connection is an edge and has
 /// no parent, so nothing here is about edges despite the wire field's name.
 pub fn children_of(conn: &Connection, entry_id: &str) -> Result<Vec<Entry>> {
@@ -840,6 +847,27 @@ mod tests {
 
         let ids: Vec<String> = list(&conn).unwrap().into_iter().map(|e| e.id).collect();
         assert_eq!(ids, vec!["earlier", "later"]);
+    }
+
+    /// A bulk load is read back in the order it was said, so the early notes
+    /// seed the shelves the later ones fold onto, and each note meets the
+    /// corpus as it stood when it was recorded -- the same as a capture does.
+    #[test]
+    fn a_bulk_load_is_read_back_oldest_first() {
+        let conn = open_in_memory().unwrap();
+        insert(&conn, &entry("later", "2025-12-08T16:56:00.000Z", false)).unwrap();
+        insert(&conn, &entry("earlier", "2024-01-14T09:38:00.000Z", false)).unwrap();
+        insert(&conn, &entry("between", "2024-11-11T08:00:00.000Z", false)).unwrap();
+
+        let ids: Vec<String> = ["later", "earlier", "gone", "between"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // `gone` stands for a note deleted between the load and its pass.
+        assert_eq!(
+            oldest_first(&conn, &ids).unwrap(),
+            vec!["earlier", "between", "later"]
+        );
     }
 
     /// Cascades exist so a delete cannot leave spans or action items behind.

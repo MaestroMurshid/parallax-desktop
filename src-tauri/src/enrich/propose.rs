@@ -131,6 +131,42 @@ mod tests {
         assert_eq!(edges[0].entry_b, b);
     }
 
+    /// Found in the packaged app: loading the sample ran passes in whatever
+    /// order they happened to finish, so an older note was often the one being
+    /// enriched -- and 15 of 19 edges pointed from a newer note to an older
+    /// one, with the judge shown the dates out of order. `returns to` and
+    /// `extends` are claims about time; the older note is always the first.
+    #[test]
+    fn an_older_note_enriched_late_is_still_the_first() {
+        let conn = db::open_in_memory().unwrap();
+        let (older, newer) = pair(&conn);
+        conn.execute(
+            "UPDATE entries SET created_at = ?2 WHERE id = ?1",
+            [&older, "2024-01-14T09:38:00.000Z"],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE entries SET created_at = ?2 WHERE id = ?1",
+            [&newer, "2025-12-08T16:56:00.000Z"],
+        )
+        .unwrap();
+        let p = ScriptedProvider::with(&[&says(
+            "extends",
+            "trade write performance",
+            "less reliable",
+        )]);
+
+        assert_eq!(propose(&conn, &p, &older, 8).unwrap(), 1);
+        let edges = db::edges::list(&conn).unwrap();
+        assert_eq!(edges[0].entry_a, older);
+        assert_eq!(edges[0].entry_b, newer);
+        let asked = &p.asked.lock().unwrap()[0];
+        assert!(
+            asked.find(A).unwrap() < asked.find(B).unwrap(),
+            "the judge must read the older note first"
+        );
+    }
+
     #[test]
     fn a_declined_candidate_leaves_no_trace() {
         let conn = db::open_in_memory().unwrap();
