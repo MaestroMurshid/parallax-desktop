@@ -11,6 +11,7 @@ pub mod llm;
 pub mod mdx;
 pub mod model;
 pub mod scene;
+pub mod shortcuts;
 pub mod state;
 pub mod stt;
 pub mod text;
@@ -18,7 +19,7 @@ pub mod text;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WindowEvent};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// The canvas. Hidden rather than closed, so the app outlives its window.
 const MAIN: &str = "main";
@@ -71,6 +72,19 @@ fn on_hotkey(app: &AppHandle) {
 
     let target = hotkey_target(owner.as_deref(), in_canvas);
     let _ = app.emit_to(target, "capture://hotkey", ());
+}
+
+/// Discard's global shortcut (Task 2) is armed only while something is
+/// recording, so the owner is always Some in practice -- a stray event with
+/// nothing recording is a race with the recording just having ended, and is
+/// silently ignored the same way `on_hotkey` ignores an unknown window.
+fn on_discard(app: &AppHandle) {
+    if let Some(owner) = app
+        .try_state::<state::AppState>()
+        .and_then(|s| s.recording_owner())
+    {
+        let _ = app.emit_to(owner, "capture://discard", ());
+    }
 }
 
 /// Bring the canvas forward, from the tray. `show` comes first: a window
@@ -164,14 +178,34 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
-
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |app, triggered, event| {
-                    if triggered == &shortcut && event.state() == ShortcutState::Pressed {
+                // Read from `AppState` on every event rather than closing over a
+                // fixed combo: the record hotkey can be rebound from Settings at
+                // any time (see `shortcuts::rebind_hotkey`), and discard is
+                // registered and torn down around each recording, so neither one
+                // is a constant this closure could capture up front.
+                .with_handler(|app, triggered, event| {
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    let Some(state) = app.try_state::<state::AppState>() else {
+                        return;
+                    };
+                    let is_hotkey =
+                        *state.hotkey.lock().unwrap_or_else(|p| p.into_inner()) == *triggered;
+                    if is_hotkey {
                         on_hotkey(app);
+                        return;
+                    }
+                    let is_discard = state
+                        .discard_shortcut
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .is_some_and(|d| d == *triggered);
+                    if is_discard {
+                        on_discard(app);
                     }
                 })
                 .build(),
@@ -258,6 +292,12 @@ pub fn run() {
                     break;
                 }
             }
+            // Read before the state is moved into `manage`: whatever was parsed
+            // from settings at `AppState::open` (the saved hotkey, or the
+            // factory default if none was saved or it failed to parse) is what
+            // gets registered, not a hardcoded combo -- a rebind that survived
+            // to the next launch used to silently revert to Ctrl+Shift+Space.
+            let hotkey = *app_state.hotkey.lock().unwrap_or_else(|p| p.into_inner());
             app.manage(app_state);
 
             // Gives the graphics card back once the reasoning model has sat
@@ -278,7 +318,7 @@ pub fn run() {
             // whole app dies at launch over a convenience. Observed: a second
             // instance panicked with "HotKey already registered" and never
             // reached a window. Capture is still reachable from the tray.
-            if let Err(e) = app.global_shortcut().register(shortcut) {
+            if let Err(e) = app.global_shortcut().register(hotkey) {
                 eprintln!("global hotkey unavailable, continuing without it: {e}");
             }
             build_tray(app.handle())?;

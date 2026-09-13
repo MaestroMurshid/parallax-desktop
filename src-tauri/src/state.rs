@@ -8,6 +8,7 @@ use crate::model::TranscriptionModel;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tauri_plugin_global_shortcut::Shortcut;
 
 /// A recording thrown away but not yet gone. §4 keeps it for a minute rather
 /// than asking "are you sure", because a confirmation dialog on every discard
@@ -45,6 +46,15 @@ pub struct AppState {
     /// hotkey, and a second concurrent take has no meaning.
     pub recording: Mutex<Option<InFlight>>,
     pub discarded: Mutex<Option<Discarded>>,
+    /// The record hotkey actually registered with the OS -- parsed once at
+    /// open from the saved setting (or the factory default), and kept current
+    /// by `shortcuts::rebind_hotkey` so a rebind knows exactly what to
+    /// unregister.
+    pub hotkey: Mutex<Shortcut>,
+    /// Armed only while a recording is in flight (Task 2); `None` whenever
+    /// nothing is recording, which must always be true when idle -- the popup
+    /// must not steal a key from every other app the rest of the time.
+    pub discard_shortcut: Mutex<Option<Shortcut>>,
     /// Where the bundled llama-server sits. `None` in a dev build that has not
     /// fetched it; an explicit setting still overrides either way.
     pub llama_dir: Mutex<Option<PathBuf>>,
@@ -79,12 +89,20 @@ impl AppState {
         // Second, so the first has already migrated and this finds it current.
         let background = db::open(&root.join("corpus.db"))?;
         std::fs::create_dir_all(root.join("audio"))?;
+        // Read up front so the OS registration `run()` performs reflects
+        // whatever was last saved, not the factory default -- a rebind that
+        // survived to the next launch used to silently revert to it, because
+        // nothing here ever consulted the setting at all.
+        let saved_hotkey = db::settings::get(&conn)?.hotkey;
+        let hotkey = crate::shortcuts::parse(&saved_hotkey).unwrap_or_else(crate::shortcuts::default_hotkey);
         Ok(Self {
             conn: Mutex::new(conn),
             background: Mutex::new(background),
             root,
             recording: Mutex::new(None),
             discarded: Mutex::new(None),
+            hotkey: Mutex::new(hotkey),
+            discard_shortcut: Mutex::new(None),
             llama_dir: Mutex::new(None),
             llama: Mutex::new(None),
             llama_used: Mutex::new(None),

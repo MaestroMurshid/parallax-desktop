@@ -14,10 +14,23 @@ pub fn get_settings(state: State<AppState>) -> Result<Settings> {
 
 /// Takes a partial and merges it, so the frontend can send one field without
 /// having to round-trip the whole document first.
+///
+/// A hotkey rebind has to reach the OS registration here, not just the row --
+/// nothing else in the app ever revisits a shortcut once it is registered.
 #[tauri::command]
-pub fn set_settings(state: State<AppState>, patch: serde_json::Value) -> Result<Settings> {
+pub fn set_settings(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    patch: serde_json::Value,
+) -> Result<Settings> {
     let conn = state.db();
-    db::settings::merge(&conn, patch)
+    let before = db::settings::get(&conn)?;
+    let after = db::settings::merge(&conn, patch)?;
+    drop(conn);
+    if after.hotkey != before.hotkey {
+        crate::shortcuts::rebind_hotkey(&app, state.inner(), &after.hotkey);
+    }
+    Ok(after)
 }
 
 /// Where the corpus is. A tool holding your private thinking should be able to
