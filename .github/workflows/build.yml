@@ -53,4 +53,6 @@ jobs:
           touch src-tauri/binaries/llama/.keep
 
       - name: Build Tauri App
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '10.15'
         run: npm run tauri build
