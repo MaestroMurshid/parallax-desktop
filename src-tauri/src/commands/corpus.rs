@@ -362,8 +362,10 @@ pub(crate) fn recall_prompt(notes: &[(&str, &str)], query: &str) -> String {
     )
 }
 
+/// Async because it embeds and then waits on the reasoning model: a plain
+/// command runs on the main thread, and the window froze for the whole answer.
 #[tauri::command]
-pub fn ask_recall(state: State<AppState>, query: String) -> Result<RecallResponse> {
+pub async fn ask_recall(state: State<'_, AppState>, query: String) -> Result<RecallResponse> {
     let Some(vector) = state.with_embedder(|e| e.embed(&query))? else {
         return Ok(RecallResponse {
             answer: String::new(),

@@ -69,7 +69,8 @@ fn invoked(
 ) -> Result<Question> {
     state
         .with_reasoning(|provider| {
-            crate::enrich::invoke::ask(&state.db(), provider, entry_id, probe, span)
+            // Held across the model call, so not the window's connection.
+            crate::enrich::invoke::ask(&state.background_db(), provider, entry_id, probe, span)
         })?
         .ok_or_else(|| Error::Other("no reasoning model is installed yet".to_string()))
 }

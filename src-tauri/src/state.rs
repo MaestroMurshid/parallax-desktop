@@ -29,9 +29,15 @@ pub struct InFlight {
 }
 
 pub struct AppState {
-    /// One connection behind a lock. SQLite serialises writes anyway, and the
-    /// commands are short; a pool would buy nothing at this scale.
+    /// The window's connection. Every command it reads through is short, and
+    /// they run on the main thread, so nothing slow may ever hold this lock.
     pub conn: Mutex<Connection>,
+    /// Background work's own connection: enrichment, embedding, and a question
+    /// someone asked for. These hold it across model calls that take seconds,
+    /// which on the shared connection froze the app for as long as 21.9s. WAL
+    /// lets the two read side by side, and a writer waits on the other rather
+    /// than failing.
+    background: Mutex<Connection>,
     /// Kept so the app can say where its data is rather than making the user
     /// guess, and so the audio directory hangs off the same root.
     pub root: PathBuf,
@@ -68,9 +74,12 @@ pub struct AppState {
 impl AppState {
     pub fn open(root: PathBuf) -> Result<Self> {
         let conn = db::open(&root.join("corpus.db"))?;
+        // Second, so the first has already migrated and this finds it current.
+        let background = db::open(&root.join("corpus.db"))?;
         std::fs::create_dir_all(root.join("audio"))?;
         Ok(Self {
             conn: Mutex::new(conn),
+            background: Mutex::new(background),
             root,
             recording: Mutex::new(None),
             discarded: Mutex::new(None),
@@ -95,7 +104,9 @@ impl AppState {
 
     /// The connection background work reads and writes through.
     pub fn background_db(&self) -> std::sync::MutexGuard<'_, Connection> {
-        todo!()
+        self.background
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// The window a take belongs to, or `None` when nothing is recording.

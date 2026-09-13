@@ -157,7 +157,7 @@ pub fn enrich_in_order(app: &tauri::AppHandle, ids: Vec<String>) {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let ordered = if queued.len() > 1 {
-            let found = db::entries::oldest_first(&state.db(), &queued);
+            let found = db::entries::oldest_first(&state.background_db(), &queued);
             found.unwrap_or_else(|e| {
                 eprintln!("could not order the queue, reading it as given: {e}");
                 queued.clone()
@@ -183,16 +183,19 @@ fn pass(app: &tauri::AppHandle, state: &AppState, entry_id: &str) {
     // started: the first pass after launch spends most of its time there, and
     // that wait is exactly what needs saying.
     let _ = app.emit("entry://enriching", entry_id);
-    let done =
-        state.with_reasoning(|provider| crate::enrich::run::run(&state.db(), provider, entry_id));
+    // Every step below holds a connection across model calls, so each uses
+    // background work's own and never the one the window reads through.
+    let done = state.with_reasoning(|provider| {
+        crate::enrich::run::run(&state.background_db(), provider, entry_id)
+    });
 
     // Separate from enrichment and after it, because it is ranking rather than
     // eligibility: topics already decided who this note can be compared
     // against, and the vector only orders them. An absent or failing embedder
     // therefore costs ordering and no connections at all.
-    if let Err(e) =
-        state.with_embedder(|embedder| crate::embed::embed_now(&state.db(), embedder, entry_id))
-    {
+    if let Err(e) = state.with_embedder(|embedder| {
+        crate::embed::embed_now(&state.background_db(), embedder, entry_id)
+    }) {
         eprintln!("embedding failed for {entry_id}: {e}");
     }
     // After embedding, because candidates are ordered by cosine and this note's
@@ -200,7 +203,7 @@ fn pass(app: &tauri::AppHandle, state: &AppState, entry_id: &str) {
     // event, or the indicator clears while the judge is still working -- one
     // model call per candidate is the slowest part of the whole pass.
     if let Err(e) = state.with_reasoning(|provider| {
-        crate::enrich::propose::propose(&state.db(), provider, entry_id, PROPOSE_CAP)
+        crate::enrich::propose::propose(&state.background_db(), provider, entry_id, PROPOSE_CAP)
     }) {
         eprintln!("proposing failed for {entry_id}: {e}");
     }
