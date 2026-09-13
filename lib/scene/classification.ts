@@ -280,7 +280,7 @@ export function automaticProbes(
   // your own are not about what the note is about, and §3.2 does not hand
   // those to a preference -- the Rust gate makes the same distinction.
   if (liveRegister && entry.register === 'live') return [];
-  if (entry.durationMs < 30_000) return [];
+  if (entry.durationMs < 10_000) return [];
   if (!hasOwnSpan(entry)) return [];
 
   const role = roleOf(entry, types);

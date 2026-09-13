@@ -534,7 +534,7 @@ ${entry.transcript}
     const words = note.transcript.split(/\s+/).length;
     // What the stand-in transcript would have taken to say. Holding the hotkey
     // for four seconds and getting back seventy words is already a fiction; the
-    // wall clock also puts every take under §3.2's thirty-second line, so the
+    // wall clock also puts every take under §3.2's ten-second line, so the
     // one thing a live take is supposed to demonstrate never fires. A real hold
     // longer than the text still keeps its own length.
     const durationMs = Math.max(held, Math.round(words / SPEECH_WORDS_PER_SEC) * 1000);

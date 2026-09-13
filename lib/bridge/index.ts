@@ -145,7 +145,7 @@ export interface Bridge {
   /**
    * Auto post-recording question; resolves to null when any of the three
    * facets suppresses it — not a position, live register, someone else's
-   * words, or under ~30s (§3.2). A missed question beats a bad probe.
+   * words, or under ~10s (§3.2). A missed question beats a bad probe.
    */
   getQuestion(entryId: string): Promise<Question | null>;
   /**

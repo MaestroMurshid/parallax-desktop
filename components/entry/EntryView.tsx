@@ -56,10 +56,10 @@ function silenceReason(entry: Entry, liveRegister: boolean): string {
     return 'Left alone — this one reads as live. Select a sentence to take it on anyway.';
   // A typed note's duration is read off its word count, so it is short rather
   // than brief — and nothing was said, which the spoken wording claims.
-  if (entry.durationMs < 30_000) {
+  if (entry.durationMs < 10_000) {
     return entry.audioPath === null
       ? 'Short enough to stand as written, not interrogated.'
-      : 'Under thirty seconds — said once, not interrogated.';
+      : 'Under ten seconds — said once, not interrogated.';
   }
   return 'Nothing proposed for this entry.';
 }

@@ -11,7 +11,7 @@
 use crate::model::{Entry, Register, Role};
 
 /// §3.2 -- under this, nothing fires on its own.
-pub const MIN_AUTOMATIC_MS: i64 = 30_000;
+pub const MIN_AUTOMATIC_MS: i64 = 10_000;
 
 /// A debate tactic: one way of pushing on what a note claims.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -249,7 +249,7 @@ mod tests {
         let brief = entry(Role::Position, Register::Neutral, 1_000);
         assert!(
             automatic_probes(&brief, false).is_empty(),
-            "a note under 30s was probed because the register was off"
+            "a note under 10s was probed because the register was off"
         );
 
         let mut borrowed = entry(Role::Position, Register::Neutral, 60_000);
@@ -282,9 +282,16 @@ mod tests {
     }
 
     #[test]
-    fn something_said_in_under_thirty_seconds_is_left_alone() {
-        let e = entry(Role::Position, Register::Neutral, MIN_AUTOMATIC_MS - 1);
+    fn something_said_in_under_ten_seconds_is_left_alone() {
+        let e = entry(Role::Position, Register::Neutral, 9_900);
         assert!(automatic_probes(&e, true).is_empty());
+    }
+
+    /// The boundary is inclusive: ten seconds exactly is eligible, not skipped.
+    #[test]
+    fn ten_seconds_exactly_is_eligible() {
+        let e = entry(Role::Position, Register::Neutral, 10_000);
+        assert!(!automatic_probes(&e, true).is_empty());
     }
 
     #[test]
