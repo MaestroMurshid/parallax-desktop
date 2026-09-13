@@ -133,7 +133,7 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
 
     // Shared with the invoked path: both owe a question that quotes the note
     // verbatim, and there is one place that decides whether it does.
-    let question = super::invoke::compose(provider, &entry, probe, None)?;
+    let question = super::invoke::compose(provider, &entry, &[probe], None)?;
     db::questions::insert(conn, &question, &entry.transcript)?;
 
     Ok(Enriched {
@@ -239,6 +239,20 @@ mod tests {
         assert_eq!(questions.len(), 1);
         let span = questions[0].span.as_ref().unwrap();
         assert_eq!(js_slice(SAID, span.start, span.end), "faster reads");
+    }
+
+    /// The question a capture opens with is the model's choice of move, from
+    /// everything a position may be asked -- not the first tactic every time.
+    #[test]
+    fn the_opening_question_lets_the_model_choose_the_move() {
+        let (conn, id) = corpus(SAID, 45_000);
+        let provider = ScriptedProvider::with(&[CLASSIFY, &question("faster reads")]);
+
+        run(&conn, &provider, &id).unwrap();
+        let prompt = provider.asked.lock().unwrap()[1].clone();
+        for tactic in [super::gate::Probe::Boundary, super::gate::Probe::Fallacy, super::gate::Probe::Assumption] {
+            assert!(prompt.contains(&format!("- {}: ", tactic.id())), "{tactic:?}: {prompt}");
+        }
     }
 
     /// The shape of the JSON proves nothing about where the words came from.

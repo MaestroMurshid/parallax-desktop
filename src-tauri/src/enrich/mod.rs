@@ -344,7 +344,15 @@ Follow these constraints strictly. Answer the fields in the exact order listed.
 - It must be answerable out loud, in a sentence or two.";
 
 #[derive(Debug, Clone, Deserialize)]
+struct Reply {
+    text: String,
+    quote: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct Asked {
+    /// Which move the question makes.
+    pub tactic: gate::Probe,
     pub text: String,
     /// Verbatim from the transcript, so the anchor can be located rather than
     /// trusted. Unanchored output is not allowed (§3.4).
@@ -363,11 +371,9 @@ fn question_schema() -> Value {
     })
 }
 
-/// The hint is the probe: which move to make on this entry. §3.6 -- the model
-/// is given the stance rules and left to generate, rather than selecting from
-/// an enum, so adding a mode is noticing a shape in output worth having.
-pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, probe_hint: &str) -> Result<Asked> {
-    ask_about_passage(provider, entry, probe_hint, None)
+/// One question about the entry, making one of the moves in `tactics`.
+pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, tactics: &[gate::Probe]) -> Result<Asked> {
+    ask_about_passage(provider, entry, tactics, None)
 }
 
 /// The invoked path names the passage the user selected (§3.6). The whole
@@ -376,9 +382,13 @@ pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, probe_hint: &str) ->
 pub fn ask_about_passage(
     provider: &dyn LlmProvider,
     entry: &Entry,
-    probe_hint: &str,
+    tactics: &[gate::Probe],
     passage: Option<&str>,
 ) -> Result<Asked> {
+    let tactic = *tactics
+        .first()
+        .ok_or_else(|| Error::Other("no move was offered to ask with".into()))?;
+    let probe_hint = tactic.hint();
     let selected = match passage {
         Some(passage) => format!(
             "\nThe passage to ask about:\n\n{}\n",
@@ -394,13 +404,16 @@ pub fn ask_about_passage(
     let ask = Ask::new(QUESTION_SYSTEM, &user).constrained(question_schema());
     let reply = provider.ask(ask)?;
 
-    let mut asked: Asked = repair_and_parse_json(&reply)?;
+    let parsed: Reply = repair_and_parse_json(&reply)?;
 
-    if asked.text.trim().is_empty() {
+    if parsed.text.trim().is_empty() {
         return Err(Error::Other("the model returned an empty question".into()));
     }
-    asked.quote = trim_quote(&asked.quote);
-    Ok(asked)
+    Ok(Asked {
+        tactic,
+        text: parsed.text,
+        quote: trim_quote(&parsed.quote),
+    })
 }
 
 #[cfg(test)]
@@ -833,23 +846,67 @@ mod tests {
         assert_eq!(schema["properties"]["typeId"]["enum"][1], "wondering");
     }
 
+    fn offered() -> Vec<gate::Probe> {
+        vec![gate::Probe::Boundary, gate::Probe::Fallacy, gate::Probe::Definition]
+    }
+
     /// Constrained decoding is what makes the shape guaranteed rather than
     /// hoped for, so the schema must actually be sent.
     #[test]
     fn the_reply_is_constrained_by_a_schema() {
         let p = FakeProvider::replying(r#"{"text":"why?","quote":"because"}"#);
-        ask_about(&p, &entry("because of the thing"), "find the edge").unwrap();
+        ask_about(&p, &entry("because of the thing"), &offered()).unwrap();
         assert!(p.last_schema().is_some());
     }
 
+    /// Found in the packaged app: every question on a position was "where does
+    /// this stop holding?". The model now picks the move from what the gate
+    /// offers, and picks it first -- the grammar follows key order, so a
+    /// tactic chosen after the question would be a label, not a decision.
     #[test]
-    fn the_transcript_and_the_probe_both_reach_the_model() {
-        let p = FakeProvider::replying(r#"{"text":"why?","quote":"indexes"}"#);
-        ask_about(&p, &entry("indexes cost writes"), "what would break it").unwrap();
+    fn the_model_picks_the_tactic_before_writing_the_question() {
+        let p = FakeProvider::replying(
+            r#"{"tactic":"fallacy","quote":"because","text":"Which part of that is the sunk cost talking?"}"#,
+        );
+        let asked = ask_about(&p, &entry("because of the thing"), &offered()).unwrap();
+        assert_eq!(asked.tactic, gate::Probe::Fallacy);
+
+        let schema = p.last_schema().unwrap();
+        let keys: Vec<&str> = schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["tactic", "quote", "text"]);
+        let enum_ids: Vec<&str> = schema["properties"]["tactic"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(enum_ids, ["boundary", "fallacy", "definition"]);
+    }
+
+    #[test]
+    fn the_transcript_and_every_offered_tactic_reach_the_model() {
+        let p = FakeProvider::replying(r#"{"tactic":"boundary","text":"why?","quote":"indexes"}"#);
+        ask_about(&p, &entry("indexes cost writes"), &offered()).unwrap();
 
         let prompt = p.last_user_prompt();
         assert!(prompt.contains("indexes cost writes"));
-        assert!(prompt.contains("what would break it"));
+        for tactic in offered() {
+            assert!(prompt.contains(&format!("- {}: {}", tactic.id(), tactic.hint())), "{prompt}");
+        }
+    }
+
+    /// A scripted or remote provider is under no grammar, and a move nobody
+    /// offered is one the gate never approved.
+    #[test]
+    fn a_tactic_that_was_not_offered_falls_back_to_one_that_was() {
+        let p = FakeProvider::replying(r#"{"tactic":"steelman","text":"why?","quote":"because"}"#);
+        let asked = ask_about(&p, &entry("because of the thing"), &offered()).unwrap();
+        assert_eq!(asked.tactic, gate::Probe::Boundary);
     }
 
     /// An empty question is a failure, not a question. Better to surface
@@ -857,7 +914,7 @@ mod tests {
     #[test]
     fn an_empty_question_is_rejected() {
         let p = FakeProvider::replying(r#"{"text":"   ","quote":"x"}"#);
-        assert!(ask_about(&p, &entry("something"), "hint").is_err());
+        assert!(ask_about(&p, &entry("something"), &offered()).is_err());
     }
 
     /// The half of the setting that was inert: the gate stopped consulting the
@@ -894,6 +951,6 @@ mod tests {
     fn unreadable_output_is_an_error_not_a_panic() {
         let p = FakeProvider::replying("not json at all");
         assert!(classify(&p, "...", &["position".into()], true).is_err());
-        assert!(ask_about(&p, &entry("x"), "hint").is_err());
+        assert!(ask_about(&p, &entry("x"), &offered()).is_err());
     }
 }

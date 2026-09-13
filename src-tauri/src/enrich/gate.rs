@@ -13,18 +13,36 @@ use crate::model::{Entry, Register, Role};
 /// §3.2 -- under this, nothing fires on its own.
 pub const MIN_AUTOMATIC_MS: i64 = 30_000;
 
+/// A debate tactic: one way of pushing on what a note claims.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Probe {
-    /// Safe tier.
     Boundary,
     Disconfirming,
-    /// Heavy tier -- invoked only, except Feynman, which takes no stance.
+    Assumption,
+    Counterexample,
+    Definition,
+    Consequence,
+    Fallacy,
     Steelman,
     Munchhausen,
+    /// The one move that takes no stance, and so the one evidence gets.
     Feynman,
 }
 
 impl Probe {
+    pub const ALL: [Probe; 10] = [
+        Probe::Boundary,
+        Probe::Disconfirming,
+        Probe::Assumption,
+        Probe::Counterexample,
+        Probe::Definition,
+        Probe::Consequence,
+        Probe::Fallacy,
+        Probe::Steelman,
+        Probe::Munchhausen,
+        Probe::Feynman,
+    ];
+
     /// The wire name, matching the ids in `lib/scene/classification.ts`.
     /// `run_probe` is invoked with whatever the frontend calls a probe, so the
     /// two spellings have to be the same one.
@@ -32,6 +50,11 @@ impl Probe {
         match self {
             Probe::Boundary => "boundary",
             Probe::Disconfirming => "disconfirming",
+            Probe::Assumption => "assumption",
+            Probe::Counterexample => "counterexample",
+            Probe::Definition => "definition",
+            Probe::Consequence => "consequence",
+            Probe::Fallacy => "fallacy",
             Probe::Steelman => "steelman",
             Probe::Munchhausen => "munchhausen",
             Probe::Feynman => "feynman",
@@ -42,21 +65,21 @@ impl Probe {
     /// rather than trusted -- an unknown one must not fall through to a probe
     /// the gate would have refused.
     pub fn from_id(id: &str) -> Option<Probe> {
-        [
-            Probe::Boundary,
-            Probe::Disconfirming,
-            Probe::Steelman,
-            Probe::Munchhausen,
-            Probe::Feynman,
-        ]
-        .into_iter()
-        .find(|probe| probe.id() == id)
+        Probe::ALL.into_iter().find(|probe| probe.id() == id)
     }
 
+    /// What the move asks, as the model is told it.
     pub fn hint(&self) -> &'static str {
         match self {
             Probe::Boundary => "where does this stop holding?",
             Probe::Disconfirming => "what would make you drop this?",
+            Probe::Assumption => "what does this take for granted without saying so?",
+            Probe::Counterexample => "put a concrete case that cuts against it",
+            Probe::Definition => "which word carries the claim, and what exactly does it mean here?",
+            Probe::Consequence => "if this is true, what else has to be true?",
+            Probe::Fallacy => {
+                "name the specific reasoning error the note makes, only if it makes one"
+            }
             Probe::Steelman => "state it better than the note did, then push",
             Probe::Munchhausen => "follow the reasons until they bottom out",
             Probe::Feynman => "apply it to a case it has not been given",
@@ -175,9 +198,10 @@ mod tests {
             automatic_probes(&live, true).is_empty(),
             "with the facet on, a live note is still left alone"
         );
+        let neutral = entry(Role::Position, Register::Neutral, 60_000);
         assert_eq!(
             automatic_probes(&live, false),
-            vec![Probe::Boundary, Probe::Disconfirming],
+            automatic_probes(&neutral, true),
             "with the facet off, a live position is probed like any other"
         );
     }
@@ -267,16 +291,29 @@ mod tests {
         assert!(automatic_probes(&e, true).is_empty());
     }
 
-    /// §3.2 -- a position opens with safe probes only. A steelman on an entry
-    /// nobody asked about is the failure the tiers exist to prevent.
+    /// Found in the packaged app: every question on a position was the same
+    /// move, "where does this stop holding?", because the first tactic allowed
+    /// was always the one used. Decided 13 Sep 2026 that a position is argued
+    /// with, and which move fits -- a fallacy where there is one, a definition
+    /// where one word carries the claim -- is the model's to judge from the
+    /// note, asked or not. Whether to ask at all stays gated above.
     #[test]
-    fn a_position_opens_with_safe_probes_and_never_a_steelman() {
-        let probes = automatic_probes(&entry(Role::Position, Register::Neutral, 120_000), true);
-
-        assert!(probes.contains(&Probe::Boundary));
-        assert!(probes.contains(&Probe::Disconfirming));
-        assert!(!probes.contains(&Probe::Steelman));
-        assert!(!probes.contains(&Probe::Munchhausen));
+    fn a_position_offers_every_debate_tactic_whether_asked_or_not() {
+        let e = entry(Role::Position, Register::Neutral, 120_000);
+        let automatic = automatic_probes(&e, true);
+        for tactic in [
+            Probe::Boundary,
+            Probe::Disconfirming,
+            Probe::Assumption,
+            Probe::Counterexample,
+            Probe::Definition,
+            Probe::Consequence,
+            Probe::Fallacy,
+            Probe::Steelman,
+        ] {
+            assert!(automatic.contains(&tactic), "{tactic:?} is not offered");
+        }
+        assert_eq!(automatic, invoked_probes(&e));
     }
 
     /// A deliberate departure from "never F": being asked to say something
@@ -309,14 +346,6 @@ mod tests {
         let e = entry(Role::Position, Register::Neutral, 5_000);
         assert!(automatic_probes(&e, true).is_empty());
         assert!(!invoked_probes(&e).is_empty());
-    }
-
-    /// The heavy probes exist, and only here.
-    #[test]
-    fn the_heavy_probes_are_reachable_only_on_request() {
-        let probes = invoked_probes(&entry(Role::Position, Register::Neutral, 120_000));
-        assert!(probes.contains(&Probe::Steelman));
-        assert!(probes.contains(&Probe::Munchhausen));
     }
 
     /// Feynman needs only "not a note" -- it is the one move that makes the
@@ -360,13 +389,7 @@ mod tests {
     /// round trip. A probe whose id cannot be parsed back is unreachable.
     #[test]
     fn every_probe_survives_its_wire_name() {
-        for probe in [
-            Probe::Boundary,
-            Probe::Disconfirming,
-            Probe::Steelman,
-            Probe::Munchhausen,
-            Probe::Feynman,
-        ] {
+        for probe in Probe::ALL {
             assert_eq!(Probe::from_id(probe.id()), Some(probe), "{probe:?}");
         }
     }
@@ -394,24 +417,19 @@ mod tests {
 
         const CONTRACT: &str = include_str!("../../../lib/scene/classification.ts");
 
-        /// `{ id: 'boundary', ..., tier: 'safe' }` -> ("boundary", "safe"), for
-        /// the probe table only. The type table above it has a `tier` too,
-        /// which is why the `hint` field is what identifies a probe row.
-        fn probes_in_the_contract() -> Vec<(String, String)> {
+        /// `{ id: 'boundary', label: ..., hint: ... }` -> "boundary", for the
+        /// probe table only. The type table above it has no `hint`, which is
+        /// what identifies a probe row.
+        fn probes_in_the_contract() -> Vec<String> {
             CONTRACT
                 .lines()
-                .filter(|line| line.contains("hint:") && line.contains("tier:"))
+                .filter(|line| line.contains("hint:") && line.contains("id:"))
                 .map(|line| {
-                    let field = |name: &str| {
-                        let at = line.find(name).unwrap_or_else(|| {
-                            panic!("no {name} in probe row: {line}");
-                        }) + name.len();
-                        let rest = &line[at..];
-                        let open = rest.find("'").expect("quoted value") + 1;
-                        let close = rest[open..].find("'").expect("closing quote") + open;
-                        rest[open..close].to_string()
-                    };
-                    (field("id:"), field("tier:"))
+                    let at = line.find("id:").expect("an id") + "id:".len();
+                    let rest = &line[at..];
+                    let open = rest.find('\'').expect("quoted value") + 1;
+                    let close = rest[open..].find('\'').expect("closing quote") + open;
+                    rest[open..close].to_string()
                 })
                 .collect()
         }
@@ -419,10 +437,7 @@ mod tests {
         #[test]
         fn the_contract_is_parseable_at_all() {
             let found = probes_in_the_contract();
-            assert_eq!(found.len(), 5, "parsed {found:?}");
-            assert!(found
-                .iter()
-                .all(|(_, tier)| tier == "safe" || tier == "heavy"));
+            assert_eq!(found.len(), Probe::ALL.len(), "parsed {found:?}");
         }
 
         /// A probe added or renamed on one side and not the other.
@@ -430,7 +445,7 @@ mod tests {
         fn every_probe_in_the_contract_exists_in_rust_and_no_others() {
             let mut from_contract: Vec<String> = probes_in_the_contract()
                 .into_iter()
-                .map(|(id, _)| {
+                .map(|id| {
                     assert!(
                         Probe::from_id(&id).is_some(),
                         "{id} is in classification.ts and not in Rust"
@@ -440,33 +455,19 @@ mod tests {
                 .collect();
             from_contract.sort();
 
-            let mut from_rust: Vec<String> = [
-                Probe::Boundary,
-                Probe::Disconfirming,
-                Probe::Steelman,
-                Probe::Munchhausen,
-                Probe::Feynman,
-            ]
-            .iter()
-            .map(|p| p.id().to_string())
-            .collect();
+            let mut from_rust: Vec<String> =
+                Probe::ALL.iter().map(|p| p.id().to_string()).collect();
             from_rust.sort();
 
             assert_eq!(from_contract, from_rust);
         }
 
-        /// §3.2's tiers, which is the asymmetry the whole gate exists to hold:
-        /// what opens on its own must be exactly what the contract calls safe.
-        /// Feynman is heavy and still fires unprompted on *evidence*, because
-        /// it takes no stance -- the documented exception, asserted as one.
+        /// A position opens on whichever move the model judges fits, so what
+        /// may open is every tactic the contract names; evidence is still only
+        /// asked to explain itself.
         #[test]
-        fn a_position_opens_with_exactly_the_contracts_safe_probes() {
-            let contract = probes_in_the_contract();
-            let mut expected: Vec<String> = contract
-                .iter()
-                .filter(|(_, tier)| tier == "safe")
-                .map(|(id, _)| id.clone())
-                .collect();
+        fn a_position_opens_with_every_tactic_in_the_contract() {
+            let mut expected = probes_in_the_contract();
             expected.sort();
 
             let mut actual: Vec<String> =
@@ -478,15 +479,6 @@ mod tests {
 
             assert_eq!(actual, expected);
 
-            let heavy: Vec<String> = contract
-                .iter()
-                .filter(|(_, tier)| tier == "heavy")
-                .map(|(id, _)| id.clone())
-                .collect();
-            assert!(
-                heavy.contains(&"feynman".to_string()),
-                "the exception moved"
-            );
             let automatic_on_evidence =
                 automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true);
             assert_eq!(
@@ -501,10 +493,7 @@ mod tests {
         /// Asking reaches everything the contract knows about, and nothing more.
         #[test]
         fn an_invited_position_reaches_every_probe_in_the_contract() {
-            let mut expected: Vec<String> = probes_in_the_contract()
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect();
+            let mut expected = probes_in_the_contract();
             expected.sort();
 
             let mut actual: Vec<String> =
