@@ -20,7 +20,7 @@ const SCHEMA: &str = include_str!("schema.sql");
 /// Bumped whenever `schema.sql` changes shape. `user_version` is a SQLite
 /// integer stored in the file header, so the database says which migration it
 /// is on without a table of its own.
-const SCHEMA_VERSION: i32 = 8;
+const SCHEMA_VERSION: i32 = 9;
 
 pub fn open(path: &Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -132,6 +132,17 @@ fn migrate(conn: &Connection) -> Result<()> {
         let _ = conn.execute_batch(
             "ALTER TABLE entries ADD COLUMN type_locked INTEGER NOT NULL DEFAULT 0;",
         );
+    }
+    if current < 9 {
+        // Answers used to land with no edge. UNIQUE(entry_a, entry_b, relation)
+        // makes this safe to repeat and leaves a line someone dismissed alone.
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO edges (id, entry_a, entry_b, relation, question, status, created_at)
+             SELECT lower(hex(randomblob(16))), child.answers_entry_id, child.id, 'answers', NULL,
+                    'accepted', child.created_at
+             FROM entries AS child
+             JOIN entries AS parent ON parent.id = child.answers_entry_id;",
+        )?;
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -323,6 +334,33 @@ mod tests {
 
         // Running it again must not throw: migrate is called on every open.
         migrate(&conn).unwrap();
+    }
+
+    /// Answers recorded before answers drew their own line keep no edge; the
+    /// migration draws the missing ones once, and never twice.
+    #[test]
+    fn version_nine_links_answers_that_have_no_edge() {
+        let conn = open_in_memory().unwrap();
+        for (id, parent) in [("p", None), ("a", Some("p"))] {
+            conn.execute(
+                "INSERT INTO entries (id, transcript, created_at, x, y, answers_entry_id, role,
+                 register, type_id, resolved, title, duration_ms, unfinished, local_only, is_sample)
+                 VALUES (?1, 'said', '2024-01-01T00:00:00Z', 0, 0, ?2, 'position', 'neutral',
+                 'position', 0, 't', 40000, 0, 0, 0)",
+                rusqlite::params![id, parent],
+            )
+            .unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+
+        migrate(&conn).unwrap();
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        migrate(&conn).unwrap();
+
+        let edges = edges::list(&conn).unwrap();
+        assert_eq!(edges.len(), 1, "exactly one line, however often it runs");
+        assert_eq!((edges[0].entry_a.as_str(), edges[0].entry_b.as_str()), ("p", "a"));
+        assert_eq!(edges[0].relation, crate::model::Relation::Answers);
     }
 
     /// A manually assigned type has to survive an install that predates the

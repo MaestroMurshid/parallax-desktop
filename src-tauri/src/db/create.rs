@@ -231,6 +231,24 @@ pub fn create_with_id(conn: &Connection, id: String, draft: NewEntry) -> Result<
     };
 
     super::entries::insert(conn, &entry)?;
+
+    // An answer carries its line back to what it answers. Logged rather than
+    // returned: the row already exists, and a caller treating an error as "no
+    // entry" would delete the recording it points at.
+    if let Some(parent) = entry.parent_entry_id.as_deref() {
+        let edge = crate::model::Edge {
+            id: uuid::Uuid::new_v4().to_string(),
+            entry_a: parent.to_string(),
+            entry_b: entry.id.clone(),
+            relation: crate::model::Relation::Answers,
+            question: None,
+            status: crate::model::EdgeStatus::Accepted,
+            created_at: entry.created_at.clone(),
+        };
+        if let Err(e) = super::edges::insert(conn, &edge) {
+            eprintln!("answer {} landed without its line to {parent}: {e}", entry.id);
+        }
+    }
     Ok(entry)
 }
 
@@ -248,6 +266,37 @@ mod tests {
             local_only: None,
             typed: false,
         }
+    }
+
+    /// Found in the packaged app: an answer sat beside its parent with no line
+    /// between them, because only the mock drew one.
+    #[test]
+    fn an_answer_is_linked_to_what_it_answers() {
+        let conn = open_in_memory().unwrap();
+        let parent = create(&conn, draft("Standups are theatre.")).unwrap();
+        let answer = create(
+            &conn,
+            NewEntry {
+                parent_entry_id: Some(parent.id.clone()),
+                ..draft("We actually do it, though.")
+            },
+        )
+        .unwrap();
+
+        let edges = crate::db::edges::list(&conn).unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].entry_a, parent.id);
+        assert_eq!(edges[0].entry_b, answer.id);
+        assert_eq!(edges[0].relation, crate::model::Relation::Answers);
+        assert_eq!(edges[0].status, crate::model::EdgeStatus::Accepted);
+    }
+
+    #[test]
+    fn a_note_that_answers_nothing_draws_no_line() {
+        let conn = open_in_memory().unwrap();
+        create(&conn, draft("Standups are theatre.")).unwrap();
+        create(&conn, draft("Something unrelated.")).unwrap();
+        assert!(crate::db::edges::list(&conn).unwrap().is_empty());
     }
 
     #[test]
