@@ -32,6 +32,15 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
+      # Tauri downloads NSIS and WiX from GitHub releases, which intermittently
+      # answer 504.
+      - name: Cache Bundler Tools
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\tauri
+          key: tauri-bundler-tools-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 

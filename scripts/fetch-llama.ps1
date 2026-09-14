@@ -21,7 +21,17 @@ if (Test-Path (Join-Path $dest 'llama-server.exe')) {
 }
 
 Write-Host "Fetching $asset ..."
-Invoke-WebRequest -Uri $url -OutFile $zip
+# GitHub's release downloads intermittently answer 504.
+for ($attempt = 1; ; $attempt++) {
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $zip
+        break
+    } catch {
+        if ($attempt -ge 5) { throw }
+        Write-Host "Attempt $attempt failed: $($_.Exception.Message). Retrying in 10s ..."
+        Start-Sleep -Seconds 10
+    }
+}
 
 $staging = Join-Path $env:TEMP "llama-$build-staging"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }

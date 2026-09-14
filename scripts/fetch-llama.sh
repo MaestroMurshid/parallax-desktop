@@ -30,7 +30,8 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 echo "Fetching $asset ..."
-curl -fsSL "https://github.com/ggml-org/llama.cpp/releases/download/$build/$asset" -o "$work/$asset"
+# GitHub's release downloads intermittently answer 504.
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 "https://github.com/ggml-org/llama.cpp/releases/download/$build/$asset" -o "$work/$asset"
 tar -xzf "$work/$asset" -C "$work"
 
 mkdir -p "$dest"
