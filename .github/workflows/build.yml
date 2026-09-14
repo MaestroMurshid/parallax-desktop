@@ -67,6 +67,13 @@ jobs:
 
       # After the app build: generate_context! needs the exported frontend in
       # out/. Windows only for now, the platform the suite is run on locally.
+      - name: Rust Lint
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: |
+          cargo fmt -- --check
+          cargo clippy --all-targets -- -D warnings
+
       - name: Rust Tests
         if: runner.os == 'Windows'
         working-directory: src-tauri
