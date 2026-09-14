@@ -57,33 +57,43 @@ Follow these constraints strictly. Answer the fields in the exact order listed.
   - `questions`: Doubts the first rather than answering it.
   - `example of`: A concrete instance of what the first says generally.
   - `none`: Default. Use if they are merely on similar subjects.
-- **quoteA** & **quoteB**: Copy the verbatim short passage from each note that carries the relation.
+- **quoteA** & **quoteB**: Copy, word for word, the short phrase (at most 15 words) from each note that carries the relation.
 - **question**: One sentence asking what the two together put to the speaker, about the claims, not the notes.";
 
 fn connect_schema() -> Value {
-    let mut relations: Vec<String> = vec![NONE.into()];
-    relations.extend(
-        Relation::MODEL_RELATIONS
-            .iter()
-            .filter_map(|r| serde_json::to_value(r).ok())
-            .filter_map(|v| v.as_str().map(str::to_string)),
-    );
+    let relations: Vec<String> = Relation::MODEL_RELATIONS
+        .iter()
+        .filter_map(|r| serde_json::to_value(r).ok())
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    // Well under a sentence of speech. At 300 the model pasted whole notes and
+    // the cap cut them mid-word; the prompt asks for 15 words, this catches drift.
+    let quote = json!({ "type": "string", "maxLength": 160 });
 
     json!({
-        "type": "object",
-        "properties": {
-            // First, and with `none` among the values, so declining costs one
-            // token rather than the model having to invent a way out of a
-            // schema that assumed a connection.
-            "relation": { "type": "string", "enum": relations },
-            "quoteA": { "type": "string", "maxLength": 300 },
-            "quoteB": { "type": "string", "maxLength": 300 },
-            "question": { "type": "string", "maxLength": 300 },
-        },
-        // Only the relation. The rest is meaningless when the answer is none,
-        // and requiring it would make declining the expensive option.
-        "required": ["relation"],
-        "additionalProperties": false,
+        // Two shapes rather than optional fields. Declining stays one token, and
+        // naming a relation commits to everything the edge needs: with the
+        // quotes and question optional, the model closed the object after one
+        // quote and the relation it had found was thrown away.
+        "anyOf": [
+            {
+                "type": "object",
+                "properties": { "relation": { "const": NONE } },
+                "required": ["relation"],
+                "additionalProperties": false,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "relation": { "type": "string", "enum": relations },
+                    "quoteA": quote,
+                    "quoteB": quote,
+                    "question": { "type": "string", "maxLength": 300 },
+                },
+                "required": ["relation", "quoteA", "quoteB", "question"],
+                "additionalProperties": false,
+            },
+        ],
     })
 }
 
@@ -186,13 +196,73 @@ mod tests {
     #[test]
     fn the_schema_lists_fields_in_the_order_the_prompt_asks_for_them() {
         let schema = connect_schema();
-        let keys: Vec<&str> = schema["properties"]
+        let keys: Vec<&str> = related_branch(&schema)["properties"]
             .as_object()
             .unwrap()
             .keys()
             .map(String::as_str)
             .collect();
         assert_eq!(keys, ["relation", "quoteA", "quoteB", "question"]);
+    }
+
+    /// The branch of the schema a model takes when it names a relation.
+    fn related_branch(schema: &Value) -> &Value {
+        schema["anyOf"]
+            .as_array()
+            .expect("the schema offers declining and relating as separate shapes")
+            .iter()
+            .find(|b| b["properties"]["relation"]["enum"].is_array())
+            .expect("a branch that names a relation")
+    }
+
+    /// Found replaying a real pair: the model named `returns to` four times out
+    /// of four, then closed the object after one quote in three of them because
+    /// the rest was optional, and each landed nothing for want of a question.
+    #[test]
+    fn naming_a_relation_requires_both_quotes_and_the_question() {
+        let schema = connect_schema();
+        let related = related_branch(&schema);
+        let required: Vec<&str> = related["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert_eq!(required, ["relation", "quoteA", "quoteB", "question"]);
+        let offered: Vec<&str> = related["properties"]["relation"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            !offered.contains(&NONE),
+            "none belongs to the declining branch"
+        );
+    }
+
+    #[test]
+    fn declining_still_costs_only_the_relation() {
+        let schema = connect_schema();
+        let declining = schema["anyOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["properties"]["relation"]["const"] == NONE)
+            .expect("a branch that declines");
+        assert_eq!(declining["required"], json!(["relation"]));
+    }
+
+    /// Asked for a "short passage", the model pasted whole notes into the
+    /// quote until the cap cut them mid-word.
+    #[test]
+    fn quotes_are_asked_for_and_capped_short() {
+        assert!(CONNECT_SYSTEM.contains("at most 15 words"));
+        let schema = connect_schema();
+        let cap = related_branch(&schema)["properties"]["quoteA"]["maxLength"]
+            .as_u64()
+            .unwrap();
+        assert!(cap <= 160, "a quote cap of {cap} lets a whole note through");
     }
 
     const SAID_A: &str = "Database indexes trade write performance for faster reads.";
@@ -349,12 +419,19 @@ mod tests {
     #[test]
     fn the_schema_offers_the_six_and_a_way_out() {
         let schema = connect_schema();
-        let values: Vec<String> = schema["properties"]["relation"]["enum"]
+        let mut values: Vec<String> = related_branch(&schema)["properties"]["relation"]["enum"]
             .as_array()
             .unwrap()
             .iter()
             .map(|v| v.as_str().unwrap().to_string())
             .collect();
+        let way_out = schema["anyOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|b| b["properties"]["relation"]["const"].as_str())
+            .map(str::to_string);
+        values.extend(way_out);
 
         assert!(values.contains(&NONE.to_string()), "{values:?}");
         assert_eq!(values.len(), Relation::MODEL_RELATIONS.len() + 1);
@@ -369,7 +446,5 @@ mod tests {
             !values.iter().any(|v| v == "related" || v == "answers"),
             "neither is a classifier's to emit (§5.4)"
         );
-        let required = schema["required"].as_array().unwrap();
-        assert_eq!(required.len(), 1, "only the relation: none must stay cheap");
     }
 }
