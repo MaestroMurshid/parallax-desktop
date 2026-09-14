@@ -59,18 +59,22 @@ pub fn recording_level(state: State<AppState>) -> f32 {
 /// The last ten seconds at 16kHz.
 const PREVIEW_SAMPLES: usize = 160_000;
 
+/// The panel shows nine words, three or four seconds of speech. Ten seconds
+/// fills them with context to spare, and a word severed at the window's start
+/// falls outside the nine shown.
 fn preview_window(samples: &[f32]) -> &[f32] {
-    todo!()
+    &samples[samples.len().saturating_sub(PREVIEW_SAMPLES)..]
 }
 
 /// The transcript so far, for the panel to show while you are still talking.
 ///
 /// Polled for the same reason the level is: the panel asks while it is on
 /// screen, and nothing has to be torn down when it is not. Each call transcribes
-/// everything recorded so far, because whisper needs the whole utterance to be
-/// coherent -- so a pass costs about a thirty-fifth of the duration and the
-/// refresh naturally slows as the note grows. Empty rather than an error when
-/// there is no model, too little audio, or no recording.
+/// only the recent audio: transcribing everything so far made every refresh a
+/// full pass, so a long note fell further behind and held the CPU for as long as
+/// it ran. The saved transcript is still one pass over the whole take. Empty
+/// rather than an error when there is no model, too little audio, or no
+/// recording.
 #[tauri::command]
 pub async fn partial_transcript(state: State<'_, AppState>) -> Result<String> {
     const MIN_SAMPLES: usize = 16_000;
@@ -99,12 +103,14 @@ pub async fn partial_transcript(state: State<'_, AppState>) -> Result<String> {
 
     // Always on the CPU: the reasoning model has first claim on VRAM, and this
     // runs repeatedly while a recording is in flight.
-    Ok(
-        crate::stt::transcribe(&model, &samples, crate::model::ComputeBackend::Cpu)?
-            .text
-            .trim()
-            .to_string(),
-    )
+    Ok(crate::stt::transcribe(
+        &model,
+        preview_window(&samples),
+        crate::model::ComputeBackend::Cpu,
+    )?
+    .text
+    .trim()
+    .to_string())
 }
 
 /// Stops, writes the audio, transcribes, and lands an entry.
