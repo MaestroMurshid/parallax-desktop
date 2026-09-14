@@ -132,7 +132,8 @@ export default function Page() {
           void state.stopRecording();
           return;
         }
-        if (state.captureState !== 'idle') return;
+        // A failure notice is not a capture in progress: pressing again retries.
+        if (state.captureState !== 'idle' && state.captureState !== 'failed') return;
         // In the canvas, an open entry makes the hotkey mean "respond to this".
         // The panel has no such context.
         const target = state.selectedEntryId;

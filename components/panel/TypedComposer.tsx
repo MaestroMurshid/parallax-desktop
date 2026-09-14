@@ -15,6 +15,7 @@ const WPM = 150;
 export default function TypedComposer({ onClose }: { onClose(): void }) {
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const upsertEntry = useApp((s) => s.upsertEntry);
   const openEntry = useApp((s) => s.openEntry);
@@ -27,16 +28,23 @@ export default function TypedComposer({ onClose }: { onClose(): void }) {
     const body = text.trim();
     if (!body || saving) return;
     setSaving(true);
+    setError(null);
     const words = body.split(/\s+/).length;
-    const entry = await getBridge().createEntry({
-      transcript: body,
-      durationMs: Math.round((words / WPM) * 60_000),
-      fingerprint: [],
-      typed: true,
-    });
-    upsertEntry(entry);
-    openEntry(entry.id);
-    onClose();
+    try {
+      const entry = await getBridge().createEntry({
+        transcript: body,
+        durationMs: Math.round((words / WPM) * 60_000),
+        fingerprint: [],
+        typed: true,
+      });
+      upsertEntry(entry);
+      openEntry(entry.id);
+      onClose();
+    } catch (e) {
+      // The words stay in the field: a failed save must never cost what was typed.
+      setError(typeof e === 'string' ? e : e instanceof Error ? e.message : 'could not save');
+      setSaving(false);
+    }
   };
 
   return (
@@ -68,10 +76,16 @@ export default function TypedComposer({ onClose }: { onClose(): void }) {
       />
 
       <div className={styles.foot}>
-        <span className={styles.hint}>
-          <kbd className={styles.kbd}>Enter</kbd> saves ·{' '}
-          <kbd className={styles.kbd}>Shift</kbd>+<kbd className={styles.kbd}>Enter</kbd> new line
-        </span>
+        {error ? (
+          <span className={styles.hint} role="alert">
+            not saved — {error}
+          </span>
+        ) : (
+          <span className={styles.hint}>
+            <kbd className={styles.kbd}>Enter</kbd> saves ·{' '}
+            <kbd className={styles.kbd}>Shift</kbd>+<kbd className={styles.kbd}>Enter</kbd> new line
+          </span>
+        )}
         <div className={styles.actions}>
           <button type="button" className={styles.cancel} onClick={onClose}>
             esc

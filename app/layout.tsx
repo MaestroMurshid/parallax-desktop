@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Archivo, IBM_Plex_Mono, Newsreader } from 'next/font/google';
 import { APP_NAME, APP_TAGLINE } from '@/lib/constants';
+import ErrorBoundary from '@/components/chrome/ErrorBoundary';
 import ThemeSync from '@/components/chrome/ThemeSync';
 import './globals.css';
 
@@ -25,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${newsreader.variable} ${archivo.variable} ${plexMono.variable}`}>
       <body>
         <ThemeSync />
-        {children}
+        <ErrorBoundary>{children}</ErrorBoundary>
       </body>
     </html>
   );

@@ -48,6 +48,7 @@ export default function CapturePanel({ settings }: { settings: Settings | null }
   const stopRecording = useApp((s) => s.stopRecording);
   const discardRecording = useApp((s) => s.discardRecording);
   const cancelCapture = useApp((s) => s.cancelCapture);
+  const captureError = useApp((s) => s.captureError);
   const [partial, setPartial] = useState('');
 
   useEffect(() => {
@@ -94,7 +95,13 @@ export default function CapturePanel({ settings }: { settings: Settings | null }
         {/* Confirmation, not a result. It says the words are safe and then it
             goes; reading them back is what the entry is for. */}
         {state === 'saved' && 'recorded'}
+        {state === 'failed' && 'not recorded'}
       </div>
+      {state === 'failed' && captureError && (
+        <p className={styles.partial} role="alert">
+          {captureError}
+        </p>
+      )}
       {state === 'recording' && partial && (
         <p className={styles.partial} aria-live="polite">
           {tail(partial)}

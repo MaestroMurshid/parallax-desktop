@@ -115,11 +115,22 @@ export default function EntryView({
   const [selectAt, setSelectAt] = useState<{ x: number; y: number } | null>(null);
   const [proposed, setProposed] = useState<Edge[]>([]);
   const [children, setChildren] = useState<Entry[]>([]);
+  const [linksFailed, setLinksFailed] = useState(false);
 
   useEffect(() => {
     if (!id) return;
-    void getBridge().listProposedEdges(id).then(setProposed);
-    void getBridge().listChildren(id).then(setChildren);
+    // Said when it fails: an empty list would read as "nothing connects here".
+    getBridge()
+      .listProposedEdges(id)
+      .then((edges) => {
+        setProposed(edges);
+        setLinksFailed(false);
+      })
+      .catch(() => setLinksFailed(true));
+    getBridge()
+      .listChildren(id)
+      .then(setChildren)
+      .catch(() => setLinksFailed(true));
   }, [id, entries]);
 
   useEffect(() => () => {
@@ -615,6 +626,7 @@ export default function EntryView({
             </div>
           )}
           {askError && <p className={styles.nothing}>{askError}</p>}
+          {linksFailed && <p className={styles.nothing}>Connections could not be loaded just now.</p>}
 
           {proposed.length > 0 && (
             <p className={styles.sectionLabel}>
