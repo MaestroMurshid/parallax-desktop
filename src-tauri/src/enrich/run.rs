@@ -472,6 +472,64 @@ mod tests {
         assert_eq!(shelves, vec!["databases".to_string()]);
     }
 
+    const ERRANDS: &str = "I need to buy a pen and some books. Book the dentist for next week.";
+
+    const FILED_AS_NOTE: &str = r#"{"title":"buy a pen","role":"note",
+        "register":"neutral","typeId":"note","summary":"Errands.",
+        "movePhrase":"lists things to do"}"#;
+
+    /// Found in the packaged app: "I need to buy a pen" was filed as a note and
+    /// the task list stayed empty, because nothing read a note for tasks.
+    #[test]
+    fn a_note_lands_its_tasks() {
+        let (conn, id) = corpus(ERRANDS, 9_000);
+        let provider = ScriptedProvider::with(&[
+            FILED_AS_NOTE,
+            r#"{"tasks":["buy a pen and some books","Book the dentist for next week."]}"#,
+        ]);
+
+        run(&conn, &provider, &id).unwrap();
+
+        let tasks: Vec<String> = db::action_items::list(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.text)
+            .collect();
+        assert_eq!(
+            tasks,
+            vec![
+                "buy a pen and some books".to_string(),
+                "Book the dentist for next week.".into()
+            ]
+        );
+    }
+
+    /// Only a note is a to-do list. An argument that says "I should" is not.
+    #[test]
+    fn a_note_filed_as_anything_else_is_not_read_for_tasks() {
+        let (conn, id) = corpus(ERRANDS, 5_000);
+        let provider = ScriptedProvider::with(&[CLASSIFY]);
+
+        run(&conn, &provider, &id).unwrap();
+
+        assert_eq!(provider.calls(), 1, "a position was read for tasks");
+        assert!(db::action_items::list(&conn).unwrap().is_empty());
+    }
+
+    /// Tasks are extra. A model that fails on them must not cost the filing.
+    #[test]
+    fn a_failed_task_read_does_not_fail_the_pass() {
+        let (conn, id) = corpus(ERRANDS, 9_000);
+        let provider = ScriptedProvider::with(&[FILED_AS_NOTE]);
+
+        let out = run(&conn, &provider, &id).expect("the pass survives");
+
+        assert!(out.classified);
+        assert_eq!(provider.calls(), 2, "tasks were never asked for");
+        let entry = db::entries::get(&conn, &id).unwrap().unwrap();
+        assert_eq!(entry.title, "buy a pen");
+    }
+
     /// A short note is not pushed on, and classification still runs.
     #[test]
     fn a_short_note_is_classified_but_not_questioned() {
