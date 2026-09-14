@@ -15,6 +15,14 @@ function detail(model: ModelInfo | undefined): string | undefined {
   return `${model.name} · ${model.params} params · ${model.quantization} · ${mb(model.sizeBytes)}`;
 }
 
+/** The file's own name, so a custom model reads as itself rather than as a
+ *  full path in the strip that also carries the entry count and the
+ *  thinking indicator. */
+function baseName(path: string): string {
+  const name = path.replace(/\\/g, '/').split('/').pop() ?? path;
+  return name.replace(/\.gguf$/i, '');
+}
+
 function stateLabel(model: ModelInfo | undefined): string {
   if (!model) return 'none';
   switch (model.state.kind) {
@@ -52,7 +60,16 @@ export default function StatusBar({ settings }: { settings: Settings }) {
     (m) => m.kind === 'transcription' && m.name === settings.transcriptionModel,
   );
   const reasoning = models.find((m) => m.id === settings.modelId);
-  const speechReady = speech?.state.kind === 'ready';
+  // A custom path overrides its catalogue counterpart the moment it is set
+  // (§ resolve_reasoning_model / resolve_transcription_model), so the strip
+  // has to say which file is actually the one in use.
+  const customSpeechName = settings.customTranscriptionModelPath
+    ? baseName(settings.customTranscriptionModelPath)
+    : null;
+  const customReasoningName = settings.customReasoningModelPath
+    ? baseName(settings.customReasoningModelPath)
+    : null;
+  const speechReady = customSpeechName !== null || speech?.state.kind === 'ready';
 
   return (
     <footer className={styles.bar}>
@@ -75,16 +92,17 @@ export default function StatusBar({ settings }: { settings: Settings }) {
             back worse than you expected (§9.5). */}
         <span
           className={speechReady ? styles.model : styles.modelPending}
-          title={detail(speech)}
+          title={settings.customTranscriptionModelPath ?? detail(speech)}
         >
-          {speech ? `whisper ${speech.name} ${speech.params}` : 'no speech model'}{' '}
-          {stateLabel(speech)}
+          {customSpeechName ?? (speech ? `whisper ${speech.name} ${speech.params}` : 'no speech model')}{' '}
+          {customSpeechName ? 'ready' : stateLabel(speech)}
         </span>
         <span className={styles.divider} aria-hidden>
           ·
         </span>
-        <span className={styles.model} title={detail(reasoning)}>
-          {reasoning?.name ?? 'no model'} {stateLabel(reasoning)}
+        <span className={styles.model} title={settings.customReasoningModelPath ?? detail(reasoning)}>
+          {customReasoningName ?? reasoning?.name ?? 'no model'}{' '}
+          {customReasoningName ? 'ready' : stateLabel(reasoning)}
         </span>
       </span>
     </footer>

@@ -454,7 +454,7 @@ fn a_real_whisper_model_downloads_and_transcribes() {
 
     // Found by the same lookup the capture path uses.
     let found = state
-        .transcription_model(parallax_lib::model::TranscriptionModel::Tiny)
+        .transcription_model(None, parallax_lib::model::TranscriptionModel::Tiny)
         .expect("the downloaded model should be discoverable");
     assert_eq!(found, dest);
 

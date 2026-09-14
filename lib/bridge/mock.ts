@@ -159,6 +159,8 @@ export class MockBridge implements Bridge {
     reasoningBackend: 'auto',
     liveRegister: true,
     theme: 'system',
+    customReasoningModelPath: null,
+    customTranscriptionModelPath: null,
   };
 
   // Mirrors the Rust catalogue in commands/models.rs; a mock that lists
@@ -940,6 +942,23 @@ ${entry.transcript}
       /* ignore */
     }
     return { ...this.settings };
+  }
+
+  /** A browser cannot hand back a real filesystem path, so this stands in
+   *  with the file's own name -- enough to exercise the setting in the
+   *  browser build, which is what the mock exists for. */
+  pickModelFile(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.gguf';
+      input.addEventListener('cancel', () => resolve(null));
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        resolve(file ? file.name : null);
+      });
+      input.click();
+    });
   }
 
   // -- sample corpus ------------------------------------------------------

@@ -303,4 +303,12 @@ export interface Settings {
    */
   liveRegister: boolean;
   theme: Theme;
+  /**
+   * A user's own chat model, checked before the catalogue choice. `null` for
+   * everyone who has not set one -- `modelId` then works exactly as before.
+   */
+  customReasoningModelPath: string | null;
+  /** Same idea for speech-to-text; must be a whisper GGUF, same format as
+   *  the catalogue's own whisper files. */
+  customTranscriptionModelPath: string | null;
 }

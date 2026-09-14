@@ -224,6 +224,9 @@ export interface Bridge {
 
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
+  /** Native "choose file" filtered to `*.gguf`, for either custom model
+   *  setting. `null` when the dialog is cancelled. */
+  pickModelFile(): Promise<string | null>;
 
   // -- sample corpus ------------------------------------------------------
   /** Offered from the empty state, never forced. Sample entries stay marked

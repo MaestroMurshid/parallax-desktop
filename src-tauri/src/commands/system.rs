@@ -30,6 +30,11 @@ pub fn set_settings(
     if after.hotkey != before.hotkey {
         crate::shortcuts::rebind_hotkey(&app, state.inner(), &after.hotkey);
     }
+    // A running server would otherwise keep answering from the old file --
+    // `with_reasoning` only spawns one when the slot is empty.
+    if crate::model::settings::reasoning_model_path_changed(&before, &after) {
+        state.stop_reasoning();
+    }
     Ok(after)
 }
 

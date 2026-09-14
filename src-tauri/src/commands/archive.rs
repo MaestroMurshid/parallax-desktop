@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-fn dialog(app: &tauri::AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+pub(crate) fn dialog(app: &tauri::AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
     let builder = app.dialog().file();
     // Parented, so the dialog sits over the app instead of behind it.
     match app.get_webview_window("main") {
@@ -28,7 +28,7 @@ fn dialog(app: &tauri::AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<taur
     }
 }
 
-fn chosen(path: Option<tauri_plugin_dialog::FilePath>) -> Option<PathBuf> {
+pub(crate) fn chosen(path: Option<tauri_plugin_dialog::FilePath>) -> Option<PathBuf> {
     path.and_then(|p| p.as_path().map(|p| p.to_path_buf()))
 }
 

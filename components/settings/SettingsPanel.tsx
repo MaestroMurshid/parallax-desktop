@@ -31,6 +31,10 @@ export default function SettingsPanel({
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [capturing, setCapturing] = useState<Rebindable | null>(null);
+  const [modelPathError, setModelPathError] = useState<{
+    field: 'customReasoningModelPath' | 'customTranscriptionModelPath';
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     const bridge = getBridge();
@@ -39,6 +43,13 @@ export default function SettingsPanel({
       setModels((prev) => prev.map((x) => (x.id === m.id ? m : x)));
     });
   }, []);
+
+  // What a custom path would be overriding, named for the "none — using…" line.
+  const reasoningCatalogueName =
+    models.find((m) => m.id === settings.modelId)?.name ?? 'no catalogue model chosen';
+  const transcriptionCatalogueName =
+    models.find((m) => m.kind === 'transcription' && m.name === settings.transcriptionModel)
+      ?.name ?? settings.transcriptionModel;
 
   // Capture the next chord for whichever field is rebinding — same logic as
   // onboarding's hotkey capture, generalised to either field here.
@@ -65,6 +76,27 @@ export default function SettingsPanel({
   async function update(patch: Partial<Settings>) {
     const next = await getBridge().setSettings(patch);
     onChange(next);
+  }
+
+  // Rejection is a real outcome here -- a moved or renamed file -- not just a
+  // slow round trip, so it is shown inline against the field rather than
+  // dropped as an unhandled promise rejection.
+  async function updateModelPath(
+    field: 'customReasoningModelPath' | 'customTranscriptionModelPath',
+    value: string | null,
+  ) {
+    try {
+      await update({ [field]: value } as Partial<Settings>);
+      setModelPathError(null);
+    } catch (e) {
+      setModelPathError({ field, message: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  async function chooseModel(field: 'customReasoningModelPath' | 'customTranscriptionModelPath') {
+    const path = await getBridge().pickModelFile();
+    if (path === null) return; // cancelled
+    void updateModelPath(field, path);
   }
 
   return (
@@ -157,6 +189,36 @@ export default function SettingsPanel({
           </div>
         </div>
 
+        <div className={styles.row}>
+          <span className={styles.label}>your own transcription model</span>
+          <div className={styles.control}>
+            <span className={styles.value}>
+              {settings.customTranscriptionModelPath ||
+                `none — using ${transcriptionCatalogueName}`}
+            </span>
+            <button
+              type="button"
+              className={styles.inline}
+              onClick={() => void chooseModel('customTranscriptionModelPath')}
+            >
+              choose file…
+            </button>
+            {settings.customTranscriptionModelPath && (
+              <button
+                type="button"
+                className={styles.inline}
+                onClick={() => void updateModelPath('customTranscriptionModelPath', null)}
+              >
+                clear
+              </button>
+            )}
+          </div>
+        </div>
+        {modelPathError?.field === 'customTranscriptionModelPath' && (
+          <p className={styles.reject}>{modelPathError.message}</p>
+        )}
+        <p className={styles.helper}>a whisper GGUF in the same format as the built-in ones</p>
+
         {/* Fact, not a setting — no control here on purpose. */}
         <p className={styles.statement}>Audio and transcription never leave this machine.</p>
       </section>
@@ -206,6 +268,37 @@ export default function SettingsPanel({
             </div>
           ))}
         </div>
+
+        <div className={styles.row}>
+          <span className={styles.label}>your own reasoning model</span>
+          <div className={styles.control}>
+            <span className={styles.value}>
+              {settings.customReasoningModelPath || `none — using ${reasoningCatalogueName}`}
+            </span>
+            <button
+              type="button"
+              className={styles.inline}
+              onClick={() => void chooseModel('customReasoningModelPath')}
+            >
+              choose file…
+            </button>
+            {settings.customReasoningModelPath && (
+              <button
+                type="button"
+                className={styles.inline}
+                onClick={() => void updateModelPath('customReasoningModelPath', null)}
+              >
+                clear
+              </button>
+            )}
+          </div>
+        </div>
+        {modelPathError?.field === 'customReasoningModelPath' && (
+          <p className={styles.reject}>{modelPathError.message}</p>
+        )}
+        <p className={styles.helper}>
+          any GGUF chat model llama.cpp can run; quality is not measured
+        </p>
 
         <div className={styles.row}>
           <span className={styles.label}>residency</span>

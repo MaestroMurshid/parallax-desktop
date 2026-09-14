@@ -261,6 +261,10 @@ export class TauriBridge implements Bridge {
     return invoke('set_settings', { patch });
   }
 
+  pickModelFile(): Promise<string | null> {
+    return invoke('pick_model_file');
+  }
+
   // -- sample corpus ------------------------------------------------------
 
   loadSampleCorpus(): Promise<SampleLoad> {

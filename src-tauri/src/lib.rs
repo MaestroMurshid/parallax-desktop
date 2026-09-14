@@ -260,6 +260,7 @@ pub fn run() {
             commands::models::setup_complete,
             commands::models::download_model,
             commands::models::models_location,
+            commands::models::pick_model_file,
             commands::system::get_settings,
             commands::system::set_settings,
             commands::system::corpus_location,

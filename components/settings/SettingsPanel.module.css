@@ -190,6 +190,13 @@
   color: var(--meta);
 }
 
+.reject {
+  margin: -4px 0 0 146px;
+  font-size: var(--size-meta);
+  line-height: 1.5;
+  color: var(--title);
+}
+
 .models {
   display: flex;
   flex-direction: column;

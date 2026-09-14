@@ -151,10 +151,10 @@ impl AppState {
     /// Matches --fit's own floor, so the fit never has to shrink it.
     pub const REASONING_CONTEXT: u32 = 4096;
 
-    /// The reasoning model onboarding chose, if its file is there.
-    pub fn reasoning_model(&self, model_id: Option<&str>) -> Option<PathBuf> {
-        let path = self.models_dir().join(format!("{}.gguf", model_id?));
-        path.is_file().then_some(path)
+    /// The reasoning model to actually load: a valid custom file first, the
+    /// one onboarding chose otherwise.
+    pub fn reasoning_model(&self, custom: Option<&str>, model_id: Option<&str>) -> Option<PathBuf> {
+        resolve_reasoning_model(custom, model_id, &self.models_dir())
     }
 
     /// The embedding model, if one was chosen and its file is there.
@@ -199,7 +199,11 @@ impl AppState {
         let Ok(settings) = db::settings::get(&self.db()) else {
             return false;
         };
-        self.reasoning_model(settings.model_id.as_deref()).is_some()
+        self.reasoning_model(
+            settings.custom_reasoning_model_path.as_deref(),
+            settings.model_id.as_deref(),
+        )
+        .is_some()
     }
 
     pub fn with_reasoning<T>(
@@ -210,7 +214,10 @@ impl AppState {
             return Ok(None);
         };
         let settings = db::settings::get(&self.db())?;
-        let Some(model) = self.reasoning_model(settings.model_id.as_deref()) else {
+        let Some(model) = self.reasoning_model(
+            settings.custom_reasoning_model_path.as_deref(),
+            settings.model_id.as_deref(),
+        ) else {
             return Ok(None);
         };
 
@@ -260,6 +267,22 @@ impl AppState {
             server.stop();
         }
         true
+    }
+
+    /// Stops the reasoning server outright, independent of how long it has
+    /// sat idle -- the file it would keep serving is no longer the one
+    /// settings name, so keeping it warm would answer the next call with the
+    /// wrong model. Blocks on the same lock `with_reasoning` holds for a
+    /// whole call, so this waits for one in flight rather than cutting it off.
+    pub fn stop_reasoning(&self) -> bool {
+        let mut slot = self.llama.lock().unwrap_or_else(|p| p.into_inner());
+        match slot.take() {
+            Some(server) => {
+                server.stop();
+                true
+            }
+            None => false,
+        }
     }
 
     /// Runs `f` against the embedder, starting it if it is not up.
@@ -369,12 +392,51 @@ impl AppState {
     /// whichever the filesystem yields first would silently ignore the setting.
     /// `None` is a normal state, not an error -- capture works without it, and
     /// the audio is the record the transcript is derived from.
-    pub fn transcription_model(&self, chosen: TranscriptionModel) -> Option<PathBuf> {
-        let path = self
-            .models_dir()
-            .join(format!("{}.gguf", chosen.model_id()));
-        path.is_file().then_some(path)
+    pub fn transcription_model(&self, custom: Option<&str>, chosen: TranscriptionModel) -> Option<PathBuf> {
+        resolve_transcription_model(custom, chosen, &self.models_dir())
     }
+}
+
+/// A custom path counts only when it is a real file with a `.gguf`
+/// extension (case-insensitive) -- anything else, including a typo or a
+/// moved file, must fall back exactly as if nothing had been set, not fail
+/// silently with reasoning or transcription simply absent.
+pub fn resolve_custom_gguf(custom: Option<&str>) -> Option<PathBuf> {
+    let trimmed = custom?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(trimmed);
+    let is_gguf = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("gguf"));
+    (is_gguf && path.is_file()).then_some(path)
+}
+
+/// A valid custom file always wins; otherwise the catalogue file onboarding
+/// chose, exactly as before this setting existed.
+pub fn resolve_reasoning_model(
+    custom: Option<&str>,
+    model_id: Option<&str>,
+    models_dir: &Path,
+) -> Option<PathBuf> {
+    resolve_custom_gguf(custom).or_else(|| {
+        let path = models_dir.join(format!("{}.gguf", model_id?));
+        path.is_file().then_some(path)
+    })
+}
+
+/// Same rule for speech-to-text: a valid custom whisper GGUF wins, otherwise
+/// the catalogue model the settings name.
+pub fn resolve_transcription_model(
+    custom: Option<&str>,
+    chosen: TranscriptionModel,
+    models_dir: &Path,
+) -> Option<PathBuf> {
+    resolve_custom_gguf(custom).or_else(|| {
+        let path = models_dir.join(format!("{}.gguf", chosen.model_id()));
+        path.is_file().then_some(path)
+    })
 }
 
 /// A `data` directory beside the executable wins if it exists, which is the
@@ -394,6 +456,151 @@ pub fn resolve_root(app_data: &Path) -> PathBuf {
         }
     }
     app_data.to_path_buf()
+}
+
+#[cfg(test)]
+mod custom_model_resolution_tests {
+    use super::*;
+
+    /// A real, empty file is enough to exist for these tests -- resolution
+    /// never reads the model, only checks it is there.
+    fn gguf_file(dir: &std::path::Path, name: &str) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, b"not a real model, just needs to exist").unwrap();
+        path
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("parallax-custom-model-{tag}-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn a_valid_custom_reasoning_file_wins_over_the_catalogue() {
+        let dir = scratch("reasoning-wins");
+        let models_dir = dir.join("models");
+        let catalogue = gguf_file(&models_dir, "qwen3-4b-q4.gguf");
+        let custom = gguf_file(&dir, "mine.gguf");
+
+        let resolved = resolve_reasoning_model(
+            Some(custom.to_str().unwrap()),
+            Some("qwen3-4b-q4"),
+            &models_dir,
+        );
+        assert_eq!(resolved, Some(custom));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = catalogue; // exists only to prove it was not the one picked
+    }
+
+    #[test]
+    fn none_falls_back_to_the_catalogue_unchanged() {
+        let dir = scratch("none-falls-back");
+        let models_dir = dir.join("models");
+        let catalogue = gguf_file(&models_dir, "qwen3-4b-q4.gguf");
+
+        assert_eq!(
+            resolve_reasoning_model(None, Some("qwen3-4b-q4"), &models_dir),
+            Some(catalogue)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_custom_file_falls_back_to_the_catalogue() {
+        let dir = scratch("missing-falls-back");
+        let models_dir = dir.join("models");
+        let catalogue = gguf_file(&models_dir, "qwen3-4b-q4.gguf");
+        let ghost = dir.join("gone.gguf");
+
+        assert_eq!(
+            resolve_reasoning_model(Some(ghost.to_str().unwrap()), Some("qwen3-4b-q4"), &models_dir),
+            Some(catalogue)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_non_gguf_custom_file_falls_back_to_the_catalogue() {
+        let dir = scratch("wrong-ext-falls-back");
+        let models_dir = dir.join("models");
+        let catalogue = gguf_file(&models_dir, "qwen3-4b-q4.gguf");
+        let wrong_ext = gguf_file(&dir, "mine.bin");
+
+        assert_eq!(
+            resolve_reasoning_model(
+                Some(wrong_ext.to_str().unwrap()),
+                Some("qwen3-4b-q4"),
+                &models_dir
+            ),
+            Some(catalogue)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_custom_file_and_no_catalogue_choice_resolves_to_nothing() {
+        let dir = scratch("nothing");
+        let models_dir = dir.join("models");
+        std::fs::create_dir_all(&models_dir).unwrap();
+
+        assert_eq!(resolve_reasoning_model(None, None, &models_dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_valid_custom_transcription_file_wins_over_the_catalogue() {
+        let dir = scratch("transcription-wins");
+        let models_dir = dir.join("models");
+        gguf_file(&models_dir, "whisper-base.gguf");
+        let custom = gguf_file(&dir, "my-whisper.gguf");
+
+        let resolved = resolve_transcription_model(
+            Some(custom.to_str().unwrap()),
+            crate::model::TranscriptionModel::Base,
+            &models_dir,
+        );
+        assert_eq!(resolved, Some(custom));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn transcription_none_falls_back_to_the_catalogue_unchanged() {
+        let dir = scratch("transcription-none");
+        let models_dir = dir.join("models");
+        let catalogue = gguf_file(&models_dir, "whisper-base.gguf");
+
+        assert_eq!(
+            resolve_transcription_model(None, crate::model::TranscriptionModel::Base, &models_dir),
+            Some(catalogue)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stop_reasoning_on_an_empty_slot_is_a_harmless_no_op() {
+        let dir = scratch("stop-empty");
+        let state = AppState::open(dir.clone()).unwrap();
+        assert!(!state.stop_reasoning());
+        drop(state);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn stop_reasoning_stops_a_running_server() {
+        let dir = scratch("stop-running");
+        let state = AppState::open(dir.clone()).unwrap();
+        let child = std::process::Command::new("cmd")
+            .args(["/C", "ping -n 60 127.0.0.1 > nul"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        *state.llama.lock().unwrap() = Some(crate::llm::llama_server::stand_in(child));
+
+        assert!(state.stop_reasoning());
+        assert!(state.llama.lock().unwrap().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 #[cfg(test)]

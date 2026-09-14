@@ -172,5 +172,7 @@ mod contract_tests {
         assert_eq!(v["transcriptionBackend"], json!("auto"));
         assert_eq!(v["reasoningBackend"], json!("auto"));
         assert_eq!(v["theme"], json!("system"));
+        assert_eq!(v["customReasoningModelPath"], json!(null));
+        assert_eq!(v["customTranscriptionModelPath"], json!(null));
     }
 }

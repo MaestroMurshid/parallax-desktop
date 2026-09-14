@@ -234,20 +234,47 @@ pub fn models_location(state: State<AppState>) -> Result<String> {
 
 /// Whether first run is behind this machine: a reasoning model was chosen, and
 /// every model the settings name is on disk.
+///
+/// A valid custom file counts as its role being present, same as a catalogue
+/// download that finished -- someone who only ever points the app at their own
+/// file must not be sent back to onboarding for a catalogue model they never
+/// asked for.
 pub fn set_up(settings: &crate::model::Settings, models: &[ModelInfo]) -> bool {
     let ready = |id: &str| {
         models
             .iter()
             .any(|m| m.id == id && matches!(m.state, ModelState::Ready))
     };
-    let Some(reasoning) = settings.model_id.as_deref() else {
-        return false;
+    let has_custom = |path: &Option<String>| {
+        path.as_deref()
+            .is_some_and(|p| crate::state::resolve_custom_gguf(Some(p)).is_some())
     };
+
+    let reasoning_ok = has_custom(&settings.custom_reasoning_model_path)
+        || settings.model_id.as_deref().is_some_and(ready);
+    if !reasoning_ok {
+        return false;
+    }
+
+    let transcription_ok = has_custom(&settings.custom_transcription_model_path)
+        || ready(settings.transcription_model.model_id());
+
     // The embedder is optional -- connections work without one -- so only a
     // chosen one has to be there.
-    ready(reasoning)
-        && ready(settings.transcription_model.model_id())
-        && settings.embedding_model_id.as_deref().is_none_or(ready)
+    transcription_ok && settings.embedding_model_id.as_deref().is_none_or(ready)
+}
+
+/// Native "choose file" for a custom GGUF model, filtered to that extension.
+/// `None` when the dialog is cancelled.
+#[tauri::command]
+pub async fn pick_model_file(app: AppHandle) -> Result<Option<String>> {
+    let path = crate::commands::archive::chosen(
+        crate::commands::archive::dialog(&app)
+            .set_title("Choose a model file")
+            .add_filter("GGUF model", &["gguf"])
+            .blocking_pick_file(),
+    );
+    Ok(path.map(|p| p.display().to_string()))
 }
 
 fn models_on_disk(dir: &std::path::Path) -> Vec<ModelInfo> {
@@ -342,6 +369,66 @@ mod set_up_tests {
             ..chosen()
         };
         assert!(set_up(&settings, &on_disk(&["qwen3-4b-q4", "whisper-base"])));
+    }
+
+    fn temp_gguf(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "parallax-set-up-test-{}-{name}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, b"stand-in, never loaded").unwrap();
+        path
+    }
+
+    /// A user who only ever pointed the app at their own file must not be
+    /// bounced back to onboarding for a catalogue model they never chose.
+    #[test]
+    fn a_valid_custom_reasoning_model_counts_as_present() {
+        let file = temp_gguf("mine.gguf");
+        let settings = Settings {
+            model_id: None,
+            custom_reasoning_model_path: Some(file.to_str().unwrap().into()),
+            transcription_model: TranscriptionModel::Base,
+            embedding_model_id: None,
+            ..Settings::default()
+        };
+        assert!(set_up(&settings, &on_disk(&["whisper-base"])));
+        let _ = std::fs::remove_file(&file);
+    }
+
+    /// Same for transcription: a custom whisper file stands in for the
+    /// catalogue download that gates recording.
+    #[test]
+    fn a_valid_custom_transcription_model_counts_as_present() {
+        let file = temp_gguf("my-whisper.gguf");
+        let settings = Settings {
+            custom_transcription_model_path: Some(file.to_str().unwrap().into()),
+            embedding_model_id: None,
+            ..chosen()
+        };
+        assert!(set_up(&settings, &on_disk(&["qwen3-4b-q4"])));
+        let _ = std::fs::remove_file(&file);
+    }
+
+    /// A custom path that does not resolve (missing, or the wrong extension)
+    /// must not be read as present -- onboarding still has real work to do.
+    #[test]
+    fn an_invalid_custom_reasoning_path_does_not_count() {
+        let settings = Settings {
+            model_id: None,
+            custom_reasoning_model_path: Some("E:/nowhere/ghost.gguf".into()),
+            ..Settings::default()
+        };
+        assert!(!set_up(&settings, &on_disk(&["whisper-base"])));
+    }
+
+    /// With no custom path set at all, behaviour must be exactly what it was
+    /// before this feature existed.
+    #[test]
+    fn no_custom_path_behaves_exactly_as_before() {
+        let models = on_disk(&["qwen3-4b-q4", "whisper-base", "bge-small-en-v1.5"]);
+        assert!(set_up(&chosen(), &models));
+        assert!(!set_up(&Settings::default(), &models));
     }
 }
 

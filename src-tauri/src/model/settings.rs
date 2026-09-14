@@ -153,6 +153,16 @@ pub struct Settings {
     /// window is already showing rather than always starting light.
     #[serde(default)]
     pub theme: Theme,
+
+    /// A user's own chat model, checked before the catalogue in
+    /// `state::resolve_reasoning_model`. `None` for everyone who has not set
+    /// one -- the catalogue choice then works exactly as before.
+    #[serde(default)]
+    pub custom_reasoning_model_path: Option<String>,
+    /// Same idea for speech-to-text; must be a whisper GGUF of the kind
+    /// transcribe.cpp loads, same as the catalogue's own whisper files.
+    #[serde(default)]
+    pub custom_transcription_model_path: Option<String>,
 }
 
 fn yes() -> bool {
@@ -175,7 +185,73 @@ impl Default for Settings {
             llama_server_path: None,
             live_register: true,
             theme: Theme::System,
+            custom_reasoning_model_path: None,
+            custom_transcription_model_path: None,
         }
+    }
+}
+
+/// Whether the next reasoning call needs a different file. Only the field
+/// that decides which one is checked -- residency, theme and every other
+/// setting change must never force a needless respawn mid-session.
+pub fn reasoning_model_path_changed(before: &Settings, after: &Settings) -> bool {
+    before.custom_reasoning_model_path != after.custom_reasoning_model_path
+}
+
+#[cfg(test)]
+mod reasoning_restart_tests {
+    use super::*;
+
+    fn settings_with(path: Option<&str>) -> Settings {
+        Settings {
+            custom_reasoning_model_path: path.map(String::from),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn unset_to_unset_is_not_a_change() {
+        assert!(!reasoning_model_path_changed(
+            &settings_with(None),
+            &settings_with(None)
+        ));
+    }
+
+    #[test]
+    fn setting_a_path_is_a_change() {
+        assert!(reasoning_model_path_changed(
+            &settings_with(None),
+            &settings_with(Some("E:/models/mine.gguf"))
+        ));
+    }
+
+    #[test]
+    fn clearing_a_path_is_a_change() {
+        assert!(reasoning_model_path_changed(
+            &settings_with(Some("E:/models/mine.gguf")),
+            &settings_with(None)
+        ));
+    }
+
+    #[test]
+    fn switching_to_a_different_path_is_a_change() {
+        assert!(reasoning_model_path_changed(
+            &settings_with(Some("E:/models/a.gguf")),
+            &settings_with(Some("E:/models/b.gguf"))
+        ));
+    }
+
+    #[test]
+    fn an_unrelated_field_changing_is_not_a_reasoning_change() {
+        let before = Settings {
+            residency: Residency::Warm,
+            ..Settings::default()
+        };
+        let after = Settings {
+            residency: Residency::Cold,
+            ..Settings::default()
+        };
+        assert!(!reasoning_model_path_changed(&before, &after));
     }
 }
 

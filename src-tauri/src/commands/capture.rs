@@ -83,7 +83,10 @@ pub async fn partial_transcript(state: State<'_, AppState>) -> Result<String> {
         let conn = state.db();
         db::settings::get(&conn)?
     };
-    let Some(model) = state.transcription_model(settings.transcription_model) else {
+    let Some(model) = state.transcription_model(
+        settings.custom_transcription_model_path.as_deref(),
+        settings.transcription_model,
+    ) else {
         return Ok(String::new());
     };
 
@@ -267,7 +270,10 @@ pub fn finish(
     let full = state.root.join(format!("audio/{id}.wav"));
     let bytes = wav::write(&pcm, &full)?;
 
-    let transcript = match state.transcription_model(settings.transcription_model) {
+    let transcript = match state.transcription_model(
+        settings.custom_transcription_model_path.as_deref(),
+        settings.transcription_model,
+    ) {
         Some(model) => crate::stt::transcribe(&model, &pcm, settings.transcription_backend)?.text,
         // No model yet is not a lost recording: the audio is the record and
         // the transcript is derived from it, so it can be filled in later.
