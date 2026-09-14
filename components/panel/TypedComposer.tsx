@@ -30,21 +30,25 @@ export default function TypedComposer({ onClose }: { onClose(): void }) {
     setSaving(true);
     setError(null);
     const words = body.split(/\s+/).length;
+    let entry;
     try {
-      const entry = await getBridge().createEntry({
+      entry = await getBridge().createEntry({
         transcript: body,
         durationMs: Math.round((words / WPM) * 60_000),
         fingerprint: [],
         typed: true,
       });
-      upsertEntry(entry);
-      openEntry(entry.id);
-      onClose();
     } catch (e) {
       // The words stay in the field: a failed save must never cost what was typed.
       setError(typeof e === 'string' ? e : e instanceof Error ? e.message : 'could not save');
       setSaving(false);
+      return;
     }
+    // Saved from here on. Closing first means nothing after this can leave the
+    // composer up offering to save the same note twice.
+    onClose();
+    upsertEntry(entry);
+    openEntry(entry.id);
   };
 
   return (
