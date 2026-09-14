@@ -86,6 +86,20 @@ impl TranscriptionModel {
 /// the backend to whatever is present. The named backends are an explicit
 /// override -- a broken driver, a second card, or isolating a backend bug --
 /// and fail rather than silently falling back, so a forced choice stays forced.
+/// The window's colour scheme. `System` is the default and the only one that
+/// can change without the app being told -- it tracks `prefers-color-scheme`
+/// in CSS. Stored so the capture panel, a second webview with its own JS
+/// runtime, starts on the same choice as the main window instead of quietly
+/// defaulting on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ComputeBackend {
@@ -133,6 +147,22 @@ pub struct Settings {
     /// suppresses nothing and rewrites nothing; it stops the facet being read.
     #[serde(default = "yes")]
     pub live_register: bool,
+
+    /// Which webview reads this back matters: the panel is a second window
+    /// with its own store, so this is what lets it open on the theme the main
+    /// window is already showing rather than always starting light.
+    #[serde(default)]
+    pub theme: Theme,
+
+    /// A user's own chat model, checked before the catalogue in
+    /// `state::resolve_reasoning_model`. `None` for everyone who has not set
+    /// one -- the catalogue choice then works exactly as before.
+    #[serde(default)]
+    pub custom_reasoning_model_path: Option<String>,
+    /// Same idea for speech-to-text; must be a whisper GGUF of the kind
+    /// transcribe.cpp loads, same as the catalogue's own whisper files.
+    #[serde(default)]
+    pub custom_transcription_model_path: Option<String>,
 }
 
 fn yes() -> bool {
@@ -143,7 +173,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             hotkey: "Ctrl+Shift+Space".into(),
-            discard_hotkey: "Escape".into(),
+            discard_hotkey: "Ctrl+Shift+Backspace".into(),
             model_id: None,
             residency: Residency::Warm,
             provider_name: "llama-server".into(),
@@ -154,7 +184,74 @@ impl Default for Settings {
             reasoning_backend: ComputeBackend::Auto,
             llama_server_path: None,
             live_register: true,
+            theme: Theme::System,
+            custom_reasoning_model_path: None,
+            custom_transcription_model_path: None,
         }
+    }
+}
+
+/// Whether the next reasoning call needs a different file. Only the field
+/// that decides which one is checked -- residency, theme and every other
+/// setting change must never force a needless respawn mid-session.
+pub fn reasoning_model_path_changed(before: &Settings, after: &Settings) -> bool {
+    before.custom_reasoning_model_path != after.custom_reasoning_model_path
+}
+
+#[cfg(test)]
+mod reasoning_restart_tests {
+    use super::*;
+
+    fn settings_with(path: Option<&str>) -> Settings {
+        Settings {
+            custom_reasoning_model_path: path.map(String::from),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn unset_to_unset_is_not_a_change() {
+        assert!(!reasoning_model_path_changed(
+            &settings_with(None),
+            &settings_with(None)
+        ));
+    }
+
+    #[test]
+    fn setting_a_path_is_a_change() {
+        assert!(reasoning_model_path_changed(
+            &settings_with(None),
+            &settings_with(Some("E:/models/mine.gguf"))
+        ));
+    }
+
+    #[test]
+    fn clearing_a_path_is_a_change() {
+        assert!(reasoning_model_path_changed(
+            &settings_with(Some("E:/models/mine.gguf")),
+            &settings_with(None)
+        ));
+    }
+
+    #[test]
+    fn switching_to_a_different_path_is_a_change() {
+        assert!(reasoning_model_path_changed(
+            &settings_with(Some("E:/models/a.gguf")),
+            &settings_with(Some("E:/models/b.gguf"))
+        ));
+    }
+
+    #[test]
+    fn an_unrelated_field_changing_is_not_a_reasoning_change() {
+        let before = Settings {
+            residency: Residency::Warm,
+            ..Settings::default()
+        };
+        let after = Settings {
+            residency: Residency::Cold,
+            ..Settings::default()
+        };
+        assert!(!reasoning_model_path_changed(&before, &after));
     }
 }
 

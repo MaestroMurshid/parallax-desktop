@@ -169,7 +169,10 @@ export default function Onboarding({
   };
 
   const start = async () => {
-    const next = await getBridge().setSettings({ hotkey, residency, modelId });
+    // The appearance picker above sets the store live so onboarding previews
+    // it immediately; theme rides along here so it survives the app being
+    // closed instead of reverting to system on the next launch.
+    const next = await getBridge().setSettings({ hotkey, residency, modelId, theme });
     onDone(next);
   };
 

@@ -414,7 +414,10 @@ mod tests {
     #[test]
     fn a_replace_keeps_the_recordings_its_own_entries_still_use() {
         let conn = open_in_memory().unwrap();
-        for (id, at) in [("kept", "2024-01-01T00:00:00.000Z"), ("gone", "2024-01-02T00:00:00.000Z")] {
+        for (id, at) in [
+            ("kept", "2024-01-01T00:00:00.000Z"),
+            ("gone", "2024-01-02T00:00:00.000Z"),
+        ] {
             super::super::entries::insert(&conn, &entry(id, at, true)).unwrap();
         }
         let file = CorpusImport {

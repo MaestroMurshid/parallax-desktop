@@ -1,7 +1,7 @@
 /**
  * Similarity primitives (§9.0): brute-force cosine is the whole retrieval
- * layer at this scale — no vector database needed. Mock corpus uses 24 dims,
- * not 384; nothing downstream depends on the dimension.
+ * layer at this scale — no vector database needed. Nothing downstream
+ * depends on the dimension.
  */
 
 export function dot(a: readonly number[], b: readonly number[]): number {
@@ -48,19 +48,4 @@ export function rng(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-/**
- * Deterministic unit vector near a named cluster centroid. Fixture-only — lets
- * the seeded corpus drive the real placement algorithm via real cosine
- * similarity, not hand-authored coordinates. Replaced by fastembed on Rust.
- */
-export function mockVector(cluster: string, id: string, dims = 24, jitter = 0.35): number[] {
-  const centroid = rng(hash32(cluster));
-  const local = rng(hash32(id));
-  const v: number[] = [];
-  for (let i = 0; i < dims; i++) {
-    v.push(centroid() * 2 - 1 + (local() * 2 - 1) * jitter);
-  }
-  return normalize(v);
 }

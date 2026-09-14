@@ -2,24 +2,29 @@
  * The desktop-shell seam: where the webviews are, as opposed to what is in
  * them (that is lib/bridge). §4 puts capture in its own borderless always-on-top
  * window, so "recording finished" has to cross a window boundary that does not
- * exist in a browser tab. Everything here no-ops outside Tauri, which is what
- * keeps `next dev` running the same mockup.
+ * exist in a browser tab. Everything here no-ops outside Tauri.
  */
 
 import { isTauri } from '@/lib/bridge';
-import type { Entry, Question } from '@/lib/types';
+import type { Entry, Question, Settings } from '@/lib/types';
 
 /** Rust fires this on the global shortcut, before the panel is shown (§4). */
 export const HOTKEY_EVENT = 'capture://hotkey';
+/** Rust fires this on the discard shortcut, which it only keeps registered
+ *  for the lifetime of one recording -- see src-tauri/src/shortcuts.rs. */
+export const DISCARD_EVENT = 'capture://discard';
 /** The panel's hand-off to the main window once transcription lands. */
 export const HANDOFF_EVENT = 'capture://handoff';
+/** Settings are persisted so a fresh window opens right, but a window already
+ *  open needs telling — the capture panel can be on screen mid-recording when
+ *  the theme or a key it labels changes in Settings. */
+export const SETTINGS_EVENT = 'settings://changed';
 
 export type Unsubscribe = () => void;
 
 /**
  * What crosses the window boundary. The question rides along because the panel
- * is the one that asked for it — the main window's bridge never saw the request,
- * and under the fixture backend each window has its own corpus in memory.
+ * is the one that asked for it — the main window's bridge never saw the request.
  */
 export interface HandOff {
   entry: Entry;
@@ -71,9 +76,31 @@ export function onHotkey(cb: () => void): Unsubscribe {
   return subscribe<null>(HOTKEY_EVENT, () => cb());
 }
 
+/** The discard shortcut fired. Only ever sent while something is recording —
+ *  Rust arms and disarms it around start/stop — so this is safe to
+ *  treat as "discard the recording" without checking capture state here. */
+export function onDiscardHotkey(cb: () => void): Unsubscribe {
+  return subscribe<null>(DISCARD_EVENT, () => cb());
+}
+
 /** Main window: an entry finished recording in the panel. */
 export function onHandOff(cb: (h: HandOff) => void): Unsubscribe {
   return subscribe<HandOff>(HANDOFF_EVENT, cb);
+}
+
+/** Either window: Settings changed, which only the main window renders.
+ *  Broadcast rather than addressed, so the main window updates the same way
+ *  the panel does — one path, not two. */
+export function onSettingsChange(cb: (settings: Settings) => void): Unsubscribe {
+  return subscribe<Settings>(SETTINGS_EVENT, cb);
+}
+
+/** Tell every window what Settings now holds. No-ops outside Tauri, where
+ *  there is only the one window to begin with. */
+export async function broadcastSettings(settings: Settings): Promise<void> {
+  if (!isTauri()) return;
+  const { emit } = await import('@tauri-apps/api/event');
+  await emit(SETTINGS_EVENT, settings);
 }
 
 /**

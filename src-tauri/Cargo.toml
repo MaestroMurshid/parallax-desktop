@@ -4,7 +4,9 @@ version = "0.0.1"
 description = "Voice capture that puts your past entries next to your present ones"
 edition = "2021"
 license = "AGPL-3.0-only"
-rust-version = "1.77"
+# Option::is_none_or, used in commands/corpus.rs, commands/models.rs and
+# state.rs, stabilised in 1.82.0 -- that is the true floor, not 1.77.
+rust-version = "1.82"
 
 [lib]
 name = "parallax_lib"

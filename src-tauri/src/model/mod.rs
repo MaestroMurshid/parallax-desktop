@@ -5,14 +5,16 @@ pub mod edge;
 pub mod entry;
 pub mod question;
 pub mod settings;
+pub mod type_def;
 
 pub use edge::{Edge, EdgeStatus, Relation};
 pub use entry::{ActionItem, Entry, Register, Role, Span};
 pub use question::Question;
 pub use settings::{
-    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile,
+    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile, Theme,
     TranscriptionModel,
 };
+pub use type_def::{Mark, NewType, ProbeTier, TypeDef, TypePatch};
 
 #[cfg(test)]
 mod contract_tests {
@@ -157,11 +159,11 @@ mod contract_tests {
     }
 
     #[test]
-    fn settings_defaults_match_the_mock() {
+    fn settings_defaults_are_what_the_ui_expects() {
         let s = Settings::default();
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["hotkey"], json!("Ctrl+Shift+Space"));
-        assert_eq!(v["discardHotkey"], json!("Escape"));
+        assert_eq!(v["discardHotkey"], json!("Ctrl+Shift+Backspace"));
         assert_eq!(v["modelId"], json!(null));
         assert_eq!(v["residency"], json!("warm"));
         assert_eq!(v["providerName"], json!("llama-server"));
@@ -169,5 +171,8 @@ mod contract_tests {
         assert_eq!(v["transcriptionModel"], json!("base"));
         assert_eq!(v["transcriptionBackend"], json!("auto"));
         assert_eq!(v["reasoningBackend"], json!("auto"));
+        assert_eq!(v["theme"], json!("system"));
+        assert_eq!(v["customReasoningModelPath"], json!(null));
+        assert_eq!(v["customTranscriptionModelPath"], json!(null));
     }
 }

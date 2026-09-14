@@ -17,9 +17,16 @@
   --stroke-weighty: #7c8b8e;
   --stroke-hub: #8da1a4;
 
-  /* edges */
+  /* --edge is the app-wide hairline border (panels, dividers, controls —
+     see --edge-control below) and stays as it was; canvas connections get
+     their own tokens so raising their contrast can't blow out every border
+     in the app. Guess raised to --stroke-ordinary's step, fact to
+     --stroke-weighty's: were #2a3335/#5a6b6e, 1.51:1/3.49:1 against
+     --surface (the guess line unreadable, the fact barely one); now
+     3.47:1/5.51:1. */
+  --edge-guess: #5c6a6d;
   --edge: #2a3335;
-  --edge-fact: #5a6b6e; /* accepted/manual — a fact, not a guess (§5.4) */
+  --edge-fact: #7c8b8e; /* accepted/manual — a fact, not a guess (§5.4) */
   /* borders that identify a control (inputs, buttons): non-text 3:1.
      --edge is decorative hairline only and never outlines a target. */
   --edge-control: #5c6a6d;
@@ -86,6 +93,7 @@
   --stroke-ordinary: #9aa5a8;
   --stroke-weighty: #7c8a8d;
   --stroke-hub: #5e6c6f;
+  --edge-guess: #dfe4e5; /* unchanged — only dark needed the contrast raised */
   --edge: #dfe4e5;
   --edge-fact: #b3bec0;
   --edge-control: #78868a;
@@ -110,6 +118,7 @@
     --stroke-ordinary: #9aa5a8;
     --stroke-weighty: #7c8a8d;
     --stroke-hub: #5e6c6f;
+    --edge-guess: #dfe4e5;
     --edge: #dfe4e5;
     --edge-fact: #b3bec0;
     --edge-control: #78868a;

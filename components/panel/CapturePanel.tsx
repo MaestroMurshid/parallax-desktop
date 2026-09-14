@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getBridge, initBridge } from '@/lib/bridge';
 import { useApp } from '@/lib/store';
+import type { Settings } from '@/lib/types';
 import Equalizer from './Equalizer';
 import styles from './CapturePanel.module.css';
 
@@ -40,10 +41,14 @@ function tail(text: string): string {
  * and left the question stranded in a window you had already walked away from —
  * the entry view says the same things with room to say them.
  */
-export default function CapturePanel() {
+export default function CapturePanel({ settings }: { settings: Settings | null }) {
   const state = useApp((s) => s.captureState);
   const elapsedMs = useApp((s) => s.elapsedMs);
   const tick = useApp((s) => s.tickElapsed);
+  const stopRecording = useApp((s) => s.stopRecording);
+  const discardRecording = useApp((s) => s.discardRecording);
+  const cancelCapture = useApp((s) => s.cancelCapture);
+  const captureError = useApp((s) => s.captureError);
   const [partial, setPartial] = useState('');
 
   useEffect(() => {
@@ -90,20 +95,40 @@ export default function CapturePanel() {
         {/* Confirmation, not a result. It says the words are safe and then it
             goes; reading them back is what the entry is for. */}
         {state === 'saved' && 'recorded'}
+        {state === 'failed' && 'not recorded'}
       </div>
+      {state === 'failed' && captureError && (
+        <p className={styles.partial} role="alert">
+          {captureError}
+        </p>
+      )}
       {state === 'recording' && partial && (
         <p className={styles.partial} aria-live="polite">
           {tail(partial)}
         </p>
       )}
-      {/* Quiet, and only while there is something to call off. Not a button:
-          the panel is not focusable in the window it floats over, so naming the
-          key is the only affordance that actually works from there. */}
-      {(state === 'recording' || state === 'transcribing') && (
-        <p className={styles.cancelHint}>
-          <kbd className={styles.key}>esc</kbd>
-          {state === 'recording' ? ' to discard' : ' to cancel'}
-        </p>
+      {/* Real buttons, not just a key name: the panel floats over whatever app
+          has focus, so a mouse click has to work exactly as well as the key
+          does. Labels show the user's actual, possibly rebound, keys. */}
+      {state === 'recording' && (
+        <div className={styles.actions}>
+          <button type="button" className={styles.actionButton} onClick={() => void stopRecording()}>
+            <kbd className={styles.key}>{settings?.hotkey ?? '…'}</kbd>
+            stop
+          </button>
+          <button type="button" className={styles.actionButton} onClick={() => void discardRecording()}>
+            <kbd className={styles.key}>{settings?.discardHotkey ?? '…'}</kbd>
+            discard
+          </button>
+        </div>
+      )}
+      {state === 'transcribing' && (
+        <div className={styles.actions}>
+          {/* No key shown: the panel never takes focus, so Esc cannot reach it. */}
+          <button type="button" className={styles.actionButton} onClick={() => void cancelCapture()}>
+            cancel
+          </button>
+        </div>
       )}
     </div>
   );

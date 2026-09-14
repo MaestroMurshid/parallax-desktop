@@ -23,6 +23,10 @@ CREATE TABLE entries (
     -- Deliberately no FK: types are user data, and deleting one must not
     -- cascade into the entries that carry it. Orphans fall back to the role.
     type_id             TEXT    NOT NULL,
+    -- Set when a person picked the type by hand rather than the classifier.
+    -- Re-classification (a transcript correction, `ensure_enriched`) must not
+    -- silently take back a choice someone made on purpose.
+    type_locked         INTEGER NOT NULL DEFAULT 0,
 
     resolved            INTEGER NOT NULL DEFAULT 0,
     resolution_text     TEXT,

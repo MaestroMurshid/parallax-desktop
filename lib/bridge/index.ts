@@ -1,7 +1,7 @@
 /**
  * The bridge — the one seam between UI and everything below it (§9.1): this
  * interface is both what the UI codes against and the spec for Rust's future
- * command surface. Import only via getBridge(), never ./tauri or ./mock directly.
+ * command surface. Import only via getBridge(), never ./tauri directly.
  */
 
 import type {
@@ -15,6 +15,7 @@ import type {
   Span,
   SystemProfile,
 } from '@/lib/types';
+import type { TypeDefinition } from '@/lib/scene/classification';
 
 /** Unsubscribe. Every stream returns one; call it on unmount. */
 export type Unsubscribe = () => void;
@@ -43,7 +44,7 @@ export interface NewEntryDraft {
 }
 
 export interface Bridge {
-  readonly kind: 'mock' | 'tauri';
+  readonly kind: 'tauri';
 
   // -- corpus -------------------------------------------------------------
   listEntries(): Promise<Entry[]>;
@@ -83,6 +84,17 @@ export interface Bridge {
    * the write landed as sent.
    */
   setRegister(entryId: string, register: Register): Promise<Entry>;
+
+  /**
+   * Assigns a type by hand (§3.6 -- the editor's hint has always said to
+   * write "manual" and tag entries yourself; nothing did until now).
+   *
+   * Locks the type against the next re-classification on the Rust side, so a
+   * transcript correction or `ensureEnriched` catching up an old note cannot
+   * silently take the choice back. Returns the entry so the caller takes what
+   * was actually stored.
+   */
+  setEntryType(entryId: string, typeId: string): Promise<Entry>;
 
   /**
    * One note as the file it would be exported to: JSON frontmatter, then the
@@ -145,15 +157,14 @@ export interface Bridge {
   /**
    * Auto post-recording question; resolves to null when any of the three
    * facets suppresses it — not a position, live register, someone else's
-   * words, or under ~30s (§3.2). A missed question beats a bad probe.
+   * words, or under ~10s (§3.2). A missed question beats a bad probe.
    */
   getQuestion(entryId: string): Promise<Question | null>;
   /**
    * Every question in the corpus, in one call. `getQuestion` returns only the
    * oldest open one, so a load built on it drops every answered and dismissed
    * question from the record and from the export — the accumulation §3.4 is
-   * about. Optional because the mock holds questions per entry in memory and
-   * has nothing to restore; the load path falls back to `getQuestion` without it.
+   * about. The load path falls back to `getQuestion` without it.
    */
   listQuestions?(): Promise<Question[]>;
   /**
@@ -212,6 +223,9 @@ export interface Bridge {
 
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
+  /** Native "choose file" filtered to `*.gguf`, for either custom model
+   *  setting. `null` when the dialog is cancelled. */
+  pickModelFile(): Promise<string | null>;
 
   // -- sample corpus ------------------------------------------------------
   /** Offered from the empty state, never forced. Sample entries stay marked
@@ -234,7 +248,33 @@ export interface Bridge {
   pickUpload(): Promise<UploadPreview | null>;
   /** Applies what pickUpload read. */
   applyUpload(mode: ImportMode): Promise<void>;
+
+  // -- types (§3.6) ---------------------------------------------------------
+  /** Built-ins and custom types, from the one table both the classifier's
+   *  enum and the gate's tier lookup read. */
+  listTypes(): Promise<TypeDefinition[]>;
+  /** `id` is the slug the editor already shows before submitting — computed
+   *  client-side so what the confirmation showed is what gets stored. */
+  createType(draft: NewTypeDraft): Promise<TypeDefinition>;
+  /** A built-in's id and identity are not the user's to take over, so this
+   *  patches everything but those. */
+  updateType(id: string, patch: TypePatchDraft): Promise<TypeDefinition>;
+  /** Notes carrying this type fall back to their own role's built-in id, in
+   *  the same transaction as the delete. */
+  deleteType(id: string): Promise<void>;
 }
+
+export interface NewTypeDraft {
+  id: string;
+  label: string;
+  match: string;
+  prompt: string | null;
+  tier: TypeDefinition['tier'];
+  role: TypeDefinition['role'];
+  mark: TypeDefinition['mark'];
+}
+
+export type TypePatchDraft = Omit<NewTypeDraft, 'id'>;
 
 export interface Exported {
   path: string;
@@ -264,13 +304,12 @@ export function getBridge(): Bridge {
 }
 
 /**
- * Which implementation runs. NEXT_PUBLIC_BRIDGE=mock forces the fixture
- * backend even inside Tauri (pre-Rust UI phase) — explicit rather than a
- * silent fallback, which is how you ship a stub by accident (§9.4).
+ * There is one backend, the Rust one. The in-browser fixture backend was
+ * removed after it drifted from Rust and let a missing feature pass every
+ * browser check, so outside the desktop shell this refuses rather than fakes.
  */
 export async function initBridge(): Promise<Bridge> {
   if (instance) return instance;
-  const forceMock = process.env.NEXT_PUBLIC_BRIDGE === 'mock';
   const tauri = isTauri();
 
   // Opt-in, and deliberately not keyed to NODE_ENV: the case worth diagnosing
@@ -281,20 +320,18 @@ export async function initBridge(): Promise<Bridge> {
   const diagnose = process.env.NEXT_PUBLIC_BRIDGE_DIAG === '1';
   const report = (which: string) => {
     if (!diagnose) return;
-    const diag = `isTauri=${tauri} forceMock=${forceMock} t_internals=${typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window} t_ipc=${typeof window !== 'undefined' && '__TAURI_IPC__' in window} t_isTauri=${typeof window !== 'undefined' && 'isTauri' in window}`;
+    const diag = `isTauri=${tauri} t_internals=${typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window} t_ipc=${typeof window !== 'undefined' && '__TAURI_IPC__' in window} t_isTauri=${typeof window !== 'undefined' && 'isTauri' in window}`;
     console.log(`[bridge] → ${which}`, diag);
     if (typeof document !== 'undefined') document.title = `Parallax [${which}] ${diag}`;
   };
 
-  if (tauri && !forceMock) {
-    const { TauriBridge } = await import('./tauri');
-    instance = new TauriBridge();
-    report('TauriBridge');
-  } else {
-    const { MockBridge } = await import('./mock');
-    instance = new MockBridge();
-    report('MockBridge');
+  if (!tauri) {
+    report('none');
+    throw new Error('Parallax runs inside its desktop shell: use `npm run tauri:dev`.');
   }
+  const { TauriBridge } = await import('./tauri');
+  instance = new TauriBridge();
+  report('TauriBridge');
   return instance;
 }
 

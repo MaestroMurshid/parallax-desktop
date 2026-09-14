@@ -17,7 +17,11 @@ pub const UNDO_WINDOW_MS: u64 = 60_000;
 /// Takes the calling window, because the take belongs to it until it ends: the
 /// hotkey is global and routes the stop back to whoever started it.
 #[tauri::command]
-pub fn start_recording(window: tauri::Window, state: State<AppState>) -> Result<()> {
+pub fn start_recording(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: State<AppState>,
+) -> Result<()> {
     let mut slot = state.recording.lock().unwrap_or_else(|p| p.into_inner());
     if slot.is_some() {
         return Err(Error::Other("already recording".into()));
@@ -26,6 +30,15 @@ pub fn start_recording(window: tauri::Window, state: State<AppState>) -> Result<
         take: recorder::start()?,
         owner: window.label().to_string(),
     });
+    drop(slot);
+    // Armed for exactly the lifetime of this recording -- the popup
+    // must not steal a key from every other app the rest of the time. A
+    // settings read failure must not cost a recording that is already
+    // running, so this falls back to the default rather than propagating.
+    let discard_hotkey = db::settings::get(&state.db())
+        .map(|s| s.discard_hotkey)
+        .unwrap_or_else(|_| crate::model::Settings::default().discard_hotkey);
+    crate::shortcuts::arm_discard(&app, state.inner(), &discard_hotkey);
     Ok(())
 }
 
@@ -70,7 +83,10 @@ pub async fn partial_transcript(state: State<'_, AppState>) -> Result<String> {
         let conn = state.db();
         db::settings::get(&conn)?
     };
-    let Some(model) = state.transcription_model(settings.transcription_model) else {
+    let Some(model) = state.transcription_model(
+        settings.custom_transcription_model_path.as_deref(),
+        settings.transcription_model,
+    ) else {
         return Ok(String::new());
     };
 
@@ -107,6 +123,10 @@ pub async fn stop_recording(
         .take()
         .ok_or_else(|| Error::Other("not recording".into()))?
         .take;
+    // The recording is no longer in flight, so discard's global shortcut has
+    // nothing left to mean -- disarmed here rather than left armed through
+    // transcription, which would let it fire on whatever key it was bound to.
+    crate::shortcuts::disarm_discard(&app, state.inner());
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();
@@ -250,14 +270,17 @@ pub fn finish(
     let full = state.root.join(format!("audio/{id}.wav"));
     let bytes = wav::write(&pcm, &full)?;
 
-    let transcript = match state.transcription_model(settings.transcription_model) {
+    let transcript = match state.transcription_model(
+        settings.custom_transcription_model_path.as_deref(),
+        settings.transcription_model,
+    ) {
         Some(model) => crate::stt::transcribe(&model, &pcm, settings.transcription_backend)?.text,
         // No model yet is not a lost recording: the audio is the record and
         // the transcript is derived from it, so it can be filled in later.
         None => String::new(),
     };
 
-    let entry = land(
+    let mut entry = land(
         state,
         id,
         &full,
@@ -271,6 +294,12 @@ pub fn finish(
     let conn = state.db();
     if let Some(question_id) = question_id {
         db::questions::mark_answered(&conn, &question_id)?;
+        // Which question, not only which note: a note can carry several.
+        conn.execute(
+            "UPDATE entries SET answers_question_id = ?2 WHERE id = ?1",
+            rusqlite::params![entry.id, question_id],
+        )?;
+        entry.answers_question_id = Some(question_id);
     }
 
     // Only now is there another copy.
@@ -337,7 +366,7 @@ fn land(
 /// §4 -- discard belongs in the recording state, not after it. You know it is
 /// junk before you stop.
 #[tauri::command]
-pub fn discard_recording(state: State<AppState>) -> Result<()> {
+pub fn discard_recording(app: tauri::AppHandle, state: State<AppState>) -> Result<()> {
     let recording = state
         .recording
         .lock()
@@ -345,6 +374,9 @@ pub fn discard_recording(state: State<AppState>) -> Result<()> {
         .take()
         .ok_or_else(|| Error::Other("not recording".into()))?
         .take;
+    // Same reasoning as stop_recording: nothing is in flight for the key to
+    // discard any more.
+    crate::shortcuts::disarm_discard(&app, state.inner());
 
     let duration_ms = recording.elapsed_ms();
     let pcm = recording.stop();
@@ -444,6 +476,60 @@ mod tests {
             assert_eq!(staged.pcm.len(), a_take().len(), "the take was truncated");
             assert_eq!(staged.duration_ms, 4_200);
         }
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The answer records which question it answered, not only which note --
+    /// found missing when the mock was audited against this path.
+    #[test]
+    fn an_answer_records_the_question_it_answers() {
+        let (state, root) = corpus("answers-question");
+        let parent = {
+            let conn = state.db();
+            let parent = db::create::create(
+                &conn,
+                db::create::NewEntry {
+                    transcript: "Standups are theatre.".into(),
+                    duration_ms: 40_000,
+                    fingerprint: vec![0.3],
+                    parent_entry_id: None,
+                    local_only: None,
+                    typed: false,
+                },
+            )
+            .unwrap();
+            db::questions::insert(
+                &conn,
+                &crate::model::Question {
+                    id: "q1".into(),
+                    entry_id: parent.id.clone(),
+                    text: "Where does this stop holding?".into(),
+                    span: None,
+                    answered: false,
+                    dismissed: false,
+                    provider_name: "test".into(),
+                    created_at: "2026-09-14T00:00:00Z".into(),
+                },
+                &parent.transcript,
+            )
+            .unwrap();
+            parent
+        };
+
+        let answer = finish(
+            &state,
+            a_take(),
+            4_200,
+            Some(parent.id.clone()),
+            Some("q1".into()),
+        )
+        .expect("the answer landed");
+
+        assert_eq!(answer.answers_question_id.as_deref(), Some("q1"));
+        let stored = db::entries::get(&state.db(), &answer.id).unwrap().unwrap();
+        assert_eq!(stored.answers_question_id.as_deref(), Some("q1"));
 
         drop(state);
         let _ = std::fs::remove_dir_all(root);

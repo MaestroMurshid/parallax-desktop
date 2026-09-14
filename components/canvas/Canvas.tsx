@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useApp } from '@/lib/store';
 import { titleBox } from '@/lib/scene/lexicon';
 import { LOD } from '@/lib/scene/lod';
@@ -18,8 +19,9 @@ function buildScene(state: ReturnType<typeof useApp.getState>): SceneInput {
   const entries: SceneEntry[] = [];
   for (const id of state.order) {
     const entry = state.entries.get(id);
-    // Children are layers on their parent's rings, never their own blob (§6.2).
-    if (!entry || entry.parentEdge !== null) continue;
+    // LabelOverlay renders every entry. Keep the renderer's hit-test scene in
+    // lockstep so an answer remains selectable and draggable after capture.
+    if (!entry) continue;
     entries.push({
       entry,
       box: titleBox(entry),
@@ -150,9 +152,15 @@ export default function Canvas() {
             const rect = host.getBoundingClientRect();
             const clear = rect.width - sheetWidth(host) - EDGE_MARGIN;
             const p = renderer.worldToScreen(entry.x, entry.y);
-            if (p.x <= clear) return;
+            // Half a pixel of slack: the pan lands on `clear` only to float
+            // precision, and a hair past it would pan again.
+            if (p.x <= clear + 0.5) return;
             useApp.getState().panBy(clear - p.x, 0);
           },
+          // A fresh tuple each call never compares equal, so without this the
+          // listener ran on every store write -- including its own pan, which
+          // recursed until the stack overflowed when a note opened.
+          { equalityFn: shallow },
         ),
         useApp.subscribe((s) => s.dragging, (d) => renderer.setDragging(d)),
         useApp.subscribe((s) => s.connecting, (c) => renderer.setConnecting(c)),
@@ -367,4 +375,3 @@ export default function Canvas() {
     </>
   );
 }
-

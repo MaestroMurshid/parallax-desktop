@@ -22,6 +22,10 @@
   gap: 1px;
 }
 
+.group + .group {
+  margin-top: 12px;
+}
+
 .item {
   display: flex;
   align-items: baseline;

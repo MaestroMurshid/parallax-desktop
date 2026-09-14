@@ -9,6 +9,7 @@
 //! recordings into an archive is seconds of disk work the window must not
 //! wait behind.
 
+use crate::db;
 use crate::db::import::ImportMode;
 use crate::error::{Error, Result};
 use crate::mdx::{self, archive};
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-fn dialog(app: &tauri::AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+pub(crate) fn dialog(app: &tauri::AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
     let builder = app.dialog().file();
     // Parented, so the dialog sits over the app instead of behind it.
     match app.get_webview_window("main") {
@@ -27,7 +28,7 @@ fn dialog(app: &tauri::AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<taur
     }
 }
 
-fn chosen(path: Option<tauri_plugin_dialog::FilePath>) -> Option<PathBuf> {
+pub(crate) fn chosen(path: Option<tauri_plugin_dialog::FilePath>) -> Option<PathBuf> {
     path.and_then(|p| p.as_path().map(|p| p.to_path_buf()))
 }
 
@@ -64,11 +65,11 @@ pub async fn export_archive(
     };
 
     // Read under the lock, written without it.
-    let notes = {
+    let (notes, types) = {
         let conn = state.background_db();
-        mdx::corpus::export(&conn)?
+        (mdx::corpus::export(&conn)?, db::types::exportable(&conn)?)
     };
-    let written = archive::write_notes(&notes, &state.root, &out, with_audio)?;
+    let written = archive::write_notes(&notes, &types, &state.root, &out, with_audio)?;
     Ok(Some(Exported {
         path: out.display().to_string(),
         written,
@@ -132,7 +133,10 @@ pub async fn pick_upload(
         questions: contents.notes.iter().map(|n| n.questions.len()).sum(),
         recordings: contents.audio.len(),
     };
-    *state.pending_upload.lock().unwrap_or_else(|p| p.into_inner()) = Some(contents);
+    *state
+        .pending_upload
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(contents);
     Ok(Some(preview))
 }
 

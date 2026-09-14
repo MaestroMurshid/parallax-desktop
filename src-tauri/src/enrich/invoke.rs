@@ -27,7 +27,8 @@ pub fn ask(
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
-    let allowed = gate::invoked_probes(&entry);
+    let tier = db::types::tier_for(conn, &entry.type_id)?;
+    let allowed = gate::invoked_probes(&entry, tier);
     let offered = match probe {
         Some(named) if !allowed.contains(&named) => {
             return Err(Error::Other(format!(
@@ -43,7 +44,11 @@ pub fn ask(
         // note has not had -- once it has had them all, from all of them.
         None => {
             let used = moves_made(&db::questions::list_for(conn, entry_id)?);
-            let fresh: Vec<Probe> = allowed.iter().copied().filter(|t| !used.contains(t)).collect();
+            let fresh: Vec<Probe> = allowed
+                .iter()
+                .copied()
+                .filter(|t| !used.contains(t))
+                .collect();
             let pool = if fresh.is_empty() { allowed } else { fresh };
             gate::offer(&pool, uuid::Uuid::new_v4().as_u128())
         }
@@ -223,6 +228,76 @@ mod tests {
         );
     }
 
+    /// §3.6 end to end: a silent custom type closes the invoked path too, even
+    /// though the entry is a position with words of its own -- role allows
+    /// everything here, so only the tier lookup reaching `ask` explains a
+    /// refusal.
+    #[test]
+    fn a_silent_custom_type_closes_the_invoked_path_too() {
+        let (conn, id) = corpus();
+        db::types::create(
+            &conn,
+            crate::model::NewType {
+                id: "musing".into(),
+                label: "musing".into(),
+                match_text: "half-formed, not yet a claim".into(),
+                prompt: None,
+                tier: crate::model::ProbeTier::Silent,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+        db::entries::set_classification(
+            &conn,
+            &id,
+            "indexes trade writes",
+            Role::Position,
+            Register::Neutral,
+            "musing",
+            None,
+            None,
+        )
+        .unwrap();
+        let provider = ScriptedProvider::with(&[&reply("faster reads")]);
+
+        assert!(ask(&conn, &provider, &id, None, None).is_err());
+        assert_eq!(provider.calls(), 0);
+    }
+
+    /// A heavy custom type is "only when you ask" -- exactly the path this is.
+    #[test]
+    fn a_heavy_custom_type_still_allows_an_invoked_question() {
+        let (conn, id) = corpus();
+        db::types::create(
+            &conn,
+            crate::model::NewType {
+                id: "wondering".into(),
+                label: "wondering".into(),
+                match_text: "musing without a claim yet".into(),
+                prompt: None,
+                tier: crate::model::ProbeTier::Heavy,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+        db::entries::set_classification(
+            &conn,
+            &id,
+            "indexes trade writes",
+            Role::Position,
+            Register::Neutral,
+            "wondering",
+            None,
+            None,
+        )
+        .unwrap();
+        let provider = ScriptedProvider::with(&[&reply("faster reads")]);
+
+        assert!(ask(&conn, &provider, &id, None, None).is_ok());
+    }
+
     /// §3.6 rule 2: a note offers nothing to push on, and asking anyway is the
     /// intrusion the tiers exist to prevent. The UI does not draw the button;
     /// that is not what stops it.
@@ -246,7 +321,10 @@ mod tests {
         ask(&conn, &provider, &id, Some(Probe::Steelman), None).unwrap();
         let prompt = provider.asked.lock().unwrap().last().unwrap().clone();
         assert!(prompt.contains(Probe::Steelman.hint()), "{prompt}");
-        assert!(!offers(&prompt, Probe::Boundary), "a named move offered others: {prompt}");
+        assert!(
+            !offers(&prompt, Probe::Boundary),
+            "a named move offered others: {prompt}"
+        );
     }
 
     /// The gate decides, not the caller. Evidence may be asked to explain
@@ -281,7 +359,13 @@ mod tests {
         let made = Probe::from_id(first.provider_name.rsplit(" · ").next().unwrap()).unwrap();
         assert!(offers(&prompts[0], made), "{}", prompts[0]);
         assert!(!offers(&prompts[1], made), "{}", prompts[1]);
-        assert_eq!(Probe::ALL.iter().filter(|t| offers(&prompts[1], **t)).count(), 3);
+        assert_eq!(
+            Probe::ALL
+                .iter()
+                .filter(|t| offers(&prompts[1], **t))
+                .count(),
+            3
+        );
     }
 
     /// Once every move has been made on a note, asking again is still allowed
@@ -310,7 +394,11 @@ mod tests {
 
         ask(&conn, &provider, &id, None, None).unwrap();
         let last = provider.asked.lock().unwrap().last().unwrap().clone();
-        assert_eq!(Probe::ALL.iter().filter(|t| offers(&last, **t)).count(), 3, "{last}");
+        assert_eq!(
+            Probe::ALL.iter().filter(|t| offers(&last, **t)).count(),
+            3,
+            "{last}"
+        );
     }
 
     /// §3.4 -- a quote the note does not contain cannot be checked, so the

@@ -21,7 +21,7 @@ import TypedComposer from '@/components/panel/TypedComposer';
 import SettingsPanel from '@/components/settings/SettingsPanel';
 import TaskList from '@/components/tasks/TaskList';
 import { getBridge, initBridge, isTauri } from '@/lib/bridge';
-import { hidePanel, isPanelWindow, onHandOff, onHotkey, showPanel } from '@/lib/shell';
+import { broadcastSettings, hidePanel, isPanelWindow, onDiscardHotkey, onHandOff, onHotkey, onSettingsChange, showPanel } from '@/lib/shell';
 import { useApp } from '@/lib/store';
 import type { Settings } from '@/lib/types';
 import styles from './page.module.css';
@@ -46,6 +46,9 @@ export default function Page() {
   // mount, because a static export has no window to ask at prerender time and
   // guessing wrong paints the canvas inside the panel for a frame.
   const [isPanel, setIsPanel] = useState<boolean | null>(null);
+  // Decided after mount for the same reason as isPanel: the static export has
+  // no window, and the answer must not differ between prerender and Tauri.
+  const [outsideShell, setOutsideShell] = useState(false);
   const loaded = useApp((s) => s.loaded);
   const hasEntries = useApp((s) => s.order.length > 0);
   const overlay = useApp((s) => s.overlay);
@@ -60,6 +63,10 @@ export default function Page() {
   useEffect(() => {
     const panel = isPanelWindow();
     setIsPanel(panel);
+    if (!isTauri()) {
+      setOutsideShell(true);
+      return;
+    }
     // Lets the stylesheet drop the page surface for this window; the panel is
     // meant to float over other apps, not to be a grey box on the desktop.
     if (panel) document.documentElement.dataset.window = 'panel';
@@ -75,7 +82,11 @@ export default function Page() {
       // The canvas and the list draw the register treatment without being
       // handed the whole Settings object, so the store carries this one field.
       useApp.getState().setLiveRegister(loadedSettings.liveRegister);
-      await useApp.getState().loadCorpus();
+      // Every window loads settings independently (§ shell.ts) — this is what
+      // stops the capture panel opening on the store's own default instead of
+      // whatever the main window already shows.
+      useApp.getState().setTheme(loadedSettings.theme);
+      await Promise.all([useApp.getState().loadCorpus(), useApp.getState().loadTypes()]);
     })();
   }, []);
 
@@ -121,7 +132,8 @@ export default function Page() {
           void state.stopRecording();
           return;
         }
-        if (state.captureState !== 'idle') return;
+        // A failure notice is not a capture in progress: pressing again retries.
+        if (state.captureState !== 'idle' && state.captureState !== 'failed') return;
         // In the canvas, an open entry makes the hotkey mean "respond to this".
         // The panel has no such context.
         const target = state.selectedEntryId;
@@ -129,6 +141,19 @@ export default function Page() {
         const answering = !isPanel && onNote && target ? target : null;
         void state.startRecording(answering);
       })();
+    });
+  }, [isPanel]);
+
+  // Rust only keeps this shortcut registered for the lifetime of one recording
+  // (see src-tauri/src/shortcuts.rs), so it is always safe to read as "discard
+  // the recording" without re-checking capture state against a race. Same
+  // both-windows routing as the hotkey itself, since discard can land in
+  // either one depending on who owns the take.
+  useEffect(() => {
+    if (isPanel === null) return;
+    return onDiscardHotkey(() => {
+      const state = useApp.getState();
+      if (state.captureState === 'recording') void state.discardRecording();
     });
   }, [isPanel]);
 
@@ -147,8 +172,7 @@ export default function Page() {
   // the canvas until you come looking rather than interrupting to be read.
   //
   // The entry travels in the event rather than being re-fetched: the panel's
-  // bridge is the one that has it, and under the fixture backend each window
-  // keeps its own corpus in memory.
+  // bridge is the one that has it.
   useEffect(() => {
     if (isPanel !== false) return;
     return onHandOff(({ entry, question }) => {
@@ -157,6 +181,18 @@ export default function Page() {
       if (question) state.addQuestion(entry.id, question);
     });
   }, [isPanel]);
+
+  // Both windows: Settings changed in the main window while the other (usually
+  // the panel) is already open. It repaints and relabels its keys now rather
+  // than on its next launch.
+  useEffect(
+    () =>
+      onSettingsChange((next) => {
+        setSettings(next);
+        useApp.getState().setTheme(next.theme);
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!settings) return;
@@ -235,10 +271,20 @@ export default function Page() {
   // answer is known rather than flashing the wrong one.
   if (isPanel === null) return null;
 
+  if (outsideShell) {
+    return (
+      <main className={styles.main}>
+        <p style={{ margin: 'auto', color: 'var(--meta)' }}>
+          Parallax runs as a desktop app. Start it with <code>npm run tauri:dev</code>.
+        </p>
+      </main>
+    );
+  }
+
   if (isPanel) {
     return (
       <main className={styles.panelWindow}>
-        <CapturePanel />
+        <CapturePanel settings={settings} />
       </main>
     );
   }
@@ -307,10 +353,12 @@ export default function Page() {
           onChange={(next) => {
             setSettings(next);
             useApp.getState().setLiveRegister(next.liveRegister);
+            useApp.getState().setTheme(next.theme);
+            void broadcastSettings(next);
           }}
         />
       )}
-      <CapturePanel />
+      <CapturePanel settings={settings} />
       <ConnectPicker />
       <RelationPicker />
 

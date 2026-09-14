@@ -94,11 +94,14 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     // about it halfway through a pass.
     let live_register = db::settings::get(conn)?.live_register;
 
-    let type_ids = db::entries::type_ids(conn)?;
+    // Manual-match types are left out entirely (§3.6) -- they exist for the
+    // user to tag by hand, and a description that says "manual" tells the
+    // model nothing to match a transcript against.
+    let types = db::types::classifiable(conn)?;
     // The vocabulary is deliberately not sent. Offered as an enum it stopped
     // the model coining at all and froze the corpus at one tag; reuse happens
     // below, where `upsert` folds a repeated name into the existing row.
-    let classification = super::classify(provider, &entry.transcript, &type_ids, live_register)?;
+    let classification = super::classify(provider, &entry.transcript, &types, live_register)?;
     db::entries::set_classification(
         conn,
         entry_id,
@@ -121,7 +124,8 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
-    let tactics = gate::automatic_probes(&entry, live_register);
+    let tier = db::types::tier_for(conn, &entry.type_id)?;
+    let tactics = gate::automatic_probes(&entry, live_register, tier);
     if tactics.is_empty() {
         return Ok(Enriched {
             classified: true,
@@ -211,6 +215,99 @@ mod tests {
         let entry = db::entries::get(&conn, &id).unwrap().unwrap();
         assert_eq!(entry.summary, None, "a summary was invented for nothing");
         assert!(db::questions::list_for(&conn, &id).unwrap().is_empty());
+    }
+
+    /// Found live: a note written squarely to fit a custom type still came
+    /// back `typeId: "note"`, because the model had nothing but a bare id to
+    /// go on. The description now reaches the prompt through the real
+    /// pipeline -- `db::types::classifiable`, not a stub list -- and a
+    /// manual-match type is excluded from both the enum and the description.
+    #[test]
+    fn a_custom_types_description_reaches_the_prompt_and_a_manual_one_is_excluded() {
+        let (conn, id) = corpus(SAID, 45_000);
+        db::types::create(
+            &conn,
+            crate::model::NewType {
+                id: "wondering".into(),
+                label: "wondering".into(),
+                match_text: "musing without a claim yet".into(),
+                prompt: None,
+                tier: crate::model::ProbeTier::Heavy,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+        db::types::create(
+            &conn,
+            crate::model::NewType {
+                id: "logged-manually".into(),
+                label: "logged manually".into(),
+                match_text: "manual".into(),
+                prompt: None,
+                tier: crate::model::ProbeTier::Silent,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+
+        let wondering = r#"{"title":"indexes trade writes","role":"position",
+            "register":"neutral","typeId":"wondering","summary":"A claim about indexes.",
+            "movePhrase":"trades one cost for another"}"#;
+        let provider = ScriptedProvider::with(&[wondering, &question("faster reads")]);
+        run(&conn, &provider, &id).unwrap();
+
+        let asked = provider.asked.lock().unwrap();
+        let classify_prompt = &asked[0];
+        assert!(
+            classify_prompt.contains("wondering")
+                && classify_prompt.contains("musing without a claim yet"),
+            "the custom type's meaning never reached the prompt: {classify_prompt}"
+        );
+        assert!(
+            !classify_prompt.contains("logged-manually"),
+            "a manual-match type was described to the model anyway: {classify_prompt}"
+        );
+
+        let entry = db::entries::get(&conn, &id).unwrap().unwrap();
+        assert_eq!(entry.type_id, "wondering");
+    }
+
+    /// §3.6 end to end: a heavy custom type closes the automatic path even
+    /// though role, register and duration all allow it -- the tier lookup has
+    /// to actually reach `run`, not just exist in `gate`.
+    #[test]
+    fn a_heavy_custom_type_suppresses_the_automatic_question() {
+        let (conn, id) = corpus(SAID, 45_000);
+        db::types::create(
+            &conn,
+            crate::model::NewType {
+                id: "wondering".into(),
+                label: "wondering".into(),
+                match_text: "musing without a claim yet".into(),
+                prompt: None,
+                tier: crate::model::ProbeTier::Heavy,
+                role: None,
+                mark: None,
+            },
+        )
+        .unwrap();
+        let wondering = r#"{"title":"indexes trade writes","role":"position",
+            "register":"neutral","typeId":"wondering","summary":"A claim about indexes.",
+            "movePhrase":"trades one cost for another"}"#;
+        let provider = ScriptedProvider::with(&[wondering]);
+
+        let out = run(&conn, &provider, &id).unwrap();
+
+        assert!(out.classified);
+        assert!(out.question_id.is_none(), "heavy must not open on its own");
+        assert!(db::questions::list_for(&conn, &id).unwrap().is_empty());
+        assert_eq!(
+            provider.calls(),
+            1,
+            "only the classify call, no question call"
+        );
     }
 
     #[test]

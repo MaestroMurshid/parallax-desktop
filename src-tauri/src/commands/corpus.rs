@@ -184,6 +184,22 @@ pub fn entry_mdx(state: State<AppState>, entry_id: String) -> Result<String> {
     crate::mdx::render(&crate::mdx::corpus::note_for(&conn, &entry_id)?)
 }
 
+/// Assigns a type by hand (§3.6 -- the editor's own hint says to write
+/// "manual" and tag entries yourself, and until now nothing did).
+///
+/// Locks the type against the next re-classification: without that, correcting
+/// a typo in the transcript or `ensure_enriched` catching up an old note would
+/// silently take back a choice someone made on purpose.
+#[tauri::command]
+pub fn set_entry_type(state: State<AppState>, entry_id: String, type_id: String) -> Result<Entry> {
+    let conn = state.db();
+    if db::types::get(&conn, &type_id)?.is_none() {
+        return Err(Error::NotFound(format!("no type {type_id}")));
+    }
+    db::entries::set_entry_type(&conn, &entry_id, &type_id)?;
+    db::entries::get(&conn, &entry_id)?.ok_or_else(|| Error::NotFound(entry_id))
+}
+
 /// Overrules the classifier on one note.
 ///
 /// §3.2 gives the invoked path to the user, and this is the same argument one
@@ -355,7 +371,11 @@ pub(crate) fn recall_prompt(notes: &[(&str, &str)], query: &str) -> String {
             // A note's own guillemets would let it close the quote it sits in
             // and carry on as if it were the prompt.
             let text = text.replace(['\u{ab}', '\u{bb}'], "\"");
-            format!("[{}] {} they said:\n\u{ab}{text}\u{bb}", i + 1, said_when(date))
+            format!(
+                "[{}] {} they said:\n\u{ab}{text}\u{bb}",
+                i + 1,
+                said_when(date)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n\n");
@@ -380,14 +400,28 @@ pub(crate) fn recall_prompt(notes: &[(&str, &str)], query: &str) -> String {
 /// what they thought by the day.
 fn said_when(date: &str) -> String {
     const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September",
-        "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     let month = date
         .get(5..7)
         .and_then(|m| m.parse::<usize>().ok())
         .and_then(|m| MONTHS.get(m.wrapping_sub(1)));
-    match (date.get(..4).filter(|y| y.bytes().all(|b| b.is_ascii_digit())), month) {
+    match (
+        date.get(..4)
+            .filter(|y| y.bytes().all(|b| b.is_ascii_digit())),
+        month,
+    ) {
         (Some(year), Some(month)) => format!("In {month} {year}"),
         _ => format!("On {date}"),
     }
@@ -548,7 +582,10 @@ mod recall_tests {
         assert!(prompt.contains("month and year"), "{prompt}");
         // Only when it did change: asked to trace a change, the model found one
         // in notes that never disagreed.
-        assert!(prompt.contains("if it did not, do not say it changed"), "{prompt}");
+        assert!(
+            prompt.contains("if it did not, do not say it changed"),
+            "{prompt}"
+        );
     }
 
     /// A date that does not read as one is still shown, not dropped.

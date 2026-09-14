@@ -19,10 +19,27 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short
 const EXCERPT_CHARS = 190;
 
 /**
- * `all` is a member of the union rather than `null` so the sidebar's four
- * controls are one exhaustive switch, and an unfiltered list needs no sentinel.
+ * `all` is a member of the union rather than `null` so the sidebar's controls
+ * are one exhaustive switch, and an unfiltered list needs no sentinel. Widened
+ * to `string` because a custom type is its own filter now, alongside the
+ * three roles -- matched by exact type id in `matchesFilter`, not by the
+ * resolved letterform a role filter uses.
  */
-export type RoleFilter = Role | 'all';
+export type RoleFilter = Role | 'all' | (string & {});
+
+/** `all` matches everything; a role matches the resolved letterform, the same
+ *  thing the row's own type badge draws -- a user-defined type binds its own
+ *  letterform (§3.6), and filing a note under the face it wears is the only
+ *  answer that matches what is on screen. Anything else is a custom type's own
+ *  id, precise rather than resolved: two custom types can share one letterform
+ *  and still need to be filtered apart. */
+function matchesFilter(entry: Entry, types: TypeDefinition[], filter: RoleFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'position' || filter === 'evidence' || filter === 'note') {
+    return (slotFor(entry, types)?.id ?? entry.role) === filter;
+  }
+  return entry.typeId === filter;
+}
 
 export interface ListViewProps {
   /** Defaults to everything, so the list is useful before anything is wired to it. */
@@ -82,10 +99,7 @@ export default function ListView({ filter = 'all' }: ListViewProps) {
       const id = order[i];
       const entry = id ? entries.get(id) : undefined;
       if (!entry) continue;
-      // The resolved role, not `entry.role`: a user-defined type binds its own
-      // letterform (§3.6), and filing a note under the face it wears is the
-      // only answer that matches what is on screen.
-      if (filter !== 'all' && (slotFor(entry, types)?.id ?? entry.role) !== filter) continue;
+      if (!matchesFilter(entry, types, filter)) continue;
       out.push(entry);
     }
     return out;

@@ -17,7 +17,10 @@ export type CaptureState =
   | 'recording'
   | 'transcribing'
   /** Caught from outside the app: says so, briefly, and goes (§4). */
-  | 'saved';
+  | 'saved'
+  /** The backend refused. Said briefly, then back to idle, so a failure can
+   *  never leave the always-on-top panel stuck on "transcribing". */
+  | 'failed';
 
 /** Past this, the question is not worth holding capture open for; it surfaces
  *  on the entry later instead (§4). Holding is only right for short ones. */
@@ -28,6 +31,8 @@ export const SAVED_MS = 1_400;
 /** §4 — escape means "discard" while recording and "leave it" when stopped,
  *  which is a muscle-memory trap. No confirmation dialog; an undo window instead. */
 export const UNDO_WINDOW_MS = 60_000;
+/** Long enough to read a one-line reason, then the panel gets out of the way. */
+export const FAILED_MS = 4_000;
 
 export interface CaptureSlice {
   captureState: CaptureState;
@@ -38,6 +43,8 @@ export interface CaptureSlice {
   /** Which question the recording is answering, when the user picked one. */
   answeringQuestionId: string | null;
   discardedAt: number | null;
+  /** Why the last capture failed, shown while `captureState` is 'failed'. */
+  captureError: string | null;
   /**
    * Set when escape is pressed with transcription already in flight.
    *
@@ -68,6 +75,22 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
    * delivery silently and the panel says "recorded" and leaves. Pulling the app
    * forward there would undo the reason for having a global hotkey at all.
    */
+  function fail(what: string, error: unknown): void {
+    const reason = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+    set({
+      captureState: 'failed',
+      captureError: reason ? `${what}: ${reason}` : what,
+      startedAt: null,
+      elapsedMs: 0,
+      answeringEntryId: null,
+      answeringQuestionId: null,
+      cancelRequested: false,
+    });
+    setTimeout(() => {
+      if (get().captureState === 'failed') set({ captureState: 'idle', captureError: null });
+    }, FAILED_MS);
+  }
+
   async function land(entry: Entry, question: Question | null): Promise<void> {
     const handed = await handOff({ entry, question });
     if (!handed) {
@@ -90,12 +113,20 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
   answeringEntryId: null,
   answeringQuestionId: null,
   discardedAt: null,
+  captureError: null,
   cancelRequested: false,
 
   async startRecording(answeringEntryId = null, answeringQuestionId = null) {
-    if (get().captureState !== 'idle') return;
-    await getBridge().startRecording();
+    const now = get().captureState;
+    if (now !== 'idle' && now !== 'failed') return;
+    try {
+      await getBridge().startRecording();
+    } catch (e) {
+      fail("couldn't start recording", e);
+      return;
+    }
     set({
+      captureError: null,
       cancelRequested: false,
       captureState: 'recording',
       startedAt: Date.now(),
@@ -112,13 +143,20 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
 
     const answering = get().answeringEntryId;
     const targeted = get().answeringQuestionId;
-    const entry: Entry = await getBridge().stopRecording(answering, targeted);
+    let entry: Entry;
+    try {
+      entry = await getBridge().stopRecording(answering, targeted);
+    } catch (e) {
+      fail("couldn't save the recording", e);
+      return;
+    }
 
     // Escape landed while this was in flight. Delete rather than keep-and-hide:
     // the audio goes with the row, and a note the user cancelled is not
     // something to leave lying in the corpus for them to find later.
     if (get().cancelRequested) {
-      await getBridge().deleteEntry(entry.id);
+      // A failed delete keeps the note rather than keeping the panel up.
+      await getBridge().deleteEntry(entry.id).catch(() => undefined);
       set({
         captureState: 'idle',
         startedAt: null,
@@ -147,11 +185,13 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
           prior.map((q) => (q.id === target ? { ...q, answered: true } : q)),
         );
       }
-      const own = long ? null : await getBridge().getQuestion(entry.id);
+      // The answer is already saved; a question or edge read that fails only
+      // costs what is shown now, and the next refresh brings it back.
+      const own = long ? null : await getBridge().getQuestion(entry.id).catch(() => null);
       if (own) questions.set(entry.id, [own]);
       set({
         questions,
-        edges: await getBridge().listEdges(),
+        edges: await getBridge().listEdges().catch(() => get().edges),
         captureState: 'idle',
         answeringEntryId: null,
         answeringQuestionId: null,
@@ -161,7 +201,7 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
 
     // A long recording skips the question rather than making you wait on one
     // with the recorder still up; the background pass surfaces it later (§4).
-    const question = long ? null : await getBridge().getQuestion(entry.id);
+    const question = long ? null : await getBridge().getQuestion(entry.id).catch(() => null);
     if (question) {
       const questions = new Map(get().questions);
       questions.set(entry.id, [question]);
@@ -169,12 +209,22 @@ export const createCaptureSlice: StateCreator<AppState, Mutators, [], CaptureSli
     }
 
     set({ startedAt: null, elapsedMs: 0 });
-    await land(entry, question);
+    try {
+      await land(entry, question);
+    } catch {
+      // Only the hand-off between windows failed; the note is saved.
+      set({ captureState: 'idle' });
+    }
   },
 
   async discardRecording() {
     if (get().captureState !== 'recording') return;
-    await getBridge().discardRecording();
+    try {
+      await getBridge().discardRecording();
+    } catch (e) {
+      fail("couldn't discard", e);
+      return;
+    }
     set({
       captureState: 'idle',
       startedAt: null,

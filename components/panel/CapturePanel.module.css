@@ -59,19 +59,6 @@
   overflow-wrap: anywhere;
 }
 
-/* Sits under everything else and stays out of the way. Capture is the one
-   moment the app is over another window, so this has to read as a footnote
-   rather than as a control competing with what is behind it. */
-.cancelHint {
-  margin: 0.45rem 0 0;
-  font-size: 0.6875rem;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  color: var(--dimmed-fg);
-  opacity: 0.65;
-  text-align: left;
-}
-
 .key {
   font-family: var(--font-mono);
   font-size: 0.625rem;
@@ -79,4 +66,43 @@
   border: 1px solid currentColor;
   border-radius: 2px;
   opacity: 0.8;
+}
+
+/* Real controls, not a footnote: the panel floats over whatever app
+   has focus, so a mouse click has to be as obvious an option as the key is.
+   Wraps rather than overflows -- the two labels together are longer than
+   "esc" ever was, and the panel's width is not this component's to grow. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 0.2rem 0 0;
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: var(--title);
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 6px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+
+/* Brightens rather than fades: a control that dims under the cursor reads as
+   disabled, and this panel is the one place a user has to find it cold. */
+.actionButton:hover {
+  border-color: var(--stroke-hub);
+  background: color-mix(in srgb, var(--title) 8%, var(--surface));
+}
+
+.actionButton:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 2px;
 }

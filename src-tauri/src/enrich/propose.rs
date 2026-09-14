@@ -156,11 +156,8 @@ mod tests {
             [&newer, "2025-12-08T16:56:00.000Z"],
         )
         .unwrap();
-        let p = ScriptedProvider::with(&[&says(
-            "extends",
-            "trade write performance",
-            "less reliable",
-        )]);
+        let p =
+            ScriptedProvider::with(&[&says("extends", "trade write performance", "less reliable")]);
 
         assert_eq!(propose(&conn, &p, &older, 8).unwrap(), 1);
         let edges = db::edges::list(&conn).unwrap();
@@ -220,7 +217,7 @@ mod tests {
             shelve(&conn, &other, "systems");
         }
         let reply = says("none", "", "");
-        let replies: Vec<&str> = std::iter::repeat(reply.as_str()).take(2).collect();
+        let replies: Vec<&str> = std::iter::repeat_n(reply.as_str(), 2).collect();
         let p = ScriptedProvider::with(&replies);
 
         // Two scripted replies and a cap of two: a third call would panic.

@@ -68,16 +68,13 @@ export default function TypeEditor() {
     if (!canSubmit || !markResult?.ok) return;
     const id = slug(draft.label);
     if (!id || resolved.some((t) => t.id === id)) return;
-    addType({
-      id,
+    void addType(id, {
       label: draft.label.trim(),
-      builtIn: false,
       match: draft.match.trim() || 'manual',
       prompt: draft.prompt.trim() || null,
       tier: draft.tier,
       role: draft.role || null,
       mark: { kind: 'char', char: markResult.char },
-      autoApproved: draft.autoApproved,
     });
     setDraft(blank);
   }
@@ -123,7 +120,7 @@ export default function TypeEditor() {
             onChange={(e) => setDraft({ ...draft, match: e.target.value })}
             placeholder="manual, or how the classifier should recognise it"
           />
-          <span className={styles.hint}>How an entry gets this type. Describe it in your own words &mdash; this sentence is what the model matches against. Write &ldquo;manual&rdquo; to tag entries yourself instead.</span>
+          <span className={styles.hint}>How an entry gets this type. Describe it in your own words &mdash; this sentence is what the model matches against. Write &ldquo;manual&rdquo; to leave it out of classification and assign it yourself from an entry&rsquo;s type picker instead.</span>
         </div>
 
         <div className={styles.field}>

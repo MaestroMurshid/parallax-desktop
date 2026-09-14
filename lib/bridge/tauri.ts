@@ -1,7 +1,6 @@
 /**
- * TauriBridge — the real path (§9.4): written in full now so Rust has a
- * concrete caller to build against. Each method maps to a #[tauri::command]
- * in src-tauri/src/commands/; until written, calls reject — no silent mock fallback.
+ * TauriBridge — the only backend (§9.4). Each method maps to a
+ * #[tauri::command] in src-tauri/src/commands/.
  */
 
 import { invoke } from '@tauri-apps/api/core';
@@ -24,10 +23,13 @@ import type {
   ImportMode,
   UploadPreview,
   NewEntryDraft,
+  NewTypeDraft,
   SampleLoad,
   SearchHit,
+  TypePatchDraft,
   Unsubscribe,
 } from './index';
+import type { TypeDefinition } from '@/lib/scene/classification';
 
 /**
  * Tauri event listeners register asynchronously, so the unsubscribe function
@@ -87,6 +89,10 @@ export class TauriBridge implements Bridge {
 
   setRegister(entryId: string, register: Register): Promise<Entry> {
     return invoke('set_register', { entryId, register });
+  }
+
+  setEntryType(entryId: string, typeId: string): Promise<Entry> {
+    return invoke('set_entry_type', { entryId, typeId });
   }
 
   entryMdx(entryId: string): Promise<string> {
@@ -254,6 +260,10 @@ export class TauriBridge implements Bridge {
     return invoke('set_settings', { patch });
   }
 
+  pickModelFile(): Promise<string | null> {
+    return invoke('pick_model_file');
+  }
+
   // -- sample corpus ------------------------------------------------------
 
   loadSampleCorpus(): Promise<SampleLoad> {
@@ -284,5 +294,23 @@ export class TauriBridge implements Bridge {
 
   applyUpload(mode: ImportMode): Promise<void> {
     return invoke('apply_upload', { mode });
+  }
+
+  // -- types ----------------------------------------------------------------
+
+  listTypes(): Promise<TypeDefinition[]> {
+    return invoke('list_types');
+  }
+
+  createType(draft: NewTypeDraft): Promise<TypeDefinition> {
+    return invoke('create_type', { draft });
+  }
+
+  updateType(id: string, patch: TypePatchDraft): Promise<TypeDefinition> {
+    return invoke('update_type', { id, patch });
+  }
+
+  deleteType(id: string): Promise<void> {
+    return invoke('delete_type', { id });
   }
 }

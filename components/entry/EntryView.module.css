@@ -79,6 +79,28 @@
   color: var(--edge-label);
 }
 
+.typeRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.typeSelect {
+  font: inherit;
+  font-size: var(--size-meta);
+  color: var(--edge-label);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.typeSelect:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .tasks {
   margin-top: 22px;
   display: flex;

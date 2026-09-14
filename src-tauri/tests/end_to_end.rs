@@ -215,7 +215,7 @@ fn settings_round_trip_through_a_restart() {
         let settings = db::settings::get(&conn).unwrap();
         assert_eq!(settings.hotkey, "Ctrl+Alt+K");
         assert_eq!(
-            settings.discard_hotkey, "Escape",
+            settings.discard_hotkey, "Ctrl+Shift+Backspace",
             "untouched fields keep their defaults"
         );
     }
@@ -454,7 +454,7 @@ fn a_real_whisper_model_downloads_and_transcribes() {
 
     // Found by the same lookup the capture path uses.
     let found = state
-        .transcription_model(parallax_lib::model::TranscriptionModel::Tiny)
+        .transcription_model(None, parallax_lib::model::TranscriptionModel::Tiny)
         .expect("the downloaded model should be discoverable");
     assert_eq!(found, dest);
 

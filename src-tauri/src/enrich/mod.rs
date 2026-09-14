@@ -12,7 +12,7 @@ pub mod run;
 
 use crate::error::{Error, Result};
 use crate::llm::{Ask, LlmProvider};
-use crate::model::{Entry, Register, Role};
+use crate::model::{Entry, Register, Role, TypeDef};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -125,15 +125,56 @@ fn classify_schema(type_ids: &[String]) -> Value {
     })
 }
 
+/// Every non-built-in type, described for the model rather than left as a
+/// bare enum member.
+///
+/// Built-ins are already covered by the role bullets in `CLASSIFY_SYSTEM`, so
+/// only a custom type needs its meaning spelled out -- without this a note
+/// written squarely to fit one still came back `typeId: "note"`, measured,
+/// because an id with no description is not something a 4B model can match a
+/// transcript against. Description only, never an example note: a small model
+/// copies concrete examples handed to it rather than generalising from them,
+/// which is the failure `grounded` already exists to catch on the tag fields.
+fn describe_custom_types(types: &[TypeDef]) -> Option<String> {
+    let custom: Vec<&TypeDef> = types.iter().filter(|t| !t.built_in).collect();
+    if custom.is_empty() {
+        return None;
+    }
+    Some(
+        custom
+            .iter()
+            .map(|t| format!("- {} ({}): {}", t.id, t.label, t.match_text))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+/// The user message: the allowed `typeId` values worth describing, then the
+/// note. Placed here rather than in the system prompt, the way `ask_about`
+/// already lists the offered moves in the user message rather than the
+/// system one -- available options are what varies call to call, and the
+/// system prompt is the one thing this pass keeps byte-identical apart from
+/// the live-register rule.
+fn classify_user(transcript: &str, types: &[TypeDef]) -> String {
+    match describe_custom_types(types) {
+        None => transcript.to_string(),
+        Some(listed) => format!(
+            "typeId may also be one of these, when it plainly fits better than role:\n{listed}\n\nThe note:\n\n{transcript}"
+        ),
+    }
+}
+
 pub fn classify(
     provider: &dyn LlmProvider,
     transcript: &str,
-    type_ids: &[String],
+    types: &[TypeDef],
     live_register: bool,
 ) -> Result<Classification> {
     let system = classify_system(live_register);
     let transcript = within(transcript, CLASSIFY_TRANSCRIPT_BYTES);
-    let ask = Ask::new(&system, transcript).constrained(classify_schema(type_ids));
+    let type_ids: Vec<String> = types.iter().map(|t| t.id.clone()).collect();
+    let user = classify_user(transcript, types);
+    let ask = Ask::new(&system, &user).constrained(classify_schema(&type_ids));
     let reply = provider.ask(ask)?;
 
     let mut parsed: Classification = repair_and_parse_json(&reply)?;
@@ -381,7 +422,11 @@ fn question_schema(tactics: &[gate::Probe]) -> Value {
 }
 
 /// One question about the entry, making one of the moves in `tactics`.
-pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, tactics: &[gate::Probe]) -> Result<Asked> {
+pub fn ask_about(
+    provider: &dyn LlmProvider,
+    entry: &Entry,
+    tactics: &[gate::Probe],
+) -> Result<Asked> {
     ask_about_passage(provider, entry, tactics, None)
 }
 
@@ -668,6 +713,39 @@ mod tests {
         }
     }
 
+    /// A built-in, the shape `classify` actually receives from
+    /// `db::types::classifiable` -- role bullets in `CLASSIFY_SYSTEM` already
+    /// describe it, so no prompt text is generated for it.
+    fn built_in(id: &str, role: Role) -> TypeDef {
+        TypeDef {
+            id: id.into(),
+            label: id.into(),
+            built_in: true,
+            match_text: "built-in".into(),
+            prompt: None,
+            tier: crate::model::ProbeTier::Safe,
+            role: Some(role),
+            mark: None,
+            auto_approved: true,
+        }
+    }
+
+    /// A user-defined type, with the label and match text `describe_custom_types`
+    /// is responsible for putting in front of the model.
+    fn custom_type(id: &str, label: &str, match_text: &str) -> TypeDef {
+        TypeDef {
+            id: id.into(),
+            label: label.into(),
+            built_in: false,
+            match_text: match_text.into(),
+            prompt: None,
+            tier: crate::model::ProbeTier::Heavy,
+            role: None,
+            mark: None,
+            auto_approved: true,
+        }
+    }
+
     /// The regression this schema exists to prevent. Measured over the
     /// sixteen fixtures: with the vocabulary offered as an enum the model
     /// stopped coining entirely from note two onward, filled `tags` by
@@ -712,7 +790,7 @@ mod tests {
         let c = classify(
             &p,
             "Free will and moral luck pull against each other here.",
-            &["position".into()],
+            &[built_in("position", Role::Position)],
             true,
         )
         .unwrap();
@@ -733,7 +811,7 @@ mod tests {
             r#"{"title":"t","role":"note","register":"neutral","typeId":"note",
                 "summary":"s","movePhrase":"m"}"#,
         );
-        let c = classify(&p, "said", &["note".into()], true).unwrap();
+        let c = classify(&p, "said", &[built_in("note", Role::Note)], true).unwrap();
         assert!(c.anchors.is_empty() && c.topics.is_empty());
     }
 
@@ -750,7 +828,7 @@ mod tests {
         let c = classify(
             &p,
             "Hash table lookup is O(1) on average, which is the guarantee an index leans on.",
-            &["position".into()],
+            &[built_in("position", Role::Position)],
             true,
         )
         .unwrap();
@@ -786,7 +864,7 @@ mod tests {
         let c = classify(
             &p,
             "Buy a new charger and send the reimbursement form.",
-            &["note".into()],
+            &[built_in("note", Role::Note)],
             true,
         )
         .unwrap();
@@ -806,7 +884,7 @@ mod tests {
         let c = classify(
             &p,
             "I don't think free will requires...",
-            &["position".into()],
+            &[built_in("position", Role::Position)],
             true,
         )
         .unwrap();
@@ -826,7 +904,7 @@ mod tests {
                 "typeId":"position","summary":"Reflects on a relationship that ended.",
                 "movePhrase":"states a loss"}"#,
         );
-        let c = classify(&p, "...", &["position".into()], true).unwrap();
+        let c = classify(&p, "...", &[built_in("position", Role::Position)], true).unwrap();
 
         assert_eq!(c.register, Register::Live);
         assert!(
@@ -841,7 +919,7 @@ mod tests {
             r#"{"title":"a list","role":"note","register":"neutral","typeId":"note",
                 "summary":"","movePhrase":"records errands"}"#,
         );
-        assert!(classify(&p, "...", &["note".into()], true)
+        assert!(classify(&p, "...", &[built_in("note", Role::Note)], true)
             .unwrap()
             .summary
             .is_none());
@@ -855,7 +933,10 @@ mod tests {
             r#"{"title":"t","role":"position","register":"neutral","typeId":"wondering",
                 "summary":"s","movePhrase":"m"}"#,
         );
-        let types = vec!["position".to_string(), "wondering".to_string()];
+        let types = vec![
+            built_in("position", Role::Position),
+            custom_type("wondering", "wondering", "musing without a claim yet"),
+        ];
         let c = classify(&p, "...", &types, true).unwrap();
 
         assert_eq!(c.type_id, "wondering");
@@ -864,7 +945,11 @@ mod tests {
     }
 
     fn offered() -> Vec<gate::Probe> {
-        vec![gate::Probe::Boundary, gate::Probe::Fallacy, gate::Probe::Definition]
+        vec![
+            gate::Probe::Boundary,
+            gate::Probe::Fallacy,
+            gate::Probe::Definition,
+        ]
     }
 
     /// Constrained decoding is what makes the shape guaranteed rather than
@@ -913,7 +998,10 @@ mod tests {
         let prompt = p.last_user_prompt();
         assert!(prompt.contains("indexes cost writes"));
         for tactic in offered() {
-            assert!(prompt.contains(&format!("- {}: {}", tactic.id(), tactic.hint())), "{prompt}");
+            assert!(
+                prompt.contains(&format!("- {}: {}", tactic.id(), tactic.hint())),
+                "{prompt}"
+            );
         }
     }
 
@@ -967,7 +1055,7 @@ mod tests {
     #[test]
     fn unreadable_output_is_an_error_not_a_panic() {
         let p = FakeProvider::replying("not json at all");
-        assert!(classify(&p, "...", &["position".into()], true).is_err());
+        assert!(classify(&p, "...", &[built_in("position", Role::Position)], true).is_err());
         assert!(ask_about(&p, &entry("x"), &offered()).is_err());
     }
 }
