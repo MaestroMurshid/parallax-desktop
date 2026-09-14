@@ -8,7 +8,7 @@ use super::gate;
 use crate::db;
 use crate::error::{Error, Result};
 use crate::llm::LlmProvider;
-use crate::model::{Entry, Span};
+use crate::model::{Entry, Role, Span};
 use rusqlite::Connection;
 
 #[derive(Debug, Default)]
@@ -123,6 +123,15 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     // Re-read: the gates below read role and register, which only just changed.
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
+
+    // Only notes carry tasks. A failure here must not fail the pass.
+    if entry.role == Role::Note {
+        let landed = super::tasks::extract(provider, &entry)
+            .and_then(|tasks| db::action_items::add(conn, entry_id, &tasks));
+        if let Err(e) = landed {
+            eprintln!("reading tasks failed for {entry_id}: {e}");
+        }
+    }
 
     let tier = db::types::tier_for(conn, &entry.type_id)?;
     let tactics = gate::automatic_probes(&entry, live_register, tier);
@@ -470,6 +479,60 @@ mod tests {
             .map(|t| t.name)
             .collect();
         assert_eq!(shelves, vec!["databases".to_string()]);
+    }
+
+    const ERRANDS: &str = "I need to buy a pen and some books. Book the dentist for next week.";
+
+    const FILED_AS_NOTE: &str = r#"{"title":"buy a pen","role":"note",
+        "register":"neutral","typeId":"note","summary":"Errands.",
+        "movePhrase":"lists things to do"}"#;
+
+    #[test]
+    fn a_note_lands_its_tasks() {
+        let (conn, id) = corpus(ERRANDS, 9_000);
+        let provider = ScriptedProvider::with(&[
+            FILED_AS_NOTE,
+            r#"{"tasks":["buy a pen and some books","Book the dentist for next week."]}"#,
+        ]);
+
+        run(&conn, &provider, &id).unwrap();
+
+        let tasks: Vec<String> = db::action_items::list(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.text)
+            .collect();
+        assert_eq!(
+            tasks,
+            vec![
+                "buy a pen and some books".to_string(),
+                "Book the dentist for next week.".into()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_note_filed_as_anything_else_is_not_read_for_tasks() {
+        let (conn, id) = corpus(ERRANDS, 5_000);
+        let provider = ScriptedProvider::with(&[CLASSIFY]);
+
+        run(&conn, &provider, &id).unwrap();
+
+        assert_eq!(provider.calls(), 1, "a position was read for tasks");
+        assert!(db::action_items::list(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_failed_task_read_does_not_fail_the_pass() {
+        let (conn, id) = corpus(ERRANDS, 9_000);
+        let provider = ScriptedProvider::with(&[FILED_AS_NOTE]);
+
+        let out = run(&conn, &provider, &id).expect("the pass survives");
+
+        assert!(out.classified);
+        assert_eq!(provider.calls(), 2, "tasks were never asked for");
+        let entry = db::entries::get(&conn, &id).unwrap().unwrap();
+        assert_eq!(entry.title, "buy a pen");
     }
 
     /// A short note is not pushed on, and classification still runs.

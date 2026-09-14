@@ -9,6 +9,7 @@ pub mod gate;
 pub mod invoke;
 pub mod propose;
 pub mod run;
+pub mod tasks;
 
 use crate::error::{Error, Result};
 use crate::llm::{Ask, LlmProvider};
