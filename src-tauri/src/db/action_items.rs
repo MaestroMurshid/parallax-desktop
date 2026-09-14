@@ -27,9 +27,27 @@ pub fn list(conn: &Connection) -> Result<Vec<ActionItem>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// Adds the tasks a note was read for, as its own words. Returns how many landed.
+/// Adds tasks, skipping any the note already has. Returns how many landed.
 pub fn add(conn: &Connection, entry_id: &str, tasks: &[(Span, String)]) -> Result<usize> {
-    todo!()
+    let mut added = 0;
+    for (span, quoted) in tasks {
+        added += conn.execute(
+            "INSERT INTO action_items
+             (id, entry_id, span_start, span_end, span_attributed, span_quoted, text)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6
+             WHERE NOT EXISTS
+               (SELECT 1 FROM action_items WHERE entry_id = ?2 AND span_quoted = ?6)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                entry_id,
+                span.start,
+                span.end,
+                span.attributed,
+                quoted
+            ],
+        )?;
+    }
+    Ok(added)
 }
 
 /// State on the span, never a mutation of the transcript.
@@ -92,8 +110,6 @@ mod tests {
         assert!(!items[0].done);
     }
 
-    /// Correcting a transcript re-anchors tasks by the quote they carry, so a
-    /// task stored without one could never follow its words.
     #[test]
     fn the_quote_is_stored_for_re_anchoring() {
         let conn = crate::db::open_in_memory().unwrap();
@@ -106,8 +122,6 @@ mod tests {
         assert_eq!(quoted, "buy a pen and some books");
     }
 
-    /// A note is read again after its transcript is corrected. A second pass
-    /// must not list the same errand twice, or undo one already ticked.
     #[test]
     fn reading_a_note_again_neither_doubles_a_task_nor_unticks_it() {
         let conn = crate::db::open_in_memory().unwrap();

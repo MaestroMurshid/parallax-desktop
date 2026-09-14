@@ -1,7 +1,4 @@
-//! The things a note says to do, kept in the note's own words.
-//!
-//! Only a note filed as `note` is read for them: an argument or an observation
-//! that happens to contain "I should" is not a to-do list.
+//! Tasks from a note filed as `note`, in the note's own words.
 
 use super::run::anchor;
 use crate::error::Result;
@@ -16,7 +13,7 @@ Follow these constraints strictly.
 
 ### Fields to Extract
 
-- **tasks**: Each thing the speaker needs or intends to do, one per item, copied word for word from the note. Copy the shortest passage that still says what to do. Leave out anything already done and anything only wondered about. Return an empty list if the note says nothing to do.";
+- **tasks**: Each thing the speaker needs or intends to do, copied word for word from the note. Things to do together in one breath are one task. Copy the shortest passage that still says what to do. Leave out anything already done and anything only wondered about. Return an empty list if the note says nothing to do.";
 
 #[derive(Debug, Deserialize)]
 struct Reply {
@@ -25,12 +22,37 @@ struct Reply {
 }
 
 fn tasks_schema() -> Value {
-    todo!()
+    json!({
+        "type": "object",
+        "properties": {
+            "tasks": {
+                "type": "array",
+                "items": { "type": "string", "maxLength": 200 },
+                "maxItems": 10,
+            },
+        },
+        "required": ["tasks"],
+        "additionalProperties": false,
+    })
 }
 
-/// Each task anchored in the transcript, with the words it quotes.
+/// Each task with its span. A task not found verbatim in the note is dropped.
 pub fn extract(provider: &dyn LlmProvider, entry: &Entry) -> Result<Vec<(Span, String)>> {
-    todo!()
+    let user = super::within(&entry.transcript, super::CLASSIFY_TRANSCRIPT_BYTES);
+    let ask = Ask::new(TASKS_SYSTEM, user).constrained(tasks_schema());
+    let reply: Reply = super::repair_and_parse_json(&provider.ask(ask)?)?;
+
+    let mut tasks: Vec<(Span, String)> = Vec::new();
+    for said in reply.tasks {
+        let said = said.trim();
+        if tasks.iter().any(|(_, q)| q == said) {
+            continue;
+        }
+        if let Some(span) = anchor(entry, said) {
+            tasks.push((span, said.to_string()));
+        }
+    }
+    Ok(tasks)
 }
 
 #[cfg(test)]
@@ -83,15 +105,16 @@ mod tests {
         let quoted: Vec<&str> = tasks.iter().map(|(_, q)| q.as_str()).collect();
         assert_eq!(
             quoted,
-            vec!["buy a pen and some books", "Book the dentist for next week."]
+            vec![
+                "buy a pen and some books",
+                "Book the dentist for next week."
+            ]
         );
         for (span, quote) in &tasks {
             assert_eq!(&js_slice(ERRANDS, span), quote);
         }
     }
 
-    /// The same rule as every other quote the model returns: a task the note
-    /// does not say is a task invented for the speaker.
     #[test]
     fn a_task_the_note_does_not_say_is_dropped() {
         let provider =
@@ -112,12 +135,13 @@ mod tests {
     #[test]
     fn a_note_with_nothing_to_do_has_no_tasks() {
         let provider = FakeProvider::replying(r#"{"tasks":[]}"#);
-        assert!(extract(&provider, &note("The wifi password is on the fridge."))
-            .unwrap()
-            .is_empty());
+        assert!(
+            extract(&provider, &note("The wifi password is on the fridge."))
+                .unwrap()
+                .is_empty()
+        );
     }
 
-    /// Bounded, or a looping model fills the array until the context runs out.
     #[test]
     fn the_schema_requires_a_bounded_list_of_strings() {
         let provider = FakeProvider::replying(r#"{"tasks":[]}"#);

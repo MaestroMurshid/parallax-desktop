@@ -124,15 +124,17 @@ export const createCorpusSlice: StateCreator<AppState, Mutators, [], CorpusSlice
     // connections, and reading only the entry meant every connection the app
     // found sat in the database until the next full load -- so the one mechanic
     // worth watching happen was the one that never appeared while you watched.
-    const [entry, question, edges] = await Promise.all([
+    // Tasks too, or a note's new tasks wait for the next launch.
+    const [entry, question, edges, actionItems] = await Promise.all([
       bridge.getEntry(id),
       bridge.getQuestion(id),
       bridge.listEdges(),
+      bridge.listActionItems(),
     ]);
     // Deleted while enrichment was running.
     if (!entry) return;
     get().upsertEntry(entry);
-    set({ edges });
+    set({ edges, actionItems });
 
     // Merged by id rather than replaced. Overwriting with `[question]` dropped
     // every earlier question on the entry — getQuestion returns only the open

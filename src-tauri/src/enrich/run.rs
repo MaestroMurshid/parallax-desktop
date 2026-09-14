@@ -8,7 +8,7 @@ use super::gate;
 use crate::db;
 use crate::error::{Error, Result};
 use crate::llm::LlmProvider;
-use crate::model::{Entry, Span};
+use crate::model::{Entry, Role, Span};
 use rusqlite::Connection;
 
 #[derive(Debug, Default)]
@@ -123,6 +123,15 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     // Re-read: the gates below read role and register, which only just changed.
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
+
+    // Only notes carry tasks. A failure here must not fail the pass.
+    if entry.role == Role::Note {
+        let landed = super::tasks::extract(provider, &entry)
+            .and_then(|tasks| db::action_items::add(conn, entry_id, &tasks));
+        if let Err(e) = landed {
+            eprintln!("reading tasks failed for {entry_id}: {e}");
+        }
+    }
 
     let tier = db::types::tier_for(conn, &entry.type_id)?;
     let tactics = gate::automatic_probes(&entry, live_register, tier);
@@ -478,8 +487,6 @@ mod tests {
         "register":"neutral","typeId":"note","summary":"Errands.",
         "movePhrase":"lists things to do"}"#;
 
-    /// Found in the packaged app: "I need to buy a pen" was filed as a note and
-    /// the task list stayed empty, because nothing read a note for tasks.
     #[test]
     fn a_note_lands_its_tasks() {
         let (conn, id) = corpus(ERRANDS, 9_000);
@@ -504,7 +511,6 @@ mod tests {
         );
     }
 
-    /// Only a note is a to-do list. An argument that says "I should" is not.
     #[test]
     fn a_note_filed_as_anything_else_is_not_read_for_tasks() {
         let (conn, id) = corpus(ERRANDS, 5_000);
@@ -516,7 +522,6 @@ mod tests {
         assert!(db::action_items::list(&conn).unwrap().is_empty());
     }
 
-    /// Tasks are extra. A model that fails on them must not cost the filing.
     #[test]
     fn a_failed_task_read_does_not_fail_the_pass() {
         let (conn, id) = corpus(ERRANDS, 9_000);
