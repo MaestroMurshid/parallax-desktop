@@ -280,7 +280,7 @@ pub fn finish(
         None => String::new(),
     };
 
-    let entry = land(
+    let mut entry = land(
         state,
         id,
         &full,
@@ -294,6 +294,12 @@ pub fn finish(
     let conn = state.db();
     if let Some(question_id) = question_id {
         db::questions::mark_answered(&conn, &question_id)?;
+        // Which question, not only which note: a note can carry several.
+        conn.execute(
+            "UPDATE entries SET answers_question_id = ?2 WHERE id = ?1",
+            rusqlite::params![entry.id, question_id],
+        )?;
+        entry.answers_question_id = Some(question_id);
     }
 
     // Only now is there another copy.
@@ -470,6 +476,54 @@ mod tests {
             assert_eq!(staged.pcm.len(), a_take().len(), "the take was truncated");
             assert_eq!(staged.duration_ms, 4_200);
         }
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The answer records which question it answered, not only which note --
+    /// found missing when the mock was audited against this path.
+    #[test]
+    fn an_answer_records_the_question_it_answers() {
+        let (state, root) = corpus("answers-question");
+        let parent = {
+            let conn = state.db();
+            let parent = db::create::create(
+                &conn,
+                db::create::NewEntry {
+                    transcript: "Standups are theatre.".into(),
+                    duration_ms: 40_000,
+                    fingerprint: vec![0.3],
+                    parent_entry_id: None,
+                    local_only: None,
+                    typed: false,
+                },
+            )
+            .unwrap();
+            db::questions::insert(
+                &conn,
+                &crate::model::Question {
+                    id: "q1".into(),
+                    entry_id: parent.id.clone(),
+                    text: "Where does this stop holding?".into(),
+                    span: None,
+                    answered: false,
+                    dismissed: false,
+                    provider_name: "test".into(),
+                    created_at: "2026-09-14T00:00:00Z".into(),
+                },
+                &parent.transcript,
+            )
+            .unwrap();
+            parent
+        };
+
+        let answer = finish(&state, a_take(), 4_200, Some(parent.id.clone()), Some("q1".into()))
+            .expect("the answer landed");
+
+        assert_eq!(answer.answers_question_id.as_deref(), Some("q1"));
+        let stored = db::entries::get(&state.db(), &answer.id).unwrap().unwrap();
+        assert_eq!(stored.answers_question_id.as_deref(), Some("q1"));
 
         drop(state);
         let _ = std::fs::remove_dir_all(root);
