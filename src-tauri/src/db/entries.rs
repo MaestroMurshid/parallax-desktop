@@ -435,6 +435,9 @@ pub fn set_register(conn: &Connection, id: &str, register: Register) -> Result<(
 
 /// Enrichment's only write to an entry. The move phrase has no column yet, so
 /// the caller drops it; it belongs with embeddings, which do not exist.
+// One positional field per column this statement sets; bundling them would
+// just move the same seven names into a struct only this call site builds.
+#[allow(clippy::too_many_arguments)]
 pub fn set_classification(
     conn: &Connection,
     id: &str,

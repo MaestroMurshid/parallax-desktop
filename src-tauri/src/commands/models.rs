@@ -158,6 +158,9 @@ fn embedding(id: &str, name: &str, params: &str, size_bytes: u64, url: &str) -> 
     )
 }
 
+// One positional field per `ModelInfo` column; a struct wrapper would just
+// move the same eight names one level out for a function only called nearby.
+#[allow(clippy::too_many_arguments)]
 fn model(
     id: &str,
     kind: ModelKind,
@@ -647,7 +650,6 @@ fn run_download(app: AppHandle, info: ModelInfo, dest: PathBuf, pace: Pace) -> R
     };
 
     let outcome = crate::model::download::fetch_paced(&info.url, &dest, &mut report, pace);
-    drop(report);
 
     announce(match &outcome {
         Ok(()) => ModelState::Ready,

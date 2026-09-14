@@ -9,7 +9,7 @@
 use super::Embedder;
 use crate::error::{Error, Result};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -26,7 +26,7 @@ impl LlamaEmbedder {
     /// without spawning anything. `--embedding` is not a preference: without it
     /// the server answers 501 to every embedding request, and `/health` still
     /// says yes -- so a silent removal would look alive and fail at use.
-    fn spawn_args(model: &PathBuf, port: u16) -> Vec<String> {
+    fn spawn_args(model: &Path, port: u16) -> Vec<String> {
         vec![
             "-m".into(),
             model.to_string_lossy().into_owned(),
@@ -58,7 +58,7 @@ impl LlamaEmbedder {
         ]
     }
 
-    pub fn spawn(binary: &PathBuf, model: &PathBuf, model_id: &str) -> Result<Self> {
+    pub fn spawn(binary: &PathBuf, model: &Path, model_id: &str) -> Result<Self> {
         let port = crate::llm::llama_server::free_port()?;
 
         let mut command = Command::new(binary);

@@ -217,7 +217,7 @@ mod tests {
             shelve(&conn, &other, "systems");
         }
         let reply = says("none", "", "");
-        let replies: Vec<&str> = std::iter::repeat(reply.as_str()).take(2).collect();
+        let replies: Vec<&str> = std::iter::repeat_n(reply.as_str(), 2).collect();
         let p = ScriptedProvider::with(&replies);
 
         // Two scripted replies and a cap of two: a third call would panic.

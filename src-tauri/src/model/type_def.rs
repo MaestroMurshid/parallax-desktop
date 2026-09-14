@@ -26,6 +26,10 @@ impl ProbeTier {
         }
     }
 
+    // Returns `Option`, not `Result`, because the wire format has no error to
+    // carry; matching `std::str::FromStr`'s name (not its signature) would ask
+    // its one caller to invent one.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<ProbeTier> {
         match s {
             "silent" => Some(ProbeTier::Silent),
