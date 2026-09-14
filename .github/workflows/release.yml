@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
 
+# tauri-action creates the draft release and uploads to it, which a read-only
+# GITHUB_TOKEN (the default for new repositories) refuses.
+permissions:
+  contents: write
+
 jobs:
   release:
     strategy:
@@ -15,12 +20,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Dependencies
@@ -31,6 +36,8 @@ jobs:
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
 
       - name: Install Linux Dependencies
         if: runner.os == 'Linux'
@@ -42,11 +49,9 @@ jobs:
         if: runner.os == 'Windows'
         run: pwsh scripts/fetch-llama.ps1
 
-      - name: Mock Llama Server (Linux & macOS)
+      - name: Fetch Llama Server (Linux & macOS)
         if: runner.os != 'Windows'
-        run: |
-          mkdir -p src-tauri/binaries/llama
-          touch src-tauri/binaries/llama/.keep
+        run: bash scripts/fetch-llama.sh
 
       - name: Build and Draft Release
         uses: tauri-apps/tauri-action@v0

@@ -6,22 +6,27 @@ on:
   pull_request:
     branches: [ "main", "dev" ]
 
+# A newer push to the same ref makes the older build's result irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    
+
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Frontend Dependencies
@@ -30,8 +35,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # The crate lives in src-tauri, not at the repository root.
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
 
       - name: Install Linux Dependencies
         if: runner.os == 'Linux'
@@ -46,13 +54,20 @@ jobs:
         if: runner.os == 'Windows'
         run: pwsh scripts/fetch-llama.ps1
 
-      - name: Mock Llama Server (Linux & macOS)
+      - name: Fetch Llama Server (Linux & macOS)
         if: runner.os != 'Windows'
-        run: |
-          mkdir -p src-tauri/binaries/llama
-          touch src-tauri/binaries/llama/.keep
+        run: bash scripts/fetch-llama.sh
 
+      # Mirrors bundle.macOS.minimumSystemVersion, which the Tauri CLI exports
+      # itself; std::filesystem in the C++ dependencies needs 10.15.
       - name: Build Tauri App
         env:
           MACOSX_DEPLOYMENT_TARGET: '10.15'
         run: npm run tauri build
+
+      # After the app build: generate_context! needs the exported frontend in
+      # out/. Windows only for now, the platform the suite is run on locally.
+      - name: Rust Tests
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test
