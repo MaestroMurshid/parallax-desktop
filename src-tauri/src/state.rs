@@ -94,7 +94,8 @@ impl AppState {
         // survived to the next launch used to silently revert to it, because
         // nothing here ever consulted the setting at all.
         let saved_hotkey = db::settings::get(&conn)?.hotkey;
-        let hotkey = crate::shortcuts::parse(&saved_hotkey).unwrap_or_else(crate::shortcuts::default_hotkey);
+        let hotkey =
+            crate::shortcuts::parse(&saved_hotkey).unwrap_or_else(crate::shortcuts::default_hotkey);
         Ok(Self {
             conn: Mutex::new(conn),
             background: Mutex::new(background),
@@ -392,7 +393,11 @@ impl AppState {
     /// whichever the filesystem yields first would silently ignore the setting.
     /// `None` is a normal state, not an error -- capture works without it, and
     /// the audio is the record the transcript is derived from.
-    pub fn transcription_model(&self, custom: Option<&str>, chosen: TranscriptionModel) -> Option<PathBuf> {
+    pub fn transcription_model(
+        &self,
+        custom: Option<&str>,
+        chosen: TranscriptionModel,
+    ) -> Option<PathBuf> {
         resolve_transcription_model(custom, chosen, &self.models_dir())
     }
 }
@@ -472,7 +477,10 @@ mod custom_model_resolution_tests {
     }
 
     fn scratch(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("parallax-custom-model-{tag}-{}", uuid::Uuid::new_v4()))
+        std::env::temp_dir().join(format!(
+            "parallax-custom-model-{tag}-{}",
+            uuid::Uuid::new_v4()
+        ))
     }
 
     #[test]
@@ -513,7 +521,11 @@ mod custom_model_resolution_tests {
         let ghost = dir.join("gone.gguf");
 
         assert_eq!(
-            resolve_reasoning_model(Some(ghost.to_str().unwrap()), Some("qwen3-4b-q4"), &models_dir),
+            resolve_reasoning_model(
+                Some(ghost.to_str().unwrap()),
+                Some("qwen3-4b-q4"),
+                &models_dir
+            ),
             Some(catalogue)
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -640,13 +652,17 @@ mod tests {
     /// what the window reads.
     #[test]
     fn background_work_never_holds_the_connection_the_window_uses() {
-        let dir = std::env::temp_dir().join(format!("parallax-background-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("parallax-background-{}", uuid::Uuid::new_v4()));
         let state = AppState::open(dir).unwrap();
 
         // Held the way a pass holds it, for as long as the model takes.
         let background = state.background_db();
         let window = state.conn.try_lock();
-        assert!(window.is_ok(), "the window's connection is taken by background work");
+        assert!(
+            window.is_ok(),
+            "the window's connection is taken by background work"
+        );
         let window = window.unwrap();
 
         let id = db::create::create(

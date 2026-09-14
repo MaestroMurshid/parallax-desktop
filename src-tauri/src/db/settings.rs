@@ -16,7 +16,11 @@ const KEY: &str = "settings";
 /// incoming patch actually touches are checked, so a file that goes missing
 /// after being saved cannot make an unrelated later patch fail to merge.
 fn validate_custom_model_patch(patch: &serde_json::Value) -> Result<()> {
-    validate_model_path_field(patch, "customReasoningModelPath", "your own reasoning model")?;
+    validate_model_path_field(
+        patch,
+        "customReasoningModelPath",
+        "your own reasoning model",
+    )?;
     validate_model_path_field(
         patch,
         "customTranscriptionModelPath",
@@ -37,7 +41,9 @@ fn validate_model_path_field(patch: &serde_json::Value, field: &str, label: &str
         _ => return Ok(()),
     };
     let p = std::path::Path::new(path);
-    let is_gguf = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("gguf"));
+    let is_gguf = p
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("gguf"));
     if is_gguf && p.is_file() {
         return Ok(());
     }
@@ -52,7 +58,8 @@ fn validate_model_path_field(patch: &serde_json::Value, field: &str, label: &str
 fn normalize_empty_custom_paths(mut patch: serde_json::Value) -> serde_json::Value {
     if let Some(obj) = patch.as_object_mut() {
         for field in ["customReasoningModelPath", "customTranscriptionModelPath"] {
-            let is_blank = matches!(obj.get(field), Some(serde_json::Value::String(s)) if s.trim().is_empty());
+            let is_blank =
+                matches!(obj.get(field), Some(serde_json::Value::String(s)) if s.trim().is_empty());
             if is_blank {
                 obj.insert(field.to_string(), serde_json::Value::Null);
             }
@@ -94,15 +101,17 @@ pub fn get(conn: &Connection) -> Result<Settings> {
             }
         }
     }
-    Ok(chorded_discard(serde_json::from_value(doc).unwrap_or_default()))
+    Ok(chorded_discard(
+        serde_json::from_value(doc).unwrap_or_default(),
+    ))
 }
 
 /// Discard is registered globally for the length of a take, and a key with no
 /// modifier would be swallowed from every other app meanwhile -- Esc in a
 /// browser would throw the recording away.
 fn chorded_discard(mut settings: Settings) -> Settings {
-    let chorded = crate::shortcuts::parse(&settings.discard_hotkey)
-        .is_some_and(|s| !s.mods.is_empty());
+    let chorded =
+        crate::shortcuts::parse(&settings.discard_hotkey).is_some_and(|s| !s.mods.is_empty());
     if !chorded {
         settings.discard_hotkey = Settings::default().discard_hotkey;
     }
@@ -182,7 +191,10 @@ mod tests {
         let merged = merge(&conn, serde_json::json!({ "discardHotkey": "Delete" })).unwrap();
 
         assert_eq!(merged.discard_hotkey, Settings::default().discard_hotkey);
-        assert_eq!(get(&conn).unwrap().discard_hotkey, Settings::default().discard_hotkey);
+        assert_eq!(
+            get(&conn).unwrap().discard_hotkey,
+            Settings::default().discard_hotkey
+        );
     }
 
     #[test]
@@ -206,7 +218,11 @@ mod tests {
 
         let s = get(&conn).unwrap();
         assert_eq!(s.hotkey, "Ctrl+J", "the stored field survives");
-        assert_eq!(s.discard_hotkey, Settings::default().discard_hotkey, "the absent one defaults");
+        assert_eq!(
+            s.discard_hotkey,
+            Settings::default().discard_hotkey,
+            "the absent one defaults"
+        );
     }
 
     /// `theme` postdates this fixture's shape, same as any other field an old
@@ -242,7 +258,10 @@ mod tests {
     }
 
     fn temp_gguf(name: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("parallax-settings-test-{}-{name}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!(
+            "parallax-settings-test-{}-{name}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::write(&path, b"stand-in, never actually loaded").unwrap();
         path
     }
@@ -256,17 +275,15 @@ mod tests {
             serde_json::json!({ "customReasoningModelPath": file.to_str().unwrap() }),
         )
         .unwrap();
-        assert_eq!(
-            merged.custom_reasoning_model_path.as_deref(),
-            file.to_str()
-        );
+        assert_eq!(merged.custom_reasoning_model_path.as_deref(), file.to_str());
         let _ = std::fs::remove_file(&file);
     }
 
     #[test]
     fn a_custom_path_to_a_file_that_does_not_exist_is_rejected() {
         let conn = open_in_memory().unwrap();
-        let ghost = std::env::temp_dir().join(format!("parallax-ghost-{}.gguf", uuid::Uuid::new_v4()));
+        let ghost =
+            std::env::temp_dir().join(format!("parallax-ghost-{}.gguf", uuid::Uuid::new_v4()));
         let err = merge(
             &conn,
             serde_json::json!({ "customReasoningModelPath": ghost.to_str().unwrap() }),
@@ -280,7 +297,8 @@ mod tests {
     #[test]
     fn a_custom_path_with_the_wrong_extension_is_rejected() {
         let conn = open_in_memory().unwrap();
-        let path = std::env::temp_dir().join(format!("parallax-not-gguf-{}.bin", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("parallax-not-gguf-{}.bin", uuid::Uuid::new_v4()));
         std::fs::write(&path, b"wrong extension").unwrap();
         let err = merge(
             &conn,
@@ -316,8 +334,11 @@ mod tests {
         )
         .unwrap();
 
-        let cleared =
-            merge(&conn, serde_json::json!({ "customTranscriptionModelPath": null })).unwrap();
+        let cleared = merge(
+            &conn,
+            serde_json::json!({ "customTranscriptionModelPath": null }),
+        )
+        .unwrap();
         assert_eq!(cleared.custom_transcription_model_path, None);
         let _ = std::fs::remove_file(&file);
     }

@@ -44,7 +44,11 @@ pub fn ask(
         // note has not had -- once it has had them all, from all of them.
         None => {
             let used = moves_made(&db::questions::list_for(conn, entry_id)?);
-            let fresh: Vec<Probe> = allowed.iter().copied().filter(|t| !used.contains(t)).collect();
+            let fresh: Vec<Probe> = allowed
+                .iter()
+                .copied()
+                .filter(|t| !used.contains(t))
+                .collect();
             let pool = if fresh.is_empty() { allowed } else { fresh };
             gate::offer(&pool, uuid::Uuid::new_v4().as_u128())
         }
@@ -317,7 +321,10 @@ mod tests {
         ask(&conn, &provider, &id, Some(Probe::Steelman), None).unwrap();
         let prompt = provider.asked.lock().unwrap().last().unwrap().clone();
         assert!(prompt.contains(Probe::Steelman.hint()), "{prompt}");
-        assert!(!offers(&prompt, Probe::Boundary), "a named move offered others: {prompt}");
+        assert!(
+            !offers(&prompt, Probe::Boundary),
+            "a named move offered others: {prompt}"
+        );
     }
 
     /// The gate decides, not the caller. Evidence may be asked to explain
@@ -352,7 +359,13 @@ mod tests {
         let made = Probe::from_id(first.provider_name.rsplit(" · ").next().unwrap()).unwrap();
         assert!(offers(&prompts[0], made), "{}", prompts[0]);
         assert!(!offers(&prompts[1], made), "{}", prompts[1]);
-        assert_eq!(Probe::ALL.iter().filter(|t| offers(&prompts[1], **t)).count(), 3);
+        assert_eq!(
+            Probe::ALL
+                .iter()
+                .filter(|t| offers(&prompts[1], **t))
+                .count(),
+            3
+        );
     }
 
     /// Once every move has been made on a note, asking again is still allowed
@@ -381,7 +394,11 @@ mod tests {
 
         ask(&conn, &provider, &id, None, None).unwrap();
         let last = provider.asked.lock().unwrap().last().unwrap().clone();
-        assert_eq!(Probe::ALL.iter().filter(|t| offers(&last, **t)).count(), 3, "{last}");
+        assert_eq!(
+            Probe::ALL.iter().filter(|t| offers(&last, **t)).count(),
+            3,
+            "{last}"
+        );
     }
 
     /// §3.4 -- a quote the note does not contain cannot be checked, so the

@@ -261,7 +261,8 @@ mod tests {
         let asked = provider.asked.lock().unwrap();
         let classify_prompt = &asked[0];
         assert!(
-            classify_prompt.contains("wondering") && classify_prompt.contains("musing without a claim yet"),
+            classify_prompt.contains("wondering")
+                && classify_prompt.contains("musing without a claim yet"),
             "the custom type's meaning never reached the prompt: {classify_prompt}"
         );
         assert!(
@@ -302,7 +303,11 @@ mod tests {
         assert!(out.classified);
         assert!(out.question_id.is_none(), "heavy must not open on its own");
         assert!(db::questions::list_for(&conn, &id).unwrap().is_empty());
-        assert_eq!(provider.calls(), 1, "only the classify call, no question call");
+        assert_eq!(
+            provider.calls(),
+            1,
+            "only the classify call, no question call"
+        );
     }
 
     #[test]

@@ -518,8 +518,14 @@ mod tests {
             parent
         };
 
-        let answer = finish(&state, a_take(), 4_200, Some(parent.id.clone()), Some("q1".into()))
-            .expect("the answer landed");
+        let answer = finish(
+            &state,
+            a_take(),
+            4_200,
+            Some(parent.id.clone()),
+            Some("q1".into()),
+        )
+        .expect("the answer landed");
 
         assert_eq!(answer.answers_question_id.as_deref(), Some("q1"));
         let stored = db::entries::get(&state.db(), &answer.id).unwrap().unwrap();

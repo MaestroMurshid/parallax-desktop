@@ -89,7 +89,9 @@ impl Probe {
             Probe::Fallacy => {
                 "name a specific reasoning error the note actually makes, quoting where it makes it"
             }
-            Probe::Steelman => "state the strongest opposing view and ask how the claim survives it",
+            Probe::Steelman => {
+                "state the strongest opposing view and ask how the claim survives it"
+            }
             Probe::Munchhausen => "ask for the reason behind the reason the note gives",
             Probe::Feynman => "ask them to apply the idea to a new case it was not stated for",
         }
@@ -384,7 +386,10 @@ mod tests {
     fn a_question_is_offered_three_moves_drawn_at_random() {
         let mut seen = std::collections::HashSet::new();
         for seed in 0..40u128 {
-            let offered = offer(&Probe::ALL, seed.wrapping_mul(0x9E37_79B9_7F4A_7C15_F39C_C060_5CED_C834));
+            let offered = offer(
+                &Probe::ALL,
+                seed.wrapping_mul(0x9E37_79B9_7F4A_7C15_F39C_C060_5CED_C834),
+            );
             assert_eq!(offered.len(), 3, "{offered:?}");
             let distinct: std::collections::HashSet<_> = offered.iter().collect();
             assert_eq!(distinct.len(), 3, "a move offered twice: {offered:?}");
@@ -392,7 +397,11 @@ mod tests {
             key.sort();
             seen.insert(key);
         }
-        assert!(seen.len() >= 10, "the draw barely varies: {} sets", seen.len());
+        assert!(
+            seen.len() >= 10,
+            "the draw barely varies: {} sets",
+            seen.len()
+        );
     }
 
     #[test]
@@ -458,13 +467,19 @@ mod tests {
 
     #[test]
     fn evidence_opens_with_feynman() {
-        let probes = automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true, None);
+        let probes = automatic_probes(
+            &entry(Role::Evidence, Register::Neutral, 120_000),
+            true,
+            None,
+        );
         assert_eq!(probes, vec![Probe::Feynman]);
     }
 
     #[test]
     fn a_note_is_silent() {
-        assert!(automatic_probes(&entry(Role::Note, Register::Neutral, 120_000), true, None).is_empty());
+        assert!(
+            automatic_probes(&entry(Role::Note, Register::Neutral, 120_000), true, None).is_empty()
+        );
     }
 
     /// The invoked path is the user's own risk, so register does not gate it.
@@ -472,7 +487,10 @@ mod tests {
     fn a_live_entry_can_still_be_asked_about_when_invited() {
         let e = entry(Role::Position, Register::Live, 120_000);
         assert!(automatic_probes(&e, true, None).is_empty());
-        assert!(!invoked_probes(&e, None).is_empty(), "asking is the user's call");
+        assert!(
+            !invoked_probes(&e, None).is_empty(),
+            "asking is the user's call"
+        );
     }
 
     /// Duration gates the automatic path only. A short note you select a
@@ -606,17 +624,23 @@ mod tests {
             let mut expected = probes_in_the_contract();
             expected.sort();
 
-            let mut actual: Vec<String> =
-                automatic_probes(&entry(Role::Position, Register::Neutral, 120_000), true, None)
-                    .iter()
-                    .map(|p| p.id().to_string())
-                    .collect();
+            let mut actual: Vec<String> = automatic_probes(
+                &entry(Role::Position, Register::Neutral, 120_000),
+                true,
+                None,
+            )
+            .iter()
+            .map(|p| p.id().to_string())
+            .collect();
             actual.sort();
 
             assert_eq!(actual, expected);
 
-            let automatic_on_evidence =
-                automatic_probes(&entry(Role::Evidence, Register::Neutral, 120_000), true, None);
+            let automatic_on_evidence = automatic_probes(
+                &entry(Role::Evidence, Register::Neutral, 120_000),
+                true,
+                None,
+            );
             assert_eq!(
                 automatic_on_evidence
                     .iter()

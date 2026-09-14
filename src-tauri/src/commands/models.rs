@@ -357,7 +357,10 @@ mod set_up_tests {
             }
         }
         assert!(!set_up(&chosen(), &models));
-        assert!(!set_up(&chosen(), &on_disk(&["qwen3-4b-q4", "bge-small-en-v1.5"])));
+        assert!(!set_up(
+            &chosen(),
+            &on_disk(&["qwen3-4b-q4", "bge-small-en-v1.5"])
+        ));
     }
 
     /// Connections work without an embedder, so not having chosen one is not
@@ -368,7 +371,10 @@ mod set_up_tests {
             embedding_model_id: None,
             ..chosen()
         };
-        assert!(set_up(&settings, &on_disk(&["qwen3-4b-q4", "whisper-base"])));
+        assert!(set_up(
+            &settings,
+            &on_disk(&["qwen3-4b-q4", "whisper-base"])
+        ));
     }
 
     fn temp_gguf(name: &str) -> std::path::PathBuf {

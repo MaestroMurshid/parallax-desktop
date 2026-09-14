@@ -371,7 +371,11 @@ pub(crate) fn recall_prompt(notes: &[(&str, &str)], query: &str) -> String {
             // A note's own guillemets would let it close the quote it sits in
             // and carry on as if it were the prompt.
             let text = text.replace(['\u{ab}', '\u{bb}'], "\"");
-            format!("[{}] {} they said:\n\u{ab}{text}\u{bb}", i + 1, said_when(date))
+            format!(
+                "[{}] {} they said:\n\u{ab}{text}\u{bb}",
+                i + 1,
+                said_when(date)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n\n");
@@ -396,14 +400,28 @@ pub(crate) fn recall_prompt(notes: &[(&str, &str)], query: &str) -> String {
 /// what they thought by the day.
 fn said_when(date: &str) -> String {
     const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September",
-        "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     let month = date
         .get(5..7)
         .and_then(|m| m.parse::<usize>().ok())
         .and_then(|m| MONTHS.get(m.wrapping_sub(1)));
-    match (date.get(..4).filter(|y| y.bytes().all(|b| b.is_ascii_digit())), month) {
+    match (
+        date.get(..4)
+            .filter(|y| y.bytes().all(|b| b.is_ascii_digit())),
+        month,
+    ) {
         (Some(year), Some(month)) => format!("In {month} {year}"),
         _ => format!("On {date}"),
     }
@@ -564,7 +582,10 @@ mod recall_tests {
         assert!(prompt.contains("month and year"), "{prompt}");
         // Only when it did change: asked to trace a change, the model found one
         // in notes that never disagreed.
-        assert!(prompt.contains("if it did not, do not say it changed"), "{prompt}");
+        assert!(
+            prompt.contains("if it did not, do not say it changed"),
+            "{prompt}"
+        );
     }
 
     /// A date that does not read as one is still shown, not dropped.

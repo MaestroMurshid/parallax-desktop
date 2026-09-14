@@ -247,10 +247,7 @@ mod tests {
             first.execute_batch("COMMIT").unwrap();
         });
 
-        let wrote = second.execute(
-            "UPDATE entries SET title = title WHERE id = 'nobody'",
-            [],
-        );
+        let wrote = second.execute("UPDATE entries SET title = title WHERE id = 'nobody'", []);
         releaser.join().unwrap();
         assert!(wrote.is_ok(), "the second writer failed: {wrote:?}");
     }
@@ -359,7 +356,10 @@ mod tests {
 
         let edges = edges::list(&conn).unwrap();
         assert_eq!(edges.len(), 1, "exactly one line, however often it runs");
-        assert_eq!((edges[0].entry_a.as_str(), edges[0].entry_b.as_str()), ("p", "a"));
+        assert_eq!(
+            (edges[0].entry_a.as_str(), edges[0].entry_b.as_str()),
+            ("p", "a")
+        );
         assert_eq!(edges[0].relation, crate::model::Relation::Answers);
     }
 
@@ -382,7 +382,9 @@ mod tests {
         migrate(&conn).unwrap();
 
         let locked: i64 = conn
-            .query_row("SELECT type_locked FROM entries WHERE id = 'e1'", [], |r| r.get(0))
+            .query_row("SELECT type_locked FROM entries WHERE id = 'e1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(locked, 0, "an existing entry defaults to unlocked");
         let version: i32 = conn

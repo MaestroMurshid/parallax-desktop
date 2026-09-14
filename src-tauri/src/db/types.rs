@@ -134,7 +134,10 @@ pub fn list(conn: &Connection) -> Result<Vec<TypeDef>> {
 /// to tag by hand, and a description that says nothing but "manual" gives the
 /// model nothing to match a transcript against.
 pub fn classifiable(conn: &Connection) -> Result<Vec<TypeDef>> {
-    Ok(list(conn)?.into_iter().filter(|t| !is_manual(&t.match_text)).collect())
+    Ok(list(conn)?
+        .into_iter()
+        .filter(|t| !is_manual(&t.match_text))
+        .collect())
 }
 
 fn is_manual(match_text: &str) -> bool {
@@ -266,14 +269,19 @@ pub fn create(conn: &Connection, draft: NewType) -> Result<TypeDef> {
         ],
     )?;
     if inserted == 0 {
-        return Err(Error::Other(format!("a type called {} already exists", draft.id)));
+        return Err(Error::Other(format!(
+            "a type called {} already exists",
+            draft.id
+        )));
     }
     get(conn, &draft.id)?.ok_or_else(|| Error::NotFound(draft.id))
 }
 
 pub fn update(conn: &Connection, id: &str, patch: TypePatch) -> Result<TypeDef> {
     if is_built_in_id(id) {
-        return Err(Error::Other(format!("{id} is a built-in type and cannot be edited")));
+        return Err(Error::Other(format!(
+            "{id} is a built-in type and cannot be edited"
+        )));
     }
     validate_shape(id, &patch.label, patch.tier)?;
     let (mark_kind, mark_value) = mark_columns(&patch.mark);
@@ -302,7 +310,9 @@ pub fn update(conn: &Connection, id: &str, patch: TypePatch) -> Result<TypeDef> 
 /// type row that no longer exists.
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     if is_built_in_id(id) {
-        return Err(Error::Other(format!("{id} is a built-in type and cannot be deleted")));
+        return Err(Error::Other(format!(
+            "{id} is a built-in type and cannot be deleted"
+        )));
     }
     // Shared rather than exclusive, like every other transaction in this
     // codebase (`db::entries`, `db::sample`, `db::import`) -- the caller
@@ -319,7 +329,10 @@ pub fn delete(conn: &Connection, id: &str) -> Result<()> {
         "UPDATE entries SET type_id = role, type_locked = 0 WHERE type_id = ?1",
         params![id],
     )?;
-    let changed = tx.execute("DELETE FROM types WHERE id = ?1 AND built_in = 0", params![id])?;
+    let changed = tx.execute(
+        "DELETE FROM types WHERE id = ?1 AND built_in = 0",
+        params![id],
+    )?;
     if changed == 0 {
         tx.rollback()?;
         return Err(Error::NotFound(format!("no user type {id}")));
@@ -351,7 +364,11 @@ mod tests {
         create(&conn, draft("wondering")).unwrap();
         let found = exportable(&conn).unwrap();
         let ids: Vec<&str> = found.iter().map(|t| t.id.as_str()).collect();
-        assert_eq!(ids, vec!["wondering"], "a built-in has no business in an archive");
+        assert_eq!(
+            ids,
+            vec!["wondering"],
+            "a built-in has no business in an archive"
+        );
     }
 
     /// Merge adds what a receiving corpus is missing and keeps its own
@@ -402,8 +419,14 @@ mod tests {
         restore_types(&conn, &incoming, ImportMode::Merge).unwrap();
 
         let kept = get(&conn, "wondering").unwrap().unwrap();
-        assert_eq!(kept.label, "the local version", "merge overwrote a local definition");
-        assert!(get(&conn, "gratitude").unwrap().is_some(), "a missing type was not added");
+        assert_eq!(
+            kept.label, "the local version",
+            "merge overwrote a local definition"
+        );
+        assert!(
+            get(&conn, "gratitude").unwrap().is_some(),
+            "a missing type was not added"
+        );
     }
 
     #[test]
@@ -424,9 +447,16 @@ mod tests {
         }];
         restore_types(&conn, &incoming, ImportMode::Replace).unwrap();
 
-        assert!(get(&conn, "wondering").unwrap().is_none(), "the old custom type survived a replace");
+        assert!(
+            get(&conn, "wondering").unwrap().is_none(),
+            "the old custom type survived a replace"
+        );
         assert!(get(&conn, "gratitude").unwrap().is_some());
-        assert_eq!(list(&conn).unwrap().len(), 4, "three built-ins plus the one restored type");
+        assert_eq!(
+            list(&conn).unwrap().len(),
+            4,
+            "three built-ins plus the one restored type"
+        );
     }
 
     /// A built-in in the archive (an old export, or a hand-edited one) must
@@ -449,7 +479,10 @@ mod tests {
 
         let position = get(&conn, "position").unwrap().unwrap();
         assert!(position.built_in);
-        assert_eq!(position.label, "position", "a built-in was overwritten by an upload");
+        assert_eq!(
+            position.label, "position",
+            "a built-in was overwritten by an upload"
+        );
     }
 
     /// An old archive predates this and simply has no types to restore.
@@ -464,7 +497,10 @@ mod tests {
     fn a_custom_types_tier_narrows_the_gate_but_a_built_ins_does_not() {
         let conn = open_in_memory().unwrap();
         create(&conn, draft("wondering")).unwrap();
-        assert_eq!(tier_for(&conn, "wondering").unwrap(), Some(ProbeTier::Heavy));
+        assert_eq!(
+            tier_for(&conn, "wondering").unwrap(),
+            Some(ProbeTier::Heavy)
+        );
         // position's own tier column is 'safe', but that is not what governs
         // the gate for a built-in -- role does, unconditionally.
         assert_eq!(tier_for(&conn, "position").unwrap(), None);
@@ -499,7 +535,10 @@ mod tests {
         let created = create(&conn, draft("wondering")).unwrap();
         assert_eq!(created.id, "wondering");
         assert!(!created.built_in);
-        assert!(created.auto_approved, "§3.6 rule 1 -- always true once stored");
+        assert!(
+            created.auto_approved,
+            "§3.6 rule 1 -- always true once stored"
+        );
 
         let types = list(&conn).unwrap();
         assert_eq!(types.last().unwrap().id, "wondering");
@@ -603,7 +642,9 @@ mod tests {
         delete(&conn, "wondering").unwrap();
 
         let type_id: String = conn
-            .query_row("SELECT type_id FROM entries WHERE id = 'e1'", [], |r| r.get(0))
+            .query_row("SELECT type_id FROM entries WHERE id = 'e1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(type_id, "position", "fell back to the entry's own role");
         assert!(get(&conn, "wondering").unwrap().is_none());
@@ -635,7 +676,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(type_id, "evidence");
-        assert_eq!(locked, 0, "a lock on a type that no longer exists must clear");
+        assert_eq!(
+            locked, 0,
+            "a lock on a type that no longer exists must clear"
+        );
     }
 
     /// The transaction is one write, not two: the note must never observe a
@@ -654,7 +698,9 @@ mod tests {
         .unwrap();
         delete(&conn, "wondering").unwrap();
         let type_id: String = conn
-            .query_row("SELECT type_id FROM entries WHERE id = 'e1'", [], |r| r.get(0))
+            .query_row("SELECT type_id FROM entries WHERE id = 'e1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(type_id, "evidence");
     }

@@ -85,10 +85,14 @@ pub fn write_notes(
     let text = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
     // Audio is already dense; deflating it costs time and saves nothing.
-    let stored = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored);
+    let stored =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
-    let mut written = Written { notes: 0, audio: 0, missing_audio: 0 };
+    let mut written = Written {
+        notes: 0,
+        audio: 0,
+        missing_audio: 0,
+    };
     let result = (|| -> Result<()> {
         if !types.is_empty() {
             zip.start_file(TYPES_FILE, text).map_err(zipped)?;
@@ -108,7 +112,8 @@ pub fn write_notes(
                 .and_then(recording_name);
             match name.map(|n| (n, std::fs::read(root.join(AUDIO_DIR).join(n)))) {
                 Some((n, Ok(bytes))) => {
-                    zip.start_file(format!("{AUDIO_DIR}/{n}"), stored).map_err(zipped)?;
+                    zip.start_file(format!("{AUDIO_DIR}/{n}"), stored)
+                        .map_err(zipped)?;
                     zip.write_all(&bytes)?;
                     written.audio += 1;
                 }
@@ -198,14 +203,28 @@ fn from_json(text: &str) -> Result<Contents> {
         .entries
         .iter()
         .map(|entry| Note {
-            edges: data.edges.iter().filter(|e| e.entry_a == entry.id).cloned().collect(),
-            questions: data.questions.iter().filter(|q| q.entry_id == entry.id).cloned().collect(),
+            edges: data
+                .edges
+                .iter()
+                .filter(|e| e.entry_a == entry.id)
+                .cloned()
+                .collect(),
+            questions: data
+                .questions
+                .iter()
+                .filter(|q| q.entry_id == entry.id)
+                .cloned()
+                .collect(),
             anchors: Vec::new(),
             topics: Vec::new(),
             entry: entry.clone(),
         })
         .collect();
-    Ok(Contents { notes, audio: Vec::new(), types: Vec::new() })
+    Ok(Contents {
+        notes,
+        audio: Vec::new(),
+        types: Vec::new(),
+    })
 }
 
 /// Restores the notes, then puts their recordings where the notes expect them.
@@ -255,7 +274,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn scratch(label: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("parallax-archive-{label}-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("parallax-archive-{label}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join(AUDIO_DIR)).unwrap();
         dir
     }
@@ -293,7 +313,11 @@ mod tests {
         let conn = db::open_in_memory().unwrap();
         db::entries::insert(&conn, &entry("spoken", "2024-01-01T00:00:00.000Z", true)).unwrap();
         db::entries::insert(&conn, &entry("typed", "2024-02-01T00:00:00.000Z", false)).unwrap();
-        std::fs::write(root.join(AUDIO_DIR).join("spoken.wav"), b"RIFF-not-really-a-wav").unwrap();
+        std::fs::write(
+            root.join(AUDIO_DIR).join("spoken.wav"),
+            b"RIFF-not-really-a-wav",
+        )
+        .unwrap();
 
         let ids = db::tags::upsert(&conn, &["databases".to_string()], Kind::Topic).unwrap();
         db::tags::set_for_entry(&conn, "spoken", &ids).unwrap();
@@ -320,7 +344,10 @@ mod tests {
             provider_name: "qwen3-4b-q4".into(),
             created_at: "2024-01-01T00:00:01.000Z".into(),
         };
-        let transcript = db::entries::get(&conn, "spoken").unwrap().unwrap().transcript;
+        let transcript = db::entries::get(&conn, "spoken")
+            .unwrap()
+            .unwrap()
+            .transcript;
         db::questions::insert(&conn, &q, &transcript).unwrap();
         conn
     }
@@ -343,7 +370,14 @@ mod tests {
         let zip = here.join("corpus.zip");
 
         let written = write(&conn, &here, &zip, true).unwrap();
-        assert_eq!(written, Written { notes: 2, audio: 1, missing_audio: 0 });
+        assert_eq!(
+            written,
+            Written {
+                notes: 2,
+                audio: 1,
+                missing_audio: 0
+            }
+        );
 
         let fresh = db::open_in_memory().unwrap();
         restore(&fresh, &there, &read(&zip).unwrap(), ImportMode::Replace).unwrap();
@@ -382,7 +416,11 @@ mod tests {
 
         // Re-open and append entries a hostile archive could carry.
         let mut appended = zip::ZipWriter::new_append(
-            std::fs::OpenOptions::new().read(true).write(true).open(&zip).unwrap(),
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&zip)
+                .unwrap(),
         )
         .unwrap();
         for name in ["audio/../../escaped.wav", "audio/nested/deeper.wav"] {
@@ -410,7 +448,11 @@ mod tests {
         let conn = seeded(&here);
         write(&conn, &here, &zip, false).unwrap();
         let mut appended = zip::ZipWriter::new_append(
-            std::fs::OpenOptions::new().read(true).write(true).open(&zip).unwrap(),
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&zip)
+                .unwrap(),
         )
         .unwrap();
         appended
@@ -480,7 +522,10 @@ mod tests {
         assert!(restored_type.is_some(), "the custom type did not travel");
         assert_eq!(restored_type.unwrap().tier, crate::model::ProbeTier::Heavy);
         assert_eq!(
-            db::entries::get(&fresh, "wondered").unwrap().unwrap().type_id,
+            db::entries::get(&fresh, "wondered")
+                .unwrap()
+                .unwrap()
+                .type_id,
             "wondering"
         );
     }
@@ -495,7 +540,10 @@ mod tests {
         write(&conn, &here, &zip, false).unwrap();
 
         let contents = read(&zip).unwrap();
-        assert!(contents.types.is_empty(), "this fixture defined no custom type");
+        assert!(
+            contents.types.is_empty(),
+            "this fixture defined no custom type"
+        );
 
         let fresh = db::open_in_memory().unwrap();
         restore(&fresh, &there, &contents, ImportMode::Replace).unwrap();
@@ -511,7 +559,11 @@ mod tests {
         write(&conn, &here, &zip, true).unwrap();
 
         let existing = seeded(&there);
-        std::fs::write(there.join(AUDIO_DIR).join("spoken.wav"), b"the one already here").unwrap();
+        std::fs::write(
+            there.join(AUDIO_DIR).join("spoken.wav"),
+            b"the one already here",
+        )
+        .unwrap();
         restore(&existing, &there, &read(&zip).unwrap(), ImportMode::Merge).unwrap();
 
         assert_eq!(

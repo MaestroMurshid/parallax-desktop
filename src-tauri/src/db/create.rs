@@ -246,7 +246,10 @@ pub fn create_with_id(conn: &Connection, id: String, draft: NewEntry) -> Result<
             created_at: entry.created_at.clone(),
         };
         if let Err(e) = super::edges::insert(conn, &edge) {
-            eprintln!("answer {} landed without its line to {parent}: {e}", entry.id);
+            eprintln!(
+                "answer {} landed without its line to {parent}: {e}",
+                entry.id
+            );
         }
     }
     Ok(entry)

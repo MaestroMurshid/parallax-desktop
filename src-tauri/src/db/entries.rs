@@ -738,7 +738,10 @@ mod tests {
         .unwrap();
 
         let after = get(&conn, "e1").unwrap().unwrap();
-        assert_eq!(after.type_id, "wondering", "the manual type was overwritten");
+        assert_eq!(
+            after.type_id, "wondering",
+            "the manual type was overwritten"
+        );
         // Nothing else the classifier decided is held back by the lock --
         // only type_id is a person's to keep, not the whole classification.
         assert_eq!(after.title, "a new title");

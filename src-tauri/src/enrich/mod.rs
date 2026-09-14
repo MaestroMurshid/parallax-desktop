@@ -422,7 +422,11 @@ fn question_schema(tactics: &[gate::Probe]) -> Value {
 }
 
 /// One question about the entry, making one of the moves in `tactics`.
-pub fn ask_about(provider: &dyn LlmProvider, entry: &Entry, tactics: &[gate::Probe]) -> Result<Asked> {
+pub fn ask_about(
+    provider: &dyn LlmProvider,
+    entry: &Entry,
+    tactics: &[gate::Probe],
+) -> Result<Asked> {
     ask_about_passage(provider, entry, tactics, None)
 }
 
@@ -941,7 +945,11 @@ mod tests {
     }
 
     fn offered() -> Vec<gate::Probe> {
-        vec![gate::Probe::Boundary, gate::Probe::Fallacy, gate::Probe::Definition]
+        vec![
+            gate::Probe::Boundary,
+            gate::Probe::Fallacy,
+            gate::Probe::Definition,
+        ]
     }
 
     /// Constrained decoding is what makes the shape guaranteed rather than
@@ -990,7 +998,10 @@ mod tests {
         let prompt = p.last_user_prompt();
         assert!(prompt.contains("indexes cost writes"));
         for tactic in offered() {
-            assert!(prompt.contains(&format!("- {}: {}", tactic.id(), tactic.hint())), "{prompt}");
+            assert!(
+                prompt.contains(&format!("- {}: {}", tactic.id(), tactic.hint())),
+                "{prompt}"
+            );
         }
     }
 

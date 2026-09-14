@@ -156,11 +156,8 @@ mod tests {
             [&newer, "2025-12-08T16:56:00.000Z"],
         )
         .unwrap();
-        let p = ScriptedProvider::with(&[&says(
-            "extends",
-            "trade write performance",
-            "less reliable",
-        )]);
+        let p =
+            ScriptedProvider::with(&[&says("extends", "trade write performance", "less reliable")]);
 
         assert_eq!(propose(&conn, &p, &older, 8).unwrap(), 1);
         let edges = db::edges::list(&conn).unwrap();

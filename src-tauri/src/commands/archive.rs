@@ -133,7 +133,10 @@ pub async fn pick_upload(
         questions: contents.notes.iter().map(|n| n.questions.len()).sum(),
         recordings: contents.audio.len(),
     };
-    *state.pending_upload.lock().unwrap_or_else(|p| p.into_inner()) = Some(contents);
+    *state
+        .pending_upload
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(contents);
     Ok(Some(preview))
 }
 
