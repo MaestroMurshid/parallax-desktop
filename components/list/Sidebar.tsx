@@ -49,12 +49,14 @@ export default function Sidebar({ filter, onFilterChange }: SidebarProps) {
   // and still need separate counts (`matchesFilter` in ListView mirrors this).
   const counts = useMemo(() => {
     const n: Record<RoleFilter, number> = { all: 0, position: 0, evidence: 0, note: 0 };
-    for (const row of customRows) n[row.id] = 0;
+    const custom = new Set(customRows.map((row) => row.id));
+    for (const id of custom) n[id] = 0;
     for (const entry of entries.values()) {
       n.all = (n.all ?? 0) + 1;
       const role = slotFor(entry, types)?.id ?? entry.role;
       n[role] = (n[role] ?? 0) + 1;
-      if (entry.typeId in n) n[entry.typeId] = (n[entry.typeId] ?? 0) + 1;
+      // Only a custom id: a built-in type id is its role, already counted above.
+      if (custom.has(entry.typeId)) n[entry.typeId] = (n[entry.typeId] ?? 0) + 1;
     }
     return n;
   }, [entries, types, customRows]);
