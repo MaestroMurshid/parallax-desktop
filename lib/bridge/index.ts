@@ -1,7 +1,7 @@
 /**
  * The bridge — the one seam between UI and everything below it (§9.1): this
  * interface is both what the UI codes against and the spec for Rust's future
- * command surface. Import only via getBridge(), never ./tauri or ./mock directly.
+ * command surface. Import only via getBridge(), never ./tauri directly.
  */
 
 import type {
@@ -44,7 +44,7 @@ export interface NewEntryDraft {
 }
 
 export interface Bridge {
-  readonly kind: 'mock' | 'tauri';
+  readonly kind: 'tauri';
 
   // -- corpus -------------------------------------------------------------
   listEntries(): Promise<Entry[]>;
@@ -164,8 +164,7 @@ export interface Bridge {
    * Every question in the corpus, in one call. `getQuestion` returns only the
    * oldest open one, so a load built on it drops every answered and dismissed
    * question from the record and from the export — the accumulation §3.4 is
-   * about. Optional because the mock holds questions per entry in memory and
-   * has nothing to restore; the load path falls back to `getQuestion` without it.
+   * about. The load path falls back to `getQuestion` without it.
    */
   listQuestions?(): Promise<Question[]>;
   /**
@@ -305,13 +304,12 @@ export function getBridge(): Bridge {
 }
 
 /**
- * Which implementation runs. NEXT_PUBLIC_BRIDGE=mock forces the fixture
- * backend even inside Tauri (pre-Rust UI phase) — explicit rather than a
- * silent fallback, which is how you ship a stub by accident (§9.4).
+ * There is one backend, the Rust one. The in-browser fixture backend was
+ * removed after it drifted from Rust and let a missing feature pass every
+ * browser check, so outside the desktop shell this refuses rather than fakes.
  */
 export async function initBridge(): Promise<Bridge> {
   if (instance) return instance;
-  const forceMock = process.env.NEXT_PUBLIC_BRIDGE === 'mock';
   const tauri = isTauri();
 
   // Opt-in, and deliberately not keyed to NODE_ENV: the case worth diagnosing
@@ -322,20 +320,18 @@ export async function initBridge(): Promise<Bridge> {
   const diagnose = process.env.NEXT_PUBLIC_BRIDGE_DIAG === '1';
   const report = (which: string) => {
     if (!diagnose) return;
-    const diag = `isTauri=${tauri} forceMock=${forceMock} t_internals=${typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window} t_ipc=${typeof window !== 'undefined' && '__TAURI_IPC__' in window} t_isTauri=${typeof window !== 'undefined' && 'isTauri' in window}`;
+    const diag = `isTauri=${tauri} t_internals=${typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window} t_ipc=${typeof window !== 'undefined' && '__TAURI_IPC__' in window} t_isTauri=${typeof window !== 'undefined' && 'isTauri' in window}`;
     console.log(`[bridge] → ${which}`, diag);
     if (typeof document !== 'undefined') document.title = `Parallax [${which}] ${diag}`;
   };
 
-  if (tauri && !forceMock) {
-    const { TauriBridge } = await import('./tauri');
-    instance = new TauriBridge();
-    report('TauriBridge');
-  } else {
-    const { MockBridge } = await import('./mock');
-    instance = new MockBridge();
-    report('MockBridge');
+  if (!tauri) {
+    report('none');
+    throw new Error('Parallax runs inside its desktop shell: use `npm run tauri:dev`.');
   }
+  const { TauriBridge } = await import('./tauri');
+  instance = new TauriBridge();
+  report('TauriBridge');
   return instance;
 }
 

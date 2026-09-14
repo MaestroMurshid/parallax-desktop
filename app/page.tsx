@@ -46,6 +46,9 @@ export default function Page() {
   // mount, because a static export has no window to ask at prerender time and
   // guessing wrong paints the canvas inside the panel for a frame.
   const [isPanel, setIsPanel] = useState<boolean | null>(null);
+  // Decided after mount for the same reason as isPanel: the static export has
+  // no window, and the answer must not differ between prerender and Tauri.
+  const [outsideShell, setOutsideShell] = useState(false);
   const loaded = useApp((s) => s.loaded);
   const hasEntries = useApp((s) => s.order.length > 0);
   const overlay = useApp((s) => s.overlay);
@@ -60,6 +63,10 @@ export default function Page() {
   useEffect(() => {
     const panel = isPanelWindow();
     setIsPanel(panel);
+    if (!isTauri()) {
+      setOutsideShell(true);
+      return;
+    }
     // Lets the stylesheet drop the page surface for this window; the panel is
     // meant to float over other apps, not to be a grey box on the desktop.
     if (panel) document.documentElement.dataset.window = 'panel';
@@ -164,8 +171,7 @@ export default function Page() {
   // the canvas until you come looking rather than interrupting to be read.
   //
   // The entry travels in the event rather than being re-fetched: the panel's
-  // bridge is the one that has it, and under the fixture backend each window
-  // keeps its own corpus in memory.
+  // bridge is the one that has it.
   useEffect(() => {
     if (isPanel !== false) return;
     return onHandOff(({ entry, question }) => {
@@ -263,6 +269,16 @@ export default function Page() {
   // Which window this is decides the whole render, so paint nothing until the
   // answer is known rather than flashing the wrong one.
   if (isPanel === null) return null;
+
+  if (outsideShell) {
+    return (
+      <main className={styles.main}>
+        <p style={{ margin: 'auto', color: 'var(--meta)' }}>
+          Parallax runs as a desktop app. Start it with <code>npm run tauri:dev</code>.
+        </p>
+      </main>
+    );
+  }
 
   if (isPanel) {
     return (

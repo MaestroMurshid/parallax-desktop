@@ -2,8 +2,7 @@
  * The desktop-shell seam: where the webviews are, as opposed to what is in
  * them (that is lib/bridge). §4 puts capture in its own borderless always-on-top
  * window, so "recording finished" has to cross a window boundary that does not
- * exist in a browser tab. Everything here no-ops outside Tauri, which is what
- * keeps `next dev` running the same mockup.
+ * exist in a browser tab. Everything here no-ops outside Tauri.
  */
 
 import { isTauri } from '@/lib/bridge';
@@ -25,8 +24,7 @@ export type Unsubscribe = () => void;
 
 /**
  * What crosses the window boundary. The question rides along because the panel
- * is the one that asked for it — the main window's bridge never saw the request,
- * and under the fixture backend each window has its own corpus in memory.
+ * is the one that asked for it — the main window's bridge never saw the request.
  */
 export interface HandOff {
   entry: Entry;

@@ -1,7 +1,6 @@
 /**
- * TauriBridge — the real path (§9.4): written in full now so Rust has a
- * concrete caller to build against. Each method maps to a #[tauri::command]
- * in src-tauri/src/commands/; until written, calls reject — no silent mock fallback.
+ * TauriBridge — the only backend (§9.4). Each method maps to a
+ * #[tauri::command] in src-tauri/src/commands/.
  */
 
 import { invoke } from '@tauri-apps/api/core';

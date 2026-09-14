@@ -159,7 +159,7 @@ mod contract_tests {
     }
 
     #[test]
-    fn settings_defaults_match_the_mock() {
+    fn settings_defaults_are_what_the_ui_expects() {
         let s = Settings::default();
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["hotkey"], json!("Ctrl+Shift+Space"));

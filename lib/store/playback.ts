@@ -4,7 +4,7 @@ import type { AppState, Mutators } from './index';
 /**
  * §8 — audio is the one thing in this app that moves, so playback state is
  * shared: the pill shows it and the canvas can mark which entry is speaking.
- * The mock has no real audio, so the clock is simulated against durationMs.
+ * A typed note has no audio, so its clock is simulated against durationMs.
  */
 export interface PlaybackSlice {
   playingEntryId: string | null;
