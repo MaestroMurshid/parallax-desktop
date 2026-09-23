@@ -13,6 +13,8 @@ want the thoughts in this commonplace book to be challenged or interpreted.
 Everything runs on your machine. Transcription, reasoning and embeddings are local GGUF
 models; the only network activity is the one-time model download.
 
+<img width="1280" height="720" alt="parallax-demo" src="https://github.com/user-attachments/assets/9e747c1b-27e8-4a26-aeed-ebf6de8c0045" />
+
 ## What it does
 
 - **Capture** — a global hotkey opens a small floating panel that records without taking focus. Typed notes work too.
