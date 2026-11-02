@@ -1,7 +1,7 @@
 # Parallax
 
-A voice-first place to think. Press a hotkey from anywhere, say what's on your mind, and
-it's transcribed and filed. Over time notes find each other: Parallax puts an old note
+A place to think. Press a hotkey from anywhere, type what's on your mind, and it's
+filed (or switch the hotkey to voice in Settings and say it instead). Over time notes find each other: Parallax puts an old note
 next to a new one and asks how your thinking moved.
 
 **It doesn't do your thinking for you.** You do the thinking; the AI assists. It files what you said,
@@ -17,7 +17,8 @@ models; the only network activity is the one-time model download.
 
 ## What it does
 
-- **Capture** — a global hotkey opens a small floating panel that records without taking focus. Typed notes work too.
+- **Capture** — a global hotkey opens a small floating box to type into, from any app. Voice is a
+  setting away: switch the hotkey to *voice* and the same key records without taking focus.
 - **File** — each note is classified as a *position*, *evidence* or a plain *note*, given
   topics, and titled. You can define your own note types.
 - **Question** — arguments get a question that pushes on them: a hidden assumption, a

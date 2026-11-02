@@ -106,11 +106,14 @@ export async function broadcastSettings(settings: Settings): Promise<void> {
 /**
  * Bring the panel up. Paired with hidePanel so the window is on screen exactly
  * while capture is running and never a moment either side of it.
+ *
+ * `focus` is for the typed composer only. A recording never takes the keyboard
+ * from whatever you were in; a text field that cannot be typed into is not one.
  */
-export async function showPanel(): Promise<void> {
+export async function showPanel(focus = false): Promise<void> {
   if (!isTauri() || !isPanelWindow()) return;
   const { invoke } = await import('@tauri-apps/api/core');
-  await invoke('show_capture');
+  await invoke('show_capture', { focus });
 }
 
 /**

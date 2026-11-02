@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Canvas from '@/components/canvas/Canvas';
 import EmptyState from '@/components/canvas/EmptyState';
 import ConnectPicker from '@/components/canvas/ConnectPicker';
@@ -17,7 +17,7 @@ import ListView, { type RoleFilter } from '@/components/list/ListView';
 import Sidebar from '@/components/list/Sidebar';
 import Onboarding from '@/components/onboarding/Onboarding';
 import CapturePanel from '@/components/panel/CapturePanel';
-import TypedComposer from '@/components/panel/TypedComposer';
+import TypedComposer, { COMPOSER_HOTKEY } from '@/components/panel/TypedComposer';
 import SettingsPanel from '@/components/settings/SettingsPanel';
 import TaskList from '@/components/tasks/TaskList';
 import { getBridge, initBridge, isTauri } from '@/lib/bridge';
@@ -25,6 +25,35 @@ import { broadcastSettings, hidePanel, isPanelWindow, onDiscardHotkey, onHandOff
 import { useApp } from '@/lib/store';
 import type { Settings } from '@/lib/types';
 import styles from './page.module.css';
+
+/**
+ * One capture-hotkey press, in either shell. Text is the default: the key
+ * opens the composer, or (pressed again) hands itself to the open one. Voice
+ * is the opt-in where the same key starts and stops a recording.
+ *
+ * A recording already in flight is always stopped, whatever the mode says --
+ * switching modes mid-take must never strand a recording with no key to end it.
+ *
+ * `answering` is the entry an open note makes this a reply to, or null.
+ */
+function pressCapture(settings: Settings | null, answering: string | null): void {
+  const state = useApp.getState();
+  if (state.captureState === 'recording') {
+    void state.stopRecording();
+    return;
+  }
+  // A failure notice is not a capture in progress: pressing again retries.
+  const free = state.captureState === 'idle' || state.captureState === 'failed';
+  if ((settings?.captureMode ?? 'text') === 'text') {
+    if (state.composing) {
+      window.dispatchEvent(new Event(COMPOSER_HOTKEY));
+      return;
+    }
+    if (free) state.openComposer(answering);
+    return;
+  }
+  if (free) void state.startRecording(answering);
+}
 
 function matchesHotkey(e: KeyboardEvent, hotkey: string): boolean {
   const parts = hotkey.toLowerCase().split('+');
@@ -59,6 +88,10 @@ export default function Page() {
   // corpus, and it should not survive a reload the way stored state would.
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const setComposing = useApp((s) => s.setComposing);
+  // The hotkey listener below is registered once per window, so it reads the
+  // mode through this rather than closing over whatever loaded first.
+  const settingsRef = useRef<Settings | null>(null);
+  settingsRef.current = settings;
 
   useEffect(() => {
     const panel = isPanelWindow();
@@ -127,19 +160,16 @@ export default function Page() {
         // first press after launch throws on an uninitialised bridge and the
         // recording silently never begins.
         await initBridge();
+        // The panel may have taken this press before its own settings load
+        // finished; it must still open on the stored mode, not on a guess.
+        const settings = settingsRef.current ?? (await getBridge().getSettings().catch(() => null));
         const state = useApp.getState();
-        if (state.captureState === 'recording') {
-          void state.stopRecording();
-          return;
-        }
-        // A failure notice is not a capture in progress: pressing again retries.
-        if (state.captureState !== 'idle' && state.captureState !== 'failed') return;
         // In the canvas, an open entry makes the hotkey mean "respond to this".
         // The panel has no such context.
         const target = state.selectedEntryId;
         const onNote = state.overlay === 'entry' || state.overlay === 'file';
         const answering = !isPanel && onNote && target ? target : null;
-        void state.startRecording(answering);
+        pressCapture(settings, answering);
       })();
     });
   }, [isPanel]);
@@ -162,10 +192,14 @@ export default function Page() {
   // every exit path to remember: discard has no hand-off to ride out on, and a
   // recording that fails to start would otherwise strand an empty transparent
   // window in the middle of the screen, eating clicks.
+  //
+  // The typed composer counts as capture running, and is the one case that
+  // takes focus -- it is a text field, and the keyboard is the whole point.
   useEffect(() => {
     if (isPanel !== true) return;
-    void (captureState === 'idle' ? hidePanel() : showPanel());
-  }, [isPanel, captureState]);
+    if (composing) void showPanel(true);
+    else void (captureState === 'idle' ? hidePanel() : showPanel());
+  }, [isPanel, captureState, composing]);
 
   // The canvas takes delivery of what the panel caught, and does nothing else
   // with it. It arrived while you were reading something else, so it waits on
@@ -203,17 +237,13 @@ export default function Page() {
       // window, so binding it here too would start two recordings on one press.
       if (!isTauri() && matchesHotkey(e, settings.hotkey)) {
         e.preventDefault();
-        if (state.captureState === 'recording') void state.stopRecording();
-        else if (state.captureState === 'idle') {
-          // An open entry makes the hotkey mean "respond to this" — the answer
-          // becomes its own note, joined to it. An unanswered question is what
-          // the response closes, not what permits it: an entry you have already
-          // answered is exactly the one you come back to months later.
-          const target = state.selectedEntryId;
-          const onNote = state.overlay === 'entry' || state.overlay === 'file';
-          const answering = onNote && target ? target : null;
-          void state.startRecording(answering);
-        }
+        // An open entry makes the hotkey mean "respond to this" — the answer
+        // becomes its own note, joined to it. An unanswered question is what
+        // the response closes, not what permits it: an entry you have already
+        // answered is exactly the one you come back to months later.
+        const target = state.selectedEntryId;
+        const onNote = state.overlay === 'entry' || state.overlay === 'file';
+        pressCapture(settings, onNote && target ? target : null);
         return;
       }
       // Discard honours the configured key; Escape always closes overlays, so
@@ -285,6 +315,7 @@ export default function Page() {
     return (
       <main className={styles.panelWindow}>
         <CapturePanel settings={settings} />
+        {composing && <TypedComposer inPanel onClose={() => setComposing(false)} />}
       </main>
     );
   }
@@ -316,7 +347,7 @@ export default function Page() {
               place the sample is offered, and the list is now the way in. The
               list's own empty copy is for a filter that matched nothing. */}
           {loaded && !hasEntries && settings ? (
-            <EmptyState hotkey={settings.hotkey} />
+            <EmptyState hotkey={settings.hotkey} mode={settings.captureMode} />
           ) : (
             <>
               <Sidebar filter={roleFilter} onFilterChange={setRoleFilter} />
@@ -332,7 +363,7 @@ export default function Page() {
       >
         <Canvas />
         {loaded && !hasEntries && settings && view === 'canvas' && (
-          <EmptyState hotkey={settings.hotkey} />
+          <EmptyState hotkey={settings.hotkey} mode={settings.captureMode} />
         )}
         {loaded && hasEntries && view === 'canvas' && <SparseNotice />}
 
@@ -343,7 +374,11 @@ export default function Page() {
           list row produced a sheet with no width and no height. An overlay
           belongs to the window, not to whichever view is underneath it. */}
       {overlay === 'entry' && settings && (
-        <EntryView hotkey={settings.hotkey} liveRegister={settings.liveRegister} />
+        <EntryView
+          hotkey={settings.hotkey}
+          captureMode={settings.captureMode}
+          liveRegister={settings.liveRegister}
+        />
       )}
       {overlay === 'file' && <FileView />}
       {overlay === 'tasks' && <TaskList />}

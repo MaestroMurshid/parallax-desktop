@@ -100,6 +100,18 @@ pub enum Theme {
     Dark,
 }
 
+/// What the capture hotkey opens. Text is the default: the hotkey brings up
+/// the typed composer, and voice is the opt-in that starts a recording
+/// instead. Stored, not derived, because both windows have to agree on what
+/// one press means -- the panel answers the hotkey as often as the canvas does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureMode {
+    #[default]
+    Text,
+    Voice,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ComputeBackend {
@@ -117,6 +129,10 @@ pub enum ComputeBackend {
 pub struct Settings {
     pub hotkey: String,
     pub discard_hotkey: String,
+    /// Defaulted on read, so a settings document saved before this existed
+    /// opens on text rather than failing to load.
+    #[serde(default)]
+    pub capture_mode: CaptureMode,
     /// `None` is the "not yet onboarded" sentinel.
     pub model_id: Option<String>,
     pub residency: Residency,
@@ -174,6 +190,7 @@ impl Default for Settings {
         Self {
             hotkey: "Ctrl+Shift+Space".into(),
             discard_hotkey: "Ctrl+Shift+Backspace".into(),
+            capture_mode: CaptureMode::Text,
             model_id: None,
             residency: Residency::Warm,
             provider_name: "llama-server".into(),
@@ -312,4 +329,31 @@ pub struct ModelInfo {
     /// Where the file comes from. Served to the frontend so the user can see
     /// what the app is about to fetch before it fetches it.
     pub url: String,
+}
+
+#[cfg(test)]
+mod capture_mode_tests {
+    use super::*;
+
+    /// Text is the default, including for everyone upgrading: a settings
+    /// document saved before the field existed must read as text, not fail.
+    #[test]
+    fn a_document_saved_before_capture_mode_existed_reads_as_text() {
+        let mut v = serde_json::to_value(Settings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("captureMode");
+        let s: Settings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.capture_mode, CaptureMode::Text);
+    }
+
+    #[test]
+    fn voice_round_trips() {
+        let s = Settings {
+            capture_mode: CaptureMode::Voice,
+            ..Settings::default()
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["captureMode"], serde_json::json!("voice"));
+        let back: Settings = serde_json::from_value(v).unwrap();
+        assert_eq!(back.capture_mode, CaptureMode::Voice);
+    }
 }

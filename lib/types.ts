@@ -261,6 +261,13 @@ export type Theme = 'system' | 'light' | 'dark';
  * back, so a forced choice stays forced. Only backends the build and machine
  * actually have are offered.
  */
+/**
+ * What the capture hotkey opens. `text` is the default: the hotkey brings up
+ * the typed composer, wherever you are. `voice` is the opt-in that makes the
+ * same press start a recording instead.
+ */
+export type CaptureMode = 'text' | 'voice';
+
 export type ComputeBackend =
   | 'auto'
   | 'cpu'
@@ -272,7 +279,9 @@ export type ComputeBackend =
 
 export interface Settings {
   hotkey: string;
+  /** Only armed while recording, so it means nothing in `text` mode. */
   discardHotkey: string;
+  captureMode: CaptureMode;
   modelId: string | null;
   residency: Residency;
   providerName: string;

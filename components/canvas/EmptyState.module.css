@@ -34,6 +34,15 @@
   height: 38px;
 }
 
+/* The composer's field, empty: same surface and edge, no caret. */
+.field {
+  width: 100%;
+  height: 38px;
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 7px;
+}
+
 .bar {
   width: 3px;
   border-radius: 2px;
