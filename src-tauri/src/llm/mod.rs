@@ -85,43 +85,47 @@ pub trait LlmProvider: Send + Sync {
     }
 }
 
-/// The model and key the cloud provider in `settings` would use, or why not.
-/// `Ok(None)` for the local provider, which is not this function's business.
-fn cloud_parts(settings: &Settings) -> Result<Option<(String, String)>> {
-    let model = match settings.reasoning_provider {
-        ReasoningProvider::Local => return Ok(None),
-        ReasoningProvider::Anthropic => settings.anthropic_model.trim(),
-        ReasoningProvider::Openai => settings.openai_model.trim(),
-    };
-    if model.is_empty() {
-        return Err(Error::Other(
-            "no model is named for the cloud provider yet".into(),
-        ));
+/// Everything an API call needs, or why it cannot be made yet. `Ok(None)`
+/// when reasoning is local, which is not this function's business.
+fn api_parts(settings: &Settings) -> Result<Option<(remote::Endpoint, String, Option<String>)>> {
+    if settings.reasoning_provider == ReasoningProvider::Local {
+        return Ok(None);
     }
-    let key = keys::get(settings.reasoning_provider)
-        .ok_or_else(|| Error::Other("no API key is saved for the cloud provider yet".into()))?;
-    Ok(Some((model.to_string(), key)))
+    let endpoint = remote::Endpoint::parse(&settings.api_base_url)?;
+    let model = settings.api_model.trim();
+    if model.is_empty() {
+        return Err(Error::Other("no model is named for the API yet".into()));
+    }
+    let key = keys::get(&endpoint);
+    // A server on this computer usually takes no key; anything else does.
+    if key.is_none() && !endpoint.on_this_machine() {
+        return Err(Error::Other(format!(
+            "no API key is saved for {} yet",
+            endpoint.host()
+        )));
+    }
+    Ok(Some((endpoint, model.to_string(), key)))
 }
 
-/// Whether the chosen cloud provider has everything it needs to be asked.
-/// Always false for the local one; reads the keychain, so not for hot paths.
+/// Whether the chosen API has everything it needs to be asked. Always false
+/// for local reasoning; reads the keychain, so not for hot paths.
 pub fn cloud_configured(settings: &Settings) -> bool {
-    matches!(cloud_parts(settings), Ok(Some(_)))
+    matches!(api_parts(settings), Ok(Some(_)))
 }
 
-/// The cloud provider `settings` chooses. `Ok(None)` when the choice is the
-/// local model, and an error saying what is missing when it is a cloud one
-/// that cannot be asked yet.
+/// The API provider `settings` chooses. `Ok(None)` when reasoning is local,
+/// and an error saying what is missing when an API is chosen but cannot be
+/// asked yet. How it is spoken to follows from the URL (`remote::Wire`).
 pub fn cloud(settings: &Settings) -> Result<Option<Box<dyn LlmProvider>>> {
-    let Some((model, key)) = cloud_parts(settings)? else {
+    let Some((endpoint, model, key)) = api_parts(settings)? else {
         return Ok(None);
     };
-    Ok(Some(match settings.reasoning_provider {
-        ReasoningProvider::Anthropic => Box::new(anthropic::Anthropic::new(key, model)?),
-        ReasoningProvider::Openai => {
-            Box::new(openai::OpenAi::new(key, model, &settings.openai_base_url)?)
+    Ok(Some(match endpoint.wire() {
+        remote::Wire::Anthropic => {
+            let key = key.ok_or_else(|| Error::Other("Anthropic needs an API key".into()))?;
+            Box::new(anthropic::Anthropic::new(key, model)?)
         }
-        ReasoningProvider::Local => unreachable!("cloud_parts returned None for local"),
+        remote::Wire::ChatCompletions => Box::new(openai::OpenAi::new(key, model, &endpoint)?),
     }))
 }
 

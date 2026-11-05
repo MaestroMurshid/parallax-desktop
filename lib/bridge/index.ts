@@ -10,7 +10,6 @@ import type {
   Entry,
   ModelInfo,
   Question,
-  ReasoningProvider,
   Register,
   Settings,
   Span,
@@ -228,12 +227,13 @@ export interface Bridge {
    *  setting. `null` when the dialog is cancelled. */
   pickModelFile(): Promise<string | null>;
 
-  // -- cloud reasoning ----------------------------------------------------
-  /** Whether a key is saved for each cloud provider. Never the key itself:
-   *  keys go into the OS keychain and do not come back out to the window. */
-  apiKeyStatus(): Promise<ApiKeyStatus>;
-  setApiKey(provider: CloudProvider, key: string): Promise<void>;
-  clearApiKey(provider: CloudProvider): Promise<void>;
+  // -- API reasoning ------------------------------------------------------
+  /** Whether a key is saved for the API at `baseUrl` (keys are filed by
+   *  host). Never the key itself: keys go into the OS keychain and do not
+   *  come back out to the window. */
+  apiKeySaved(baseUrl: string): Promise<boolean>;
+  setApiKey(baseUrl: string, key: string): Promise<void>;
+  clearApiKey(baseUrl: string): Promise<void>;
   /** One short call against the chosen reasoning model. Resolves to who
    *  answered; rejects with the provider's own reason (bad key, no model). */
   testReasoning(): Promise<string>;
@@ -353,12 +353,6 @@ export function __setBridge(b: Bridge): void {
 
 export type ImportMode = 'merge' | 'replace';
 
-export type CloudProvider = Exclude<ReasoningProvider, 'local'>;
-
-export interface ApiKeyStatus {
-  anthropic: boolean;
-  openai: boolean;
-}
 
 /** What loading the sample set in motion, so the app can say so. */
 export interface SampleLoad {

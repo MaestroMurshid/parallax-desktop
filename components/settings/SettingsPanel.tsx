@@ -233,8 +233,7 @@ export default function SettingsPanel({
             {(
               [
                 ['local', 'this computer'],
-                ['anthropic', 'Anthropic API'],
-                ['openai', 'OpenAI-compatible API'],
+                ['api', 'an API'],
               ] as const
             ).map(([p, name]) => (
               <button

@@ -225,23 +225,81 @@ fn enforce(schema: &Value, value: &mut Value) {
     }
 }
 
-/// A key sent in the clear is a key given away. Plain http is allowed only to
-/// this machine, where there is no wire to read it off.
-pub fn check_endpoint(base_url: &str) -> Result<()> {
-    let url = base_url.trim();
-    if url.starts_with("https://") {
-        return Ok(());
+/// How a reasoning endpoint is spoken to, decided by its URL alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wire {
+    /// Anthropic's own Messages API. Its OpenAI-compatible layer ignores
+    /// structured output, which every enrichment call depends on, so Claude is
+    /// always spoken to natively.
+    Anthropic,
+    /// The chat-completions shape nearly everyone else serves: OpenAI,
+    /// OpenRouter, Groq, Mistral, DeepSeek, Ollama, LM Studio, llama.cpp...
+    ChatCompletions,
+}
+
+/// A reasoning endpoint the user typed, checked once and then trusted.
+#[derive(Debug, Clone)]
+pub struct Endpoint {
+    url: reqwest::Url,
+}
+
+impl Endpoint {
+    /// A key sent in the clear is a key given away, so plain http is allowed
+    /// only to this machine, where there is no wire to read it off.
+    pub fn parse(base_url: &str) -> Result<Self> {
+        let trimmed = base_url.trim();
+        if trimmed.is_empty() {
+            return Err(Error::Other("no API URL is set yet".into()));
+        }
+        let url = reqwest::Url::parse(trimmed)
+            .map_err(|_| Error::Other(format!("{trimmed} is not a URL")))?;
+        let endpoint = Self { url };
+        match endpoint.url.scheme() {
+            "https" => Ok(endpoint),
+            "http" if endpoint.on_this_machine() => Ok(endpoint),
+            _ => Err(Error::Other(
+                "the API URL must start with https:// (plain http only to this computer)".into(),
+            )),
+        }
     }
-    let local = ["http://localhost", "http://127.0.0.1", "http://[::1]"];
-    if local.iter().any(|p| {
-        url.strip_prefix(p)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with(':') || rest.starts_with('/'))
-    }) {
-        return Ok(());
+
+    pub fn wire(&self) -> Wire {
+        match self.url.host_str() {
+            Some("api.anthropic.com") => Wire::Anthropic,
+            _ => Wire::ChatCompletions,
+        }
     }
-    Err(Error::Other(
-        "the endpoint must start with https:// (plain http only to this computer)".into(),
-    ))
+
+    /// A server on this computer -- Ollama, LM Studio -- is not off the
+    /// machine: local-only notes may go to it, and it needs no key.
+    pub fn on_this_machine(&self) -> bool {
+        match self.url.host() {
+            Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+            None => false,
+        }
+    }
+
+    /// What a key is filed under: the host, and the port when it has one.
+    /// Keys follow the URL, so switching between two services and back finds
+    /// each one's key where it was left.
+    pub fn key_name(&self) -> String {
+        let host = self.url.host_str().unwrap_or_default();
+        match self.url.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_string(),
+        }
+    }
+
+    /// Where a request is posted: the base URL with the call's own path on it.
+    pub fn call(&self, path: &str) -> String {
+        format!("{}/{path}", self.url.as_str().trim_end_matches('/'))
+    }
+
+    pub fn host(&self) -> String {
+        self.url.host_str().unwrap_or_default().to_string()
+    }
 }
 
 /// What OpenAI's strict mode and Anthropic's structured outputs both demand
@@ -389,11 +447,47 @@ mod tests {
 
     #[test]
     fn keys_only_travel_encrypted_or_stay_on_this_machine() {
-        assert!(check_endpoint("https://api.openai.com/v1").is_ok());
-        assert!(check_endpoint("http://localhost:1234/v1").is_ok());
-        assert!(check_endpoint("http://127.0.0.1/v1").is_ok());
-        assert!(check_endpoint("http://192.168.1.4:8080/v1").is_err());
-        assert!(check_endpoint("http://localhost.evil.com/v1").is_err());
-        assert!(check_endpoint("ftp://example.com").is_err());
+        assert!(Endpoint::parse("https://api.openai.com/v1").is_ok());
+        assert!(Endpoint::parse("http://localhost:11434/v1").is_ok());
+        assert!(Endpoint::parse("http://127.0.0.1/v1").is_ok());
+        assert!(Endpoint::parse("http://192.168.1.4:8080/v1").is_err());
+        assert!(Endpoint::parse("http://localhost.evil.com/v1").is_err());
+        assert!(Endpoint::parse("ftp://example.com").is_err());
+        assert!(Endpoint::parse("").is_err());
+        assert!(Endpoint::parse("not a url").is_err());
+    }
+
+    #[test]
+    fn the_url_decides_how_it_is_spoken_to() {
+        let wire = |u: &str| Endpoint::parse(u).unwrap().wire();
+        assert_eq!(wire("https://api.anthropic.com/v1"), Wire::Anthropic);
+        assert_eq!(wire("https://api.openai.com/v1"), Wire::ChatCompletions);
+        assert_eq!(wire("https://openrouter.ai/api/v1"), Wire::ChatCompletions);
+        assert_eq!(wire("http://localhost:11434/v1"), Wire::ChatCompletions);
+    }
+
+    #[test]
+    fn a_server_on_this_computer_is_not_off_the_machine() {
+        assert!(Endpoint::parse("http://localhost:1234/v1")
+            .unwrap()
+            .on_this_machine());
+        assert!(Endpoint::parse("http://[::1]:8080")
+            .unwrap()
+            .on_this_machine());
+        assert!(!Endpoint::parse("https://api.groq.com/openai/v1")
+            .unwrap()
+            .on_this_machine());
+    }
+
+    #[test]
+    fn keys_are_filed_by_host_and_calls_keep_the_path() {
+        let e = Endpoint::parse("https://openrouter.ai/api/v1/").unwrap();
+        assert_eq!(e.key_name(), "openrouter.ai");
+        assert_eq!(
+            e.call("chat/completions"),
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        let local = Endpoint::parse("http://localhost:11434/v1").unwrap();
+        assert_eq!(local.key_name(), "localhost:11434");
     }
 }

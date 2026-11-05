@@ -78,14 +78,8 @@ export default function StatusBar({ settings }: { settings: Settings }) {
     ? baseName(settings.customReasoningModelPath)
     : null;
   const speechReady = customSpeechName !== null || speech?.state.kind === 'ready';
-  const cloudModel =
-    settings.reasoningProvider === 'anthropic'
-      ? settings.anthropicModel
-      : settings.reasoningProvider === 'openai'
-        ? settings.openaiModel
-        : null;
-  const cloudHost =
-    settings.reasoningProvider === 'anthropic' ? 'Anthropic' : hostOf(settings.openaiBaseUrl);
+  const cloudModel = settings.reasoningProvider === 'api' ? settings.apiModel : null;
+  const cloudHost = hostOf(settings.apiBaseUrl);
 
   return (
     <footer className={styles.bar}>

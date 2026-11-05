@@ -17,9 +17,7 @@ import type {
   SystemProfile,
 } from '@/lib/types';
 import type {
-  ApiKeyStatus,
   Bridge,
-  CloudProvider,
   CorpusImport,
   Exported,
   ImportMode,
@@ -266,16 +264,16 @@ export class TauriBridge implements Bridge {
     return invoke('pick_model_file');
   }
 
-  apiKeyStatus(): Promise<ApiKeyStatus> {
-    return invoke('api_key_status');
+  apiKeySaved(baseUrl: string): Promise<boolean> {
+    return invoke('api_key_saved', { baseUrl });
   }
 
-  setApiKey(provider: CloudProvider, key: string): Promise<void> {
-    return invoke('set_api_key', { provider, key });
+  setApiKey(baseUrl: string, key: string): Promise<void> {
+    return invoke('set_api_key', { baseUrl, key });
   }
 
-  clearApiKey(provider: CloudProvider): Promise<void> {
-    return invoke('clear_api_key', { provider });
+  clearApiKey(baseUrl: string): Promise<void> {
+    return invoke('clear_api_key', { baseUrl });
   }
 
   testReasoning(): Promise<string> {

@@ -264,7 +264,7 @@ pub fn run() {
             commands::system::get_settings,
             commands::system::set_settings,
             commands::system::corpus_location,
-            commands::system::api_key_status,
+            commands::system::api_key_saved,
             commands::system::set_api_key,
             commands::system::clear_api_key,
             commands::system::test_reasoning,

@@ -2,8 +2,8 @@
 
 use crate::db;
 use crate::error::{Error, Result};
-use crate::llm::{keys, Ask};
-use crate::model::{ReasoningProvider, Settings};
+use crate::llm::{keys, remote::Endpoint, Ask};
+use crate::model::Settings;
 use crate::state::AppState;
 use tauri::State;
 
@@ -41,31 +41,21 @@ pub fn set_settings(
     Ok(after)
 }
 
-/// Which cloud providers have a key saved. Booleans only: a key goes into the
-/// keychain from here and never comes back out to the window.
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiKeyStatus {
-    anthropic: bool,
-    openai: bool,
+/// Whether a key is saved for the API at `base_url`. A boolean only: a key
+/// goes into the keychain from here and never comes back out to the window.
+#[tauri::command]
+pub fn api_key_saved(base_url: String) -> Result<bool> {
+    Ok(keys::has(&Endpoint::parse(&base_url)?))
 }
 
 #[tauri::command]
-pub fn api_key_status() -> ApiKeyStatus {
-    ApiKeyStatus {
-        anthropic: keys::has(ReasoningProvider::Anthropic),
-        openai: keys::has(ReasoningProvider::Openai),
-    }
+pub fn set_api_key(base_url: String, key: String) -> Result<()> {
+    keys::set(&Endpoint::parse(&base_url)?, &key)
 }
 
 #[tauri::command]
-pub fn set_api_key(provider: ReasoningProvider, key: String) -> Result<()> {
-    keys::set(provider, &key)
-}
-
-#[tauri::command]
-pub fn clear_api_key(provider: ReasoningProvider) -> Result<()> {
-    keys::clear(provider)
+pub fn clear_api_key(base_url: String) -> Result<()> {
+    keys::clear(&Endpoint::parse(&base_url)?)
 }
 
 /// One short call against whatever reasoning is chosen, so a wrong key or

@@ -133,8 +133,8 @@ pub fn set(conn: &Connection, settings: &Settings) -> Result<()> {
 /// the same as a model path that does not exist, rather than discovered at the
 /// first call.
 fn validate_endpoint_patch(patch: &serde_json::Value) -> Result<()> {
-    match patch.get("openaiBaseUrl").and_then(|v| v.as_str()) {
-        Some(url) => crate::llm::remote::check_endpoint(url),
+    match patch.get("apiBaseUrl").and_then(|v| v.as_str()) {
+        Some(url) => crate::llm::remote::Endpoint::parse(url).map(|_| ()),
         None => Ok(()),
     }
 }
@@ -165,15 +165,15 @@ mod tests {
         let conn = open_in_memory().unwrap();
         assert!(merge(
             &conn,
-            serde_json::json!({ "openaiBaseUrl": "http://example.com/v1" })
+            serde_json::json!({ "apiBaseUrl": "http://example.com/v1" })
         )
         .is_err());
         let s = merge(
             &conn,
-            serde_json::json!({ "openaiBaseUrl": "https://openrouter.ai/api/v1" }),
+            serde_json::json!({ "apiBaseUrl": "https://openrouter.ai/api/v1" }),
         )
         .unwrap();
-        assert_eq!(s.openai_base_url, "https://openrouter.ai/api/v1");
+        assert_eq!(s.api_base_url, "https://openrouter.ai/api/v1");
     }
 
     /// Everyone already set up keeps the local model they had.
@@ -182,7 +182,8 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let s = get(&conn).unwrap();
         assert_eq!(s.reasoning_provider, crate::model::ReasoningProvider::Local);
-        assert_eq!(s.anthropic_model, "claude-opus-5-5");
+        assert_eq!(s.api_base_url, "https://api.anthropic.com/v1");
+        assert_eq!(s.api_model, "claude-opus-5-5");
     }
 
     #[test]

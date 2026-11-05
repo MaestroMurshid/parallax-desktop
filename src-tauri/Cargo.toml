@@ -34,6 +34,9 @@ transcribe-cpp = "0.2.3"
 sysinfo = "0.36.1"
 reqwest = { version = "0.13.3", default-features = false, features = ["blocking", "json", "rustls"] }
 rust-stemmers = "1.2.0"
+# Already in the tree through reqwest; named directly for `url::Host`, which is
+# how an endpoint on this machine is told apart from one that is not.
+url = "2"
 tauri-plugin-dialog = "2"
 zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
 

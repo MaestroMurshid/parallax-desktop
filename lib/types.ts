@@ -263,11 +263,10 @@ export type Theme = 'system' | 'light' | 'dark';
  */
 /**
  * Where the reasoning model runs (§9.4). `local` is the bundled llama-server;
- * the other two are cloud APIs with the user's own key. Only reasoning moves —
- * audio, transcription and embeddings stay on this machine regardless.
- * `openai` is any chat-completions endpoint: OpenAI, OpenRouter, Groq, …
+ * `api` is whatever `apiBaseUrl` points at, with the user's own key. Only
+ * reasoning moves — audio, transcription and embeddings stay on this machine.
  */
-export type ReasoningProvider = 'local' | 'anthropic' | 'openai';
+export type ReasoningProvider = 'local' | 'api';
 
 export type ComputeBackend =
   | 'auto'
@@ -320,10 +319,12 @@ export interface Settings {
    *  the catalogue's own whisper files. */
   customTranscriptionModelPath: string | null;
   reasoningProvider: ReasoningProvider;
-  /** Which model to ask. The keys are not in Settings at all: they live in
-   *  the OS keychain and the window can only set or clear them. */
-  anthropicModel: string;
-  openaiModel: string;
-  /** Must be https, or plain http to this computer only. */
-  openaiBaseUrl: string;
+  /**
+   * Any API URL. api.anthropic.com is spoken to as Anthropic's Messages API;
+   * everything else as OpenAI-style chat completions. Must be https, or plain
+   * http to this computer only. The key is not in Settings at all: it lives in
+   * the OS keychain, filed by host, and the window can only set or clear it.
+   */
+  apiBaseUrl: string;
+  apiModel: string;
 }

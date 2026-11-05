@@ -1,4 +1,5 @@
 //! Claude, through the Anthropic Messages API, with the user's own key.
+//! Chosen whenever the API URL is api.anthropic.com (`remote::Wire`).
 //!
 //! Raw HTTP because there is no official Anthropic SDK for Rust. The shape
 //! follows the current API version: structured output through

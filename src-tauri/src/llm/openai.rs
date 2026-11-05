@@ -1,31 +1,34 @@
-//! Any chat-completions endpoint with a key: OpenAI itself, or a compatible
-//! one -- OpenRouter, Groq, a server on this computer.
+//! Any chat-completions endpoint: OpenAI itself, or the many that copy its
+//! shape -- OpenRouter, Groq, Mistral, DeepSeek, or a server on this computer
+//! such as Ollama or LM Studio, which needs no key at all.
 //!
 //! Nothing model-specific is sent. No temperature, because reasoning models
 //! refuse anything but the default; no token ceiling, because the parameter's
 //! name differs between OpenAI and the servers copying it, and the schema
 //! already bounds the reply.
 
-use super::remote::{check_endpoint, conform, portable};
+use super::remote::{conform, portable, Endpoint};
 use super::{Ask, LlmProvider};
 use crate::error::{Error, Result};
 use serde_json::{json, Value};
 use std::time::Duration;
 
 pub struct OpenAi {
-    key: String,
+    /// `None` for a server on this computer that asks for none.
+    key: Option<String>,
     model: String,
     endpoint: String,
+    on_this_machine: bool,
     client: reqwest::blocking::Client,
 }
 
 impl OpenAi {
-    pub fn new(key: String, model: String, base_url: &str) -> Result<Self> {
-        check_endpoint(base_url)?;
+    pub fn new(key: Option<String>, model: String, endpoint: &Endpoint) -> Result<Self> {
         Ok(Self {
             key,
             model,
-            endpoint: format!("{}/chat/completions", base_url.trim().trim_end_matches('/')),
+            endpoint: endpoint.call("chat/completions"),
+            on_this_machine: endpoint.on_this_machine(),
             client: reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(300))
                 .build()
@@ -78,17 +81,18 @@ impl LlmProvider for OpenAi {
     }
 
     fn remote(&self) -> bool {
-        true
+        !self.on_this_machine
     }
 
     fn ask(&self, ask: Ask) -> Result<String> {
         let portable = ask.schema.as_ref().map(|s| portable(s, true));
         let body = body(&self.model, &ask, portable.as_ref().map(|p| &p.schema));
 
-        let response: Value = self
-            .client
-            .post(&self.endpoint)
-            .bearer_auth(&self.key)
+        let mut request = self.client.post(&self.endpoint);
+        if let Some(key) = &self.key {
+            request = request.bearer_auth(key);
+        }
+        let response: Value = request
             .json(&body)
             .send()
             .map_err(|e| Error::Other(format!("could not reach the provider: {e}")))?
@@ -107,15 +111,23 @@ impl LlmProvider for OpenAi {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_endpoint_is_built_from_the_base_url() {
-        let p = OpenAi::new("k".into(), "m".into(), "https://openrouter.ai/api/v1/").unwrap();
-        assert_eq!(p.endpoint, "https://openrouter.ai/api/v1/chat/completions");
+    fn at(url: &str) -> OpenAi {
+        OpenAi::new(None, "m".into(), &Endpoint::parse(url).unwrap()).unwrap()
     }
 
     #[test]
-    fn a_plain_http_endpoint_elsewhere_is_refused() {
-        assert!(OpenAi::new("k".into(), "m".into(), "http://example.com/v1").is_err());
+    fn the_endpoint_is_built_from_the_base_url() {
+        assert_eq!(
+            at("https://openrouter.ai/api/v1/").endpoint,
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+    }
+
+    /// Ollama on this computer: local-only notes may go to it.
+    #[test]
+    fn a_server_on_this_computer_is_not_remote() {
+        assert!(!at("http://localhost:11434/v1").remote());
+        assert!(at("https://api.openai.com/v1").remote());
     }
 
     #[test]
