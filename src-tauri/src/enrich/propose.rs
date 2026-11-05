@@ -28,6 +28,12 @@ pub fn propose(
     let Some(mine) = db::entries::get(conn, entry_id)? else {
         return Ok(0);
     };
+    // The judge reads both notes, so a local-only note is kept out of it from
+    // either side when the judge is not on this machine (§9.4).
+    let remote = provider.remote();
+    if mine.local_only && remote {
+        return Ok(0);
+    }
 
     let mut landed = 0;
     for other_id in candidates(conn, entry_id, cap)? {
@@ -40,6 +46,9 @@ pub fn propose(
         let Some(other) = db::entries::get(conn, &other_id)? else {
             continue;
         };
+        if other.local_only && remote {
+            continue;
+        }
 
         // The later note is the second, because the relation is what it does to
         // the one already there. Usually that is the note just enriched, but not
@@ -114,6 +123,24 @@ mod tests {
             "question": "Does each make the thing it improves worse elsewhere?"
         })
         .to_string()
+    }
+
+    /// §9.4, from the other side: the note being enriched may be shareable
+    /// while its candidate is not, and the judge reads both.
+    #[test]
+    fn a_local_only_candidate_is_not_shown_to_a_cloud_judge() {
+        let conn = db::open_in_memory().unwrap();
+        let (a, b) = pair(&conn);
+        conn.execute("UPDATE entries SET local_only = 1 WHERE id = ?1", [&a])
+            .unwrap();
+        let p = crate::llm::fake::Remote(ScriptedProvider::with(&[&says(
+            "same move",
+            "trade write performance",
+            "less reliable",
+        )]));
+
+        assert_eq!(propose(&conn, &p, &b, 8).unwrap(), 0);
+        assert_eq!(p.0.calls(), 0, "the local-only note reached the judge");
     }
 
     #[test]

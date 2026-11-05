@@ -27,6 +27,14 @@ pub fn ask(
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
+    // Said rather than skipped: someone pressed the button and is waiting.
+    if entry.local_only && provider.remote() {
+        return Err(Error::Other(format!(
+            "this note is local-only, so it is not sent to {}",
+            provider.name()
+        )));
+    }
+
     let tier = db::types::tier_for(conn, &entry.type_id)?;
     let allowed = gate::invoked_probes(&entry, tier);
     let offered = match probe {

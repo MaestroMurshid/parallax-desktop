@@ -4,10 +4,15 @@
 //! Audio and embeddings are not here on purpose. They are local
 //! unconditionally, so there is nothing for them to be abstracted over.
 
+pub mod anthropic;
 pub mod binary;
+pub mod keys;
 pub mod llama_server;
+pub mod openai;
+pub mod remote;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::model::{ReasoningProvider, Settings};
 use serde_json::Value;
 
 /// Starts a child without giving it a console window.
@@ -72,6 +77,52 @@ pub trait LlmProvider: Send + Sync {
 
     /// Whether a call would land now, so a caller can degrade rather than wait.
     fn ready(&self) -> bool;
+
+    /// Whether what is asked leaves this machine. A note marked local-only is
+    /// never put to a provider that says yes here (§9.4).
+    fn remote(&self) -> bool {
+        false
+    }
+}
+
+/// The model and key the cloud provider in `settings` would use, or why not.
+/// `Ok(None)` for the local provider, which is not this function's business.
+fn cloud_parts(settings: &Settings) -> Result<Option<(String, String)>> {
+    let model = match settings.reasoning_provider {
+        ReasoningProvider::Local => return Ok(None),
+        ReasoningProvider::Anthropic => settings.anthropic_model.trim(),
+        ReasoningProvider::Openai => settings.openai_model.trim(),
+    };
+    if model.is_empty() {
+        return Err(Error::Other(
+            "no model is named for the cloud provider yet".into(),
+        ));
+    }
+    let key = keys::get(settings.reasoning_provider)
+        .ok_or_else(|| Error::Other("no API key is saved for the cloud provider yet".into()))?;
+    Ok(Some((model.to_string(), key)))
+}
+
+/// Whether the chosen cloud provider has everything it needs to be asked.
+/// Always false for the local one; reads the keychain, so not for hot paths.
+pub fn cloud_configured(settings: &Settings) -> bool {
+    matches!(cloud_parts(settings), Ok(Some(_)))
+}
+
+/// The cloud provider `settings` chooses. `Ok(None)` when the choice is the
+/// local model, and an error saying what is missing when it is a cloud one
+/// that cannot be asked yet.
+pub fn cloud(settings: &Settings) -> Result<Option<Box<dyn LlmProvider>>> {
+    let Some((model, key)) = cloud_parts(settings)? else {
+        return Ok(None);
+    };
+    Ok(Some(match settings.reasoning_provider {
+        ReasoningProvider::Anthropic => Box::new(anthropic::Anthropic::new(key, model)?),
+        ReasoningProvider::Openai => {
+            Box::new(openai::OpenAi::new(key, model, &settings.openai_base_url)?)
+        }
+        ReasoningProvider::Local => unreachable!("cloud_parts returned None for local"),
+    }))
 }
 
 #[cfg(test)]
@@ -118,6 +169,28 @@ pub mod fake {
         }
 
         fn ready(&self) -> bool {
+            true
+        }
+    }
+
+    /// Any provider, presented as one that is not on this machine -- for the
+    /// tests that local-only notes are never put to it.
+    pub struct Remote<P>(pub P);
+
+    impl<P: LlmProvider> LlmProvider for Remote<P> {
+        fn name(&self) -> String {
+            "remote".to_string()
+        }
+
+        fn ask(&self, ask: Ask) -> Result<String> {
+            self.0.ask(ask)
+        }
+
+        fn ready(&self) -> bool {
+            true
+        }
+
+        fn remote(&self) -> bool {
             true
         }
     }

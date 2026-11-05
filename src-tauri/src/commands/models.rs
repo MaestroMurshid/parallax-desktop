@@ -242,7 +242,13 @@ pub fn models_location(state: State<AppState>) -> Result<String> {
 /// download that finished -- someone who only ever points the app at their own
 /// file must not be sent back to onboarding for a catalogue model they never
 /// asked for.
-pub fn set_up(settings: &crate::model::Settings, models: &[ModelInfo]) -> bool {
+/// `cloud_reasoning` stands in for the reasoning model when a cloud provider
+/// is chosen and has what it needs: there is then nothing to download for it.
+pub fn set_up(
+    settings: &crate::model::Settings,
+    models: &[ModelInfo],
+    cloud_reasoning: bool,
+) -> bool {
     let ready = |id: &str| {
         models
             .iter()
@@ -253,7 +259,8 @@ pub fn set_up(settings: &crate::model::Settings, models: &[ModelInfo]) -> bool {
             .is_some_and(|p| crate::state::resolve_custom_gguf(Some(p)).is_some())
     };
 
-    let reasoning_ok = has_custom(&settings.custom_reasoning_model_path)
+    let reasoning_ok = cloud_reasoning
+        || has_custom(&settings.custom_reasoning_model_path)
         || settings.model_id.as_deref().is_some_and(ready);
     if !reasoning_ok {
         return false;
@@ -301,7 +308,12 @@ fn models_on_disk(dir: &std::path::Path) -> Vec<ModelInfo> {
 #[tauri::command]
 pub fn setup_complete(state: State<AppState>) -> Result<bool> {
     let settings = crate::db::settings::get(&state.db())?;
-    Ok(set_up(&settings, &models_on_disk(&state.models_dir())))
+    let cloud = crate::llm::cloud_configured(&settings);
+    Ok(set_up(
+        &settings,
+        &models_on_disk(&state.models_dir()),
+        cloud,
+    ))
 }
 
 #[cfg(test)]
@@ -337,13 +349,21 @@ mod set_up_tests {
     #[test]
     fn every_chosen_model_on_disk_is_set_up() {
         let models = on_disk(&["qwen3-4b-q4", "whisper-base", "bge-small-en-v1.5"]);
-        assert!(set_up(&chosen(), &models));
+        assert!(set_up(&chosen(), &models, false));
+    }
+
+    /// Choosing a cloud model means there is no reasoning file to wait for.
+    #[test]
+    fn a_ready_cloud_provider_stands_in_for_the_reasoning_model() {
+        let models = on_disk(&["whisper-base"]);
+        assert!(!set_up(&Settings::default(), &models, false));
+        assert!(set_up(&Settings::default(), &models, true));
     }
 
     #[test]
     fn nothing_chosen_is_not_set_up() {
         let models = on_disk(&["qwen3-4b-q4", "whisper-base", "bge-small-en-v1.5"]);
-        assert!(!set_up(&Settings::default(), &models));
+        assert!(!set_up(&Settings::default(), &models, false));
     }
 
     /// Onboarding saves the choice before the download finishes. Closing the
@@ -359,10 +379,11 @@ mod set_up_tests {
                 };
             }
         }
-        assert!(!set_up(&chosen(), &models));
+        assert!(!set_up(&chosen(), &models, false));
         assert!(!set_up(
             &chosen(),
-            &on_disk(&["qwen3-4b-q4", "bge-small-en-v1.5"])
+            &on_disk(&["qwen3-4b-q4", "bge-small-en-v1.5"]),
+            false
         ));
     }
 
@@ -376,7 +397,8 @@ mod set_up_tests {
         };
         assert!(set_up(
             &settings,
-            &on_disk(&["qwen3-4b-q4", "whisper-base"])
+            &on_disk(&["qwen3-4b-q4", "whisper-base"]),
+            false
         ));
     }
 
@@ -401,7 +423,7 @@ mod set_up_tests {
             embedding_model_id: None,
             ..Settings::default()
         };
-        assert!(set_up(&settings, &on_disk(&["whisper-base"])));
+        assert!(set_up(&settings, &on_disk(&["whisper-base"]), false));
         let _ = std::fs::remove_file(&file);
     }
 
@@ -415,7 +437,7 @@ mod set_up_tests {
             embedding_model_id: None,
             ..chosen()
         };
-        assert!(set_up(&settings, &on_disk(&["qwen3-4b-q4"])));
+        assert!(set_up(&settings, &on_disk(&["qwen3-4b-q4"]), false));
         let _ = std::fs::remove_file(&file);
     }
 
@@ -428,7 +450,7 @@ mod set_up_tests {
             custom_reasoning_model_path: Some("E:/nowhere/ghost.gguf".into()),
             ..Settings::default()
         };
-        assert!(!set_up(&settings, &on_disk(&["whisper-base"])));
+        assert!(!set_up(&settings, &on_disk(&["whisper-base"]), false));
     }
 
     /// With no custom path set at all, behaviour must be exactly what it was
@@ -436,8 +458,8 @@ mod set_up_tests {
     #[test]
     fn no_custom_path_behaves_exactly_as_before() {
         let models = on_disk(&["qwen3-4b-q4", "whisper-base", "bge-small-en-v1.5"]);
-        assert!(set_up(&chosen(), &models));
-        assert!(!set_up(&Settings::default(), &models));
+        assert!(set_up(&chosen(), &models, false));
+        assert!(!set_up(&Settings::default(), &models, false));
     }
 }
 

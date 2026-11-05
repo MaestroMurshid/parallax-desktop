@@ -129,8 +129,19 @@ pub fn set(conn: &Connection, settings: &Settings) -> Result<()> {
 
 /// The bridge sends a partial, so the merge happens over JSON rather than
 /// field by field -- otherwise every new setting needs a line here too.
+/// An endpoint the key could be read off in transit is refused on the way in,
+/// the same as a model path that does not exist, rather than discovered at the
+/// first call.
+fn validate_endpoint_patch(patch: &serde_json::Value) -> Result<()> {
+    match patch.get("openaiBaseUrl").and_then(|v| v.as_str()) {
+        Some(url) => crate::llm::remote::check_endpoint(url),
+        None => Ok(()),
+    }
+}
+
 pub fn merge(conn: &Connection, patch: serde_json::Value) -> Result<Settings> {
     validate_custom_model_patch(&patch)?;
+    validate_endpoint_patch(&patch)?;
     let patch = normalize_empty_custom_paths(patch);
     let mut doc = serde_json::to_value(get(conn)?)?;
     if let (Some(target), Some(patch)) = (doc.as_object_mut(), patch.as_object()) {
@@ -148,6 +159,31 @@ mod tests {
     use super::*;
     use crate::db::open_in_memory;
     use crate::model::{ComputeBackend, Residency};
+
+    #[test]
+    fn an_endpoint_that_would_expose_the_key_is_refused() {
+        let conn = open_in_memory().unwrap();
+        assert!(merge(
+            &conn,
+            serde_json::json!({ "openaiBaseUrl": "http://example.com/v1" })
+        )
+        .is_err());
+        let s = merge(
+            &conn,
+            serde_json::json!({ "openaiBaseUrl": "https://openrouter.ai/api/v1" }),
+        )
+        .unwrap();
+        assert_eq!(s.openai_base_url, "https://openrouter.ai/api/v1");
+    }
+
+    /// Everyone already set up keeps the local model they had.
+    #[test]
+    fn reasoning_stays_local_unless_chosen() {
+        let conn = open_in_memory().unwrap();
+        let s = get(&conn).unwrap();
+        assert_eq!(s.reasoning_provider, crate::model::ReasoningProvider::Local);
+        assert_eq!(s.anthropic_model, "claude-opus-5-5");
+    }
 
     #[test]
     fn defaults_when_nothing_is_stored() {

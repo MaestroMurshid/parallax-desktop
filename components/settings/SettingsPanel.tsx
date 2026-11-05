@@ -5,6 +5,7 @@ import { getBridge } from '@/lib/bridge';
 import { useApp } from '@/lib/store';
 import type { ModelInfo, Settings } from '@/lib/types';
 import styles from './SettingsPanel.module.css';
+import CloudReasoning from './CloudReasoning';
 import TypeEditor from './TypeEditor';
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)}GB`;
@@ -226,100 +227,128 @@ export default function SettingsPanel({
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>reasoning model</h2>
 
-        <div className={styles.models}>
-          {models
-            .filter((m) => m.kind === 'reasoning')
-            .map((model) => (
-            <div key={model.id} className={model.id === settings.modelId ? styles.modelRowOn : styles.modelRow}>
-              <button
-                type="button"
-                className={styles.modelSelect}
-                onClick={() => void update({ modelId: model.id })}
-              >
-                <span className={styles.modelName}>{model.name}</span>
-                <span className={styles.modelMeta}>
-                  {model.quantization} · {gb(model.sizeBytes)}
-                </span>
-              </button>
-
-              <div className={styles.modelState}>
-                {model.state.kind === 'ready' && <span className={styles.ready}>ready</span>}
-                {model.state.kind === 'failed' && <span className={styles.failed}>failed</span>}
-                {model.state.kind === 'not-downloaded' && (
-                  <button
-                    type="button"
-                    className={styles.download}
-                    onClick={() => void getBridge().downloadModel(model.id)}
-                  >
-                    download
-                  </button>
-                )}
-                {model.state.kind === 'downloading' && (
-                  <div className={styles.progressTrack} aria-hidden>
-                    <div
-                      className={styles.progressFill}
-                      style={{
-                        width: `${Math.round((model.state.receivedBytes / model.state.totalBytes) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
         <div className={styles.row}>
-          <span className={styles.label}>your own reasoning model</span>
-          <div className={styles.control}>
-            <span className={styles.value}>
-              {settings.customReasoningModelPath || `none — using ${reasoningCatalogueName}`}
-            </span>
-            <button
-              type="button"
-              className={styles.inline}
-              onClick={() => void chooseModel('customReasoningModelPath')}
-            >
-              choose file…
-            </button>
-            {settings.customReasoningModelPath && (
-              <button
-                type="button"
-                className={styles.inline}
-                onClick={() => void updateModelPath('customReasoningModelPath', null)}
-              >
-                clear
-              </button>
-            )}
-          </div>
-        </div>
-        {modelPathError?.field === 'customReasoningModelPath' && (
-          <p className={styles.reject}>{modelPathError.message}</p>
-        )}
-        <p className={styles.helper}>
-          any GGUF chat model llama.cpp can run; quality is not measured
-        </p>
-
-        <div className={styles.row}>
-          <span className={styles.label}>residency</span>
+          <span className={styles.label}>runs on</span>
           <div className={styles.options}>
-            {(['warm', 'cold'] as const).map((r) => (
+            {(
+              [
+                ['local', 'this computer'],
+                ['anthropic', 'Anthropic API'],
+                ['openai', 'OpenAI-compatible API'],
+              ] as const
+            ).map(([p, name]) => (
               <button
-                key={r}
+                key={p}
                 type="button"
-                className={r === settings.residency ? styles.optionOn : styles.option}
-                onClick={() => void update({ residency: r })}
+                className={p === settings.reasoningProvider ? styles.optionOn : styles.option}
+                onClick={() => void update({ reasoningProvider: p })}
               >
-                {r}
+                {name}
               </button>
             ))}
           </div>
         </div>
-        <p className={styles.helper}>
-          Warm keeps the model loaded for ten minutes after your last note, so each question lands in
-          about two seconds. Cold gives the graphics card back thirty seconds after, which saves battery,
-          and the next question takes about four seconds longer while the model loads.
-        </p>
+
+        {settings.reasoningProvider === 'local' ? (
+          <>
+            <div className={styles.models}>
+              {models
+                .filter((m) => m.kind === 'reasoning')
+                .map((model) => (
+                <div key={model.id} className={model.id === settings.modelId ? styles.modelRowOn : styles.modelRow}>
+                  <button
+                    type="button"
+                    className={styles.modelSelect}
+                    onClick={() => void update({ modelId: model.id })}
+                  >
+                    <span className={styles.modelName}>{model.name}</span>
+                    <span className={styles.modelMeta}>
+                      {model.quantization} · {gb(model.sizeBytes)}
+                    </span>
+                  </button>
+
+                  <div className={styles.modelState}>
+                    {model.state.kind === 'ready' && <span className={styles.ready}>ready</span>}
+                    {model.state.kind === 'failed' && <span className={styles.failed}>failed</span>}
+                    {model.state.kind === 'not-downloaded' && (
+                      <button
+                        type="button"
+                        className={styles.download}
+                        onClick={() => void getBridge().downloadModel(model.id)}
+                      >
+                        download
+                      </button>
+                    )}
+                    {model.state.kind === 'downloading' && (
+                      <div className={styles.progressTrack} aria-hidden>
+                        <div
+                          className={styles.progressFill}
+                          style={{
+                            width: `${Math.round((model.state.receivedBytes / model.state.totalBytes) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className={styles.row}>
+              <span className={styles.label}>your own reasoning model</span>
+              <div className={styles.control}>
+                <span className={styles.value}>
+                  {settings.customReasoningModelPath || `none — using ${reasoningCatalogueName}`}
+                </span>
+                <button
+                  type="button"
+                  className={styles.inline}
+                  onClick={() => void chooseModel('customReasoningModelPath')}
+                >
+                  choose file…
+                </button>
+                {settings.customReasoningModelPath && (
+                  <button
+                    type="button"
+                    className={styles.inline}
+                    onClick={() => void updateModelPath('customReasoningModelPath', null)}
+                  >
+                    clear
+                  </button>
+                )}
+              </div>
+            </div>
+            {modelPathError?.field === 'customReasoningModelPath' && (
+              <p className={styles.reject}>{modelPathError.message}</p>
+            )}
+            <p className={styles.helper}>
+              any GGUF chat model llama.cpp can run; quality is not measured
+            </p>
+
+            <div className={styles.row}>
+              <span className={styles.label}>residency</span>
+              <div className={styles.options}>
+                {(['warm', 'cold'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    className={r === settings.residency ? styles.optionOn : styles.option}
+                    onClick={() => void update({ residency: r })}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className={styles.helper}>
+              Warm keeps the model loaded for ten minutes after your last note, so each question lands in
+              about two seconds. Cold gives the graphics card back thirty seconds after, which saves battery,
+              and the next question takes about four seconds longer while the model loads.
+            </p>
+          </>
+        ) : (
+          <CloudReasoning settings={settings} update={update} />
+        )}
       </section>
 
       <section className={styles.section}>

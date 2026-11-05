@@ -183,6 +183,11 @@ Second note, {}:
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_judge_schema_is_portable() {
+        crate::llm::remote::assert_portable(&super::connect_schema());
+    }
+
     use super::*;
     use crate::llm::fake::FakeProvider;
     use crate::model::{Register, Role};

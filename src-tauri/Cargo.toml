@@ -37,6 +37,20 @@ rust-stemmers = "1.2.0"
 tauri-plugin-dialog = "2"
 zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
 
+# API keys for cloud reasoning providers live in the OS credential store, never
+# in the settings document: that is a plain JSON row in corpus.db, and the
+# corpus is exactly the thing people export, back up and hand around.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }
+
+# zbus rather than libdbus: pure Rust, so the Linux build needs no extra system
+# package beyond what CI already installs.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+keyring = { version = "3.6.3", features = ["async-secret-service", "async-io", "crypto-rust"] }
+
 [profile.release]
 codegen-units = 1
 lto = true

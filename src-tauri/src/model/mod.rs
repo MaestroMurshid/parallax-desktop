@@ -11,8 +11,8 @@ pub use edge::{Edge, EdgeStatus, Relation};
 pub use entry::{ActionItem, Entry, Register, Role, Span};
 pub use question::Question;
 pub use settings::{
-    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile, Theme,
-    TranscriptionModel,
+    ComputeBackend, ModelInfo, ModelKind, ModelState, ReasoningProvider, Residency, Settings,
+    SystemProfile, Theme, TranscriptionModel,
 };
 pub use type_def::{Mark, NewType, ProbeTier, TypeDef, TypePatch};
 

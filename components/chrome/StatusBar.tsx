@@ -8,6 +8,14 @@ import styles from './StatusBar.module.css';
 
 const mb = (bytes: number) => `${Math.round(bytes / 1e6)}MB`;
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'cloud';
+  }
+}
+
 /** Everything about a model, for the hover. The strip stays short; this is
  *  where you look when a transcript came back worse than you expected. */
 function detail(model: ModelInfo | undefined): string | undefined {
@@ -70,6 +78,14 @@ export default function StatusBar({ settings }: { settings: Settings }) {
     ? baseName(settings.customReasoningModelPath)
     : null;
   const speechReady = customSpeechName !== null || speech?.state.kind === 'ready';
+  const cloudModel =
+    settings.reasoningProvider === 'anthropic'
+      ? settings.anthropicModel
+      : settings.reasoningProvider === 'openai'
+        ? settings.openaiModel
+        : null;
+  const cloudHost =
+    settings.reasoningProvider === 'anthropic' ? 'Anthropic' : hostOf(settings.openaiBaseUrl);
 
   return (
     <footer className={styles.bar}>
@@ -100,10 +116,18 @@ export default function StatusBar({ settings }: { settings: Settings }) {
         <span className={styles.divider} aria-hidden>
           ·
         </span>
-        <span className={styles.model} title={settings.customReasoningModelPath ?? detail(reasoning)}>
-          {customReasoningName ?? reasoning?.name ?? 'no model'}{' '}
-          {customReasoningName ? 'ready' : stateLabel(reasoning)}
-        </span>
+        {/* A cloud model is named with where it runs: the strip is where you
+            would look to see whether your notes are leaving the machine. */}
+        {cloudModel !== null ? (
+          <span className={styles.model} title={`reasoning runs on ${cloudHost}`}>
+            {cloudModel || 'no model named'} · {cloudHost}
+          </span>
+        ) : (
+          <span className={styles.model} title={settings.customReasoningModelPath ?? detail(reasoning)}>
+            {customReasoningName ?? reasoning?.name ?? 'no model'}{' '}
+            {customReasoningName ? 'ready' : stateLabel(reasoning)}
+          </span>
+        )}
       </span>
     </footer>
   );

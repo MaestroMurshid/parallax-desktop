@@ -461,25 +461,30 @@ pub async fn ask_recall(state: State<'_, AppState>, query: String) -> Result<Rec
             entries.push(entry);
         }
     }
-    let quoted: Vec<(&str, &str)> = entries
-        .iter()
-        .map(|e| {
-            (
-                e.created_at.get(..10).unwrap_or(&e.created_at),
-                e.transcript.as_str(),
-            )
-        })
-        .collect();
-    let bundled = recall_prompt(&quoted, &query);
-
     // Released before the model call, which can take seconds.
     drop(conn);
 
     // The hits are worth returning with nothing to read them: they are the
     // notes themselves, which is what was being looked for.
     let Some(answer) = state.with_reasoning(|llm| {
-        let ask = Ask::new(RECALL_SYSTEM, &bundled);
-        llm.ask(ask)
+        // Local-only notes are still found and listed -- the search is on this
+        // machine -- but never quoted to a model that is not (§9.4).
+        let remote = llm.remote();
+        let quoted: Vec<(&str, &str)> = entries
+            .iter()
+            .filter(|e| !(remote && e.local_only))
+            .map(|e| {
+                (
+                    e.created_at.get(..10).unwrap_or(&e.created_at),
+                    e.transcript.as_str(),
+                )
+            })
+            .collect();
+        if quoted.is_empty() {
+            return Ok(String::new());
+        }
+        let bundled = recall_prompt(&quoted, &query);
+        llm.ask(Ask::new(RECALL_SYSTEM, &bundled))
     })?
     else {
         return Ok(RecallResponse {

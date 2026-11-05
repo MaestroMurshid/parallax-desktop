@@ -78,6 +78,16 @@ pub fn run(conn: &Connection, provider: &dyn LlmProvider, entry_id: &str) -> Res
     let entry = db::entries::get(conn, entry_id)?
         .ok_or_else(|| Error::NotFound(format!("no entry {entry_id}")))?;
 
+    // Local-only means the words never leave the machine (§9.4). With a cloud
+    // provider chosen that leaves nothing to read it with, so it keeps its
+    // derived title, exactly as it would with no model at all.
+    if entry.local_only && provider.remote() {
+        return Ok(Enriched {
+            classified: false,
+            question_id: None,
+        });
+    }
+
     // Nothing to read, so nothing to decide. Asked anyway, the model files a
     // blank note with a title and a summary it invented -- measured in the
     // packaged app -- and a spoken note recorded before the transcription model
@@ -202,6 +212,61 @@ mod tests {
             r#"{{"text":"Where does that stop holding?","quote":{}}}"#,
             serde_json::to_string(quote).unwrap()
         )
+    }
+
+    /// §9.4: a local-only note is never read by a provider off this machine.
+    #[test]
+    fn a_local_only_note_is_not_sent_to_a_cloud_model() {
+        let conn = db::open_in_memory().unwrap();
+        let id = db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: SAID.into(),
+                duration_ms: 45_000,
+                fingerprint: vec![],
+                parent_entry_id: None,
+                local_only: Some(true),
+                typed: true,
+            },
+        )
+        .unwrap()
+        .id;
+        let provider = crate::llm::fake::Remote(ScriptedProvider::with(&[
+            CLASSIFY,
+            &question("faster reads"),
+        ]));
+
+        let out = run(&conn, &provider, &id).unwrap();
+
+        assert!(!out.classified);
+        assert_eq!(
+            provider.0.calls(),
+            0,
+            "a local-only note was sent off the machine"
+        );
+    }
+
+    /// The same note on the local model is read as usual: local-only is about
+    /// where the words go, not whether they are read at all.
+    #[test]
+    fn a_local_only_note_is_still_read_by_the_local_model() {
+        let conn = db::open_in_memory().unwrap();
+        let id = db::create::create(
+            &conn,
+            db::create::NewEntry {
+                transcript: SAID.into(),
+                duration_ms: 45_000,
+                fingerprint: vec![],
+                parent_entry_id: None,
+                local_only: Some(true),
+                typed: true,
+            },
+        )
+        .unwrap()
+        .id;
+        let provider = ScriptedProvider::with(&[CLASSIFY, &question("faster reads")]);
+
+        assert!(run(&conn, &provider, &id).unwrap().classified);
     }
 
     /// Found in the packaged app: a note of nothing but whitespace came back

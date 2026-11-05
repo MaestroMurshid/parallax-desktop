@@ -261,6 +261,14 @@ export type Theme = 'system' | 'light' | 'dark';
  * back, so a forced choice stays forced. Only backends the build and machine
  * actually have are offered.
  */
+/**
+ * Where the reasoning model runs (§9.4). `local` is the bundled llama-server;
+ * the other two are cloud APIs with the user's own key. Only reasoning moves —
+ * audio, transcription and embeddings stay on this machine regardless.
+ * `openai` is any chat-completions endpoint: OpenAI, OpenRouter, Groq, …
+ */
+export type ReasoningProvider = 'local' | 'anthropic' | 'openai';
+
 export type ComputeBackend =
   | 'auto'
   | 'cpu'
@@ -311,4 +319,11 @@ export interface Settings {
   /** Same idea for speech-to-text; must be a whisper GGUF, same format as
    *  the catalogue's own whisper files. */
   customTranscriptionModelPath: string | null;
+  reasoningProvider: ReasoningProvider;
+  /** Which model to ask. The keys are not in Settings at all: they live in
+   *  the OS keychain and the window can only set or clear them. */
+  anthropicModel: string;
+  openaiModel: string;
+  /** Must be https, or plain http to this computer only. */
+  openaiBaseUrl: string;
 }

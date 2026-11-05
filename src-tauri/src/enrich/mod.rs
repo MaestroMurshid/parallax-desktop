@@ -481,6 +481,17 @@ pub fn ask_about_passage(
 
 #[cfg(test)]
 mod tests {
+    /// Written for llama.cpp's grammar, and still has to survive the trip to
+    /// a cloud provider's structured-output mode.
+    #[test]
+    fn the_classify_and_question_schemas_are_portable() {
+        crate::llm::remote::assert_portable(&super::classify_schema(&[
+            "position".to_string(),
+            "note".to_string(),
+        ]));
+        crate::llm::remote::assert_portable(&super::question_schema(&[super::gate::Probe::ALL[0]]));
+    }
+
     use super::*;
     use crate::llm::fake::FakeProvider;
 

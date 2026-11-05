@@ -1,8 +1,9 @@
 //! Settings, and where the corpus lives.
 
 use crate::db;
-use crate::error::Result;
-use crate::model::Settings;
+use crate::error::{Error, Result};
+use crate::llm::{keys, Ask};
+use crate::model::{ReasoningProvider, Settings};
 use crate::state::AppState;
 use tauri::State;
 
@@ -32,10 +33,57 @@ pub fn set_settings(
     }
     // A running server would otherwise keep answering from the old file --
     // `with_reasoning` only spawns one when the slot is empty.
-    if crate::model::settings::reasoning_model_path_changed(&before, &after) {
+    if crate::model::settings::reasoning_model_path_changed(&before, &after)
+        || crate::model::settings::reasoning_provider_changed(&before, &after)
+    {
         state.stop_reasoning();
     }
     Ok(after)
+}
+
+/// Which cloud providers have a key saved. Booleans only: a key goes into the
+/// keychain from here and never comes back out to the window.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeyStatus {
+    anthropic: bool,
+    openai: bool,
+}
+
+#[tauri::command]
+pub fn api_key_status() -> ApiKeyStatus {
+    ApiKeyStatus {
+        anthropic: keys::has(ReasoningProvider::Anthropic),
+        openai: keys::has(ReasoningProvider::Openai),
+    }
+}
+
+#[tauri::command]
+pub fn set_api_key(provider: ReasoningProvider, key: String) -> Result<()> {
+    keys::set(provider, &key)
+}
+
+#[tauri::command]
+pub fn clear_api_key(provider: ReasoningProvider) -> Result<()> {
+    keys::clear(provider)
+}
+
+/// One short call against whatever reasoning is chosen, so a wrong key or
+/// model name is found in Settings rather than as notes that never file.
+/// Async so the window does not freeze for the seconds a call can take.
+#[tauri::command]
+pub async fn test_reasoning(state: State<'_, AppState>) -> Result<String> {
+    let reply = state.with_reasoning(|provider| {
+        let answer = provider.ask(Ask::new(
+            "You are checking a connection. Reply with the single word: ok",
+            "ping",
+        ))?;
+        Ok((provider.name(), answer))
+    })?;
+    match reply {
+        Some((name, _)) => Ok(format!("{name} answered")),
+        None => Err(Error::Other("no reasoning model is set up yet".into())),
+    }
 }
 
 /// Where the corpus is. A tool holding your private thinking should be able to

@@ -10,8 +10,10 @@ finds what you said before, and asks you a question.
 Test your reasoning, check your understanding, or make up your own note types: however you
 want the thoughts in this commonplace book to be challenged or interpreted.
 
-Everything runs on your machine. Transcription, reasoning and embeddings are local GGUF
-models; the only network activity is the one-time model download.
+By default everything runs on your machine. Transcription, reasoning and embeddings are local
+GGUF models, and the only network activity is the one-time model download. If you'd rather not
+run a reasoning model locally, Settings can send reasoning to a cloud API with your own key
+(see [Models](#models)).
 
 <img width="1280" height="720" alt="parallax-demo" src="https://github.com/user-attachments/assets/9e747c1b-27e8-4a26-aeed-ebf6de8c0045" />
 
@@ -46,6 +48,14 @@ models; the only network activity is the one-time model download.
 Onboarding recommends models for your machine and downloads them. You can also point
 reasoning or transcription at your own GGUF file in Settings. Reasoning runs on a bundled
 llama.cpp (Vulkan on Windows and Linux, Metal on macOS).
+
+Reasoning can run in the cloud instead: in Settings → reasoning model, choose the
+**Anthropic API** (Claude, default `claude-opus-5-5`) or an **OpenAI-compatible API**
+(OpenAI, OpenRouter, Groq, or a server on this computer), paste a key, and send a test
+message. Keys are stored in the OS keychain (Keychain, Credential Manager, Secret Service),
+not in the corpus database. With a cloud provider chosen, the *text* of your notes goes to it
+for filing, questions, connections and recall answers. Audio, transcription and embeddings
+stay local either way, and a note marked local-only is never sent.
 
 Qwen3 4B is the smallest model that classifies notes reliably. Local models do a lot of
 heavy lifting here, and results vary: connections and questions are useful but not

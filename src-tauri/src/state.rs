@@ -194,10 +194,13 @@ impl AppState {
     /// spoken until the model lands, rather than looking like that is all the
     /// sample is.
     pub fn reasoning_available(&self) -> bool {
-        let Some(_) = self.llama_binary() else {
+        let Ok(settings) = db::settings::get(&self.db()) else {
             return false;
         };
-        let Ok(settings) = db::settings::get(&self.db()) else {
+        if settings.reasoning_provider != crate::model::ReasoningProvider::Local {
+            return crate::llm::cloud_configured(&settings);
+        }
+        let Some(_) = self.llama_binary() else {
             return false;
         };
         self.reasoning_model(
@@ -207,14 +210,22 @@ impl AppState {
         .is_some()
     }
 
+    ///
+    /// A cloud provider, when one is chosen, takes the call instead and the
+    /// local server is not started at all. One chosen but missing its key or
+    /// model is an error rather than absent: it was set up on purpose, so
+    /// whoever is waiting should hear what is missing, not "nothing installed".
     pub fn with_reasoning<T>(
         &self,
         f: impl FnOnce(&dyn crate::llm::LlmProvider) -> Result<T>,
     ) -> Result<Option<T>> {
+        let settings = db::settings::get(&self.db())?;
+        if let Some(provider) = crate::llm::cloud(&settings)? {
+            return f(provider.as_ref()).map(Some);
+        }
         let Some(binary) = self.llama_binary() else {
             return Ok(None);
         };
-        let settings = db::settings::get(&self.db())?;
         let Some(model) = self.reasoning_model(
             settings.custom_reasoning_model_path.as_deref(),
             settings.model_id.as_deref(),

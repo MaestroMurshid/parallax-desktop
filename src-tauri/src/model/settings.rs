@@ -100,6 +100,32 @@ pub enum Theme {
     Dark,
 }
 
+/// Where the reasoning model runs (§9.4). `Local` is the bundled llama-server
+/// and the default; the other two are cloud APIs reached with the user's own
+/// key. Only reasoning moves: audio, transcription and embeddings stay on the
+/// machine whichever this is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningProvider {
+    #[default]
+    Local,
+    Anthropic,
+    /// OpenAI itself, or anything speaking its chat-completions API at
+    /// `openai_base_url` -- OpenRouter, Groq, a server on the local network.
+    Openai,
+}
+
+pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-opus-5-5";
+pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+
+fn default_anthropic_model() -> String {
+    DEFAULT_ANTHROPIC_MODEL.into()
+}
+
+fn default_openai_base_url() -> String {
+    DEFAULT_OPENAI_BASE_URL.into()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ComputeBackend {
@@ -163,6 +189,21 @@ pub struct Settings {
     /// transcribe.cpp loads, same as the catalogue's own whisper files.
     #[serde(default)]
     pub custom_transcription_model_path: Option<String>,
+
+    /// Defaulted on read, so every document saved before cloud providers
+    /// existed stays on the local model it was already using.
+    #[serde(default)]
+    pub reasoning_provider: ReasoningProvider,
+    /// The keys themselves are not here -- see `llm::keys`. These are only
+    /// which model to ask and where, which are not secret.
+    #[serde(default = "default_anthropic_model")]
+    pub anthropic_model: String,
+    /// Empty until chosen: there is no one model every compatible endpoint
+    /// serves, so guessing one would only fail later and less clearly.
+    #[serde(default)]
+    pub openai_model: String,
+    #[serde(default = "default_openai_base_url")]
+    pub openai_base_url: String,
 }
 
 fn yes() -> bool {
@@ -187,8 +228,19 @@ impl Default for Settings {
             theme: Theme::System,
             custom_reasoning_model_path: None,
             custom_transcription_model_path: None,
+            reasoning_provider: ReasoningProvider::Local,
+            anthropic_model: default_anthropic_model(),
+            openai_model: String::new(),
+            openai_base_url: default_openai_base_url(),
         }
     }
+}
+
+/// Whether the reasoning slot has to be emptied: a local server is only worth
+/// keeping while the local model is the one being asked, and holds a graphics
+/// card for as long as it runs.
+pub fn reasoning_provider_changed(before: &Settings, after: &Settings) -> bool {
+    before.reasoning_provider != after.reasoning_provider
 }
 
 /// Whether the next reasoning call needs a different file. Only the field

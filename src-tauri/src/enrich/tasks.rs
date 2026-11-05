@@ -57,6 +57,11 @@ pub fn extract(provider: &dyn LlmProvider, entry: &Entry) -> Result<Vec<(Span, S
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_tasks_schema_is_portable() {
+        crate::llm::remote::assert_portable(&super::tasks_schema());
+    }
+
     use super::*;
     use crate::llm::fake::FakeProvider;
 

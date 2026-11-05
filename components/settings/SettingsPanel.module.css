@@ -126,6 +126,33 @@
   outline-offset: 2px;
 }
 
+/* A single-line text setting: model names, endpoints, a key being pasted. */
+.field {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--edge-control);
+  border-radius: 5px;
+  color: var(--title);
+  font-family: var(--font-mono);
+  font-size: var(--size-meta);
+}
+
+.field::placeholder {
+  color: var(--edge-label);
+}
+
+.field:focus-visible {
+  outline: 1px solid var(--stroke-hub);
+  outline-offset: 1px;
+}
+
+.inline:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .toggle {
   display: flex;
   align-items: center;
