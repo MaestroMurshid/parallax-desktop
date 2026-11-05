@@ -133,3 +133,14 @@
   width: max(calc(100% + 8px), 24px);
   height: max(calc(100% + 10px), 24px);
 }
+
+/* In the floating panel window the window *is* the frame: pinned to its
+   bottom edge, where the recorder card sits, and never resizable past it. */
+.inPanel {
+  bottom: 16px;
+  max-width: calc(100vw - 16px);
+}
+
+.inPanel .field {
+  resize: none;
+}

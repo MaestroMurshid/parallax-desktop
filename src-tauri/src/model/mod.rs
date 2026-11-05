@@ -11,8 +11,8 @@ pub use edge::{Edge, EdgeStatus, Relation};
 pub use entry::{ActionItem, Entry, Register, Role, Span};
 pub use question::Question;
 pub use settings::{
-    ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings, SystemProfile, Theme,
-    TranscriptionModel,
+    CaptureMode, ComputeBackend, ModelInfo, ModelKind, ModelState, Residency, Settings,
+    SystemProfile, Theme, TranscriptionModel,
 };
 pub use type_def::{Mark, NewType, ProbeTier, TypeDef, TypePatch};
 
@@ -164,6 +164,7 @@ mod contract_tests {
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["hotkey"], json!("Ctrl+Shift+Space"));
         assert_eq!(v["discardHotkey"], json!("Ctrl+Shift+Backspace"));
+        assert_eq!(v["captureMode"], json!("text"));
         assert_eq!(v["modelId"], json!(null));
         assert_eq!(v["residency"], json!("warm"));
         assert_eq!(v["providerName"], json!("llama-server"));

@@ -71,8 +71,8 @@ export class TauriBridge implements Bridge {
     return invoke('list_edges');
   }
 
-  createEntry(draft: NewEntryDraft): Promise<Entry> {
-    return invoke('create_entry', { draft });
+  createEntry(draft: NewEntryDraft, questionId: string | null = null): Promise<Entry> {
+    return invoke('create_entry', { draft, questionId });
   }
 
   moveEntry(id: string, x: number, y: number): Promise<Entry> {

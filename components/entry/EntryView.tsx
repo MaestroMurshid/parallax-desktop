@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getBridge } from '@/lib/bridge';
 import { hasOwnSpan, invokedProbes, probeLabel, resolveTypes, slotFor } from '@/lib/scene/classification';
 import { useApp } from '@/lib/store';
-import type { Edge, Entry, Question, Span } from '@/lib/types';
+import type { CaptureMode, Edge, Entry, Question, Span } from '@/lib/types';
 import styles from './EntryView.module.css';
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -66,9 +66,13 @@ function silenceReason(entry: Entry, liveRegister: boolean): string {
 
 export default function EntryView({
   hotkey,
+  captureMode,
   liveRegister,
 }: {
   hotkey: string;
+  /** Whether "answer this" opens the composer or the recorder -- the same
+   *  thing the hotkey would do, so the button and the key never disagree. */
+  captureMode: CaptureMode;
   liveRegister: boolean;
 }) {
   const id = useApp((s) => s.selectedEntryId);
@@ -95,6 +99,9 @@ export default function EntryView({
   const dismissQuestion = useApp((s) => s.dismissQuestion);
   const openEntry = useApp((s) => s.openEntry);
   const startRecording = useApp((s) => s.startRecording);
+  const openComposer = useApp((s) => s.openComposer);
+  const answer = (entryId: string, questionId: string) =>
+    captureMode === 'text' ? openComposer(entryId, questionId) : void startRecording(entryId, questionId);
   const resolveEntry = useApp((s) => s.resolveEntry);
   const reopenEntry = useApp((s) => s.reopenEntry);
   const [resolving, setResolving] = useState(false);
@@ -617,7 +624,7 @@ export default function EntryView({
                 <button
                   type="button"
                   className={styles.answerThis}
-                  onClick={() => void startRecording(entry.id, shown.id)}
+                  onClick={() => answer(entry.id, shown.id)}
                 >
                   answer this
                   <span className={styles.answerKey}>{hotkey}</span>
@@ -686,8 +693,9 @@ export default function EntryView({
           {/* Nothing is waiting, but this is the entry you came back to. */}
           {shown?.answered && proposed.length === 0 && (
             <p className={styles.answerHint}>
-              Nothing open here. Press <kbd className={styles.kbd}>{hotkey}</kbd> to say something
-              else about it. It joins on as its own note.
+              Nothing open here. Press <kbd className={styles.kbd}>{hotkey}</kbd> to{' '}
+              {captureMode === 'text' ? 'write' : 'say'} something else about it. It joins on as
+              its own note.
             </p>
           )}
 

@@ -104,11 +104,12 @@ fn reveal_main(app: &AppHandle) {
 /// a panel in the middle of the screen makes impossible. Recomputed on every
 /// show, because the display you are working on is the one it belongs on.
 ///
-/// Deliberately no set_focus: taking the keyboard out from under whatever you
-/// were typing in is the interruption §4 exists to avoid. Start and stop both
-/// arrive on the global shortcut, so the panel has no use for focus.
+/// No focus for a recording: taking the keyboard out from under whatever you
+/// were typing in is the interruption §4 exists to avoid, and start and stop
+/// both arrive on the global shortcut. The typed composer is the exception --
+/// it is nothing *but* the keyboard -- so it asks for focus with `focus`.
 #[tauri::command]
-fn show_capture(app: AppHandle) {
+fn show_capture(app: AppHandle, focus: Option<bool>) {
     let Some(panel) = app.get_webview_window(PANEL) else {
         return;
     };
@@ -122,6 +123,9 @@ fn show_capture(app: AppHandle) {
     }
 
     let _ = panel.show();
+    if focus.unwrap_or(false) {
+        let _ = panel.set_focus();
+    }
 }
 
 /// Capture is over. The panel leaves without summoning anything: a recording

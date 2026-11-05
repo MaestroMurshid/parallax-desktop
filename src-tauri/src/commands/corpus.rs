@@ -125,6 +125,7 @@ pub fn create_entry(
     app: tauri::AppHandle,
     state: State<AppState>,
     draft: NewEntry,
+    question_id: Option<String>,
 ) -> Result<Entry> {
     // Refused here rather than in `db::create`, which a spoken note also goes
     // through -- and a recording made before the transcription model lands is
@@ -135,7 +136,19 @@ pub fn create_entry(
     }
     let entry = {
         let conn = state.db();
-        db::create::create(&conn, draft)?
+        let mut entry = db::create::create(&conn, draft)?;
+        // A typed answer closes the question it replies to, exactly as a
+        // spoken one does in `capture::finish` -- typing is another way in,
+        // not a way around the thread.
+        if let Some(question_id) = question_id {
+            db::questions::mark_answered(&conn, &question_id)?;
+            conn.execute(
+                "UPDATE entries SET answers_question_id = ?2 WHERE id = ?1",
+                rusqlite::params![entry.id, question_id],
+            )?;
+            entry.answers_question_id = Some(question_id);
+        }
+        entry
     };
     // The same pass a spoken note gets. Typed notes were reaching the corpus
     // and stopping there -- no classification, no summary, no connections, no

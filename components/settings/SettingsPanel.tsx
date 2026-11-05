@@ -112,7 +112,28 @@ export default function SettingsPanel({
         <h2 className={styles.sectionTitle}>capture</h2>
 
         <div className={styles.row}>
-          <span className={styles.label}>record hotkey</span>
+          <span className={styles.label}>hotkey opens</span>
+          <div className={styles.options}>
+            {(['text', 'voice'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={m === settings.captureMode ? styles.optionOn : styles.option}
+                onClick={() => void update({ captureMode: m })}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className={styles.helper}>
+          {settings.captureMode === 'text'
+            ? 'The hotkey brings up a box to type into, wherever you are. The + button does the same.'
+            : 'The hotkey starts recording straight away; press it again to stop. Typed notes are still on the + button.'}
+        </p>
+
+        <div className={styles.row}>
+          <span className={styles.label}>capture hotkey</span>
           <div className={styles.control}>
             <kbd className={styles.kbd}>
               {capturing === 'hotkey' ? 'press a combination…' : settings.hotkey}
@@ -123,21 +144,24 @@ export default function SettingsPanel({
           </div>
         </div>
 
-        <div className={styles.row}>
-          <span className={styles.label}>discard key</span>
-          <div className={styles.control}>
-            <kbd className={styles.kbd}>
-              {capturing === 'discardHotkey' ? 'press a combination…' : settings.discardHotkey}
-            </kbd>
-            <button
-              type="button"
-              className={styles.inline}
-              onClick={() => setCapturing('discardHotkey')}
-            >
-              rebind
-            </button>
+        {/* Only armed while recording, so there is nothing to bind it for in text. */}
+        {settings.captureMode === 'voice' && (
+          <div className={styles.row}>
+            <span className={styles.label}>discard key</span>
+            <div className={styles.control}>
+              <kbd className={styles.kbd}>
+                {capturing === 'discardHotkey' ? 'press a combination…' : settings.discardHotkey}
+              </kbd>
+              <button
+                type="button"
+                className={styles.inline}
+                onClick={() => setCapturing('discardHotkey')}
+              >
+                rebind
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className={styles.row}>
           <span className={styles.label}>live register</span>

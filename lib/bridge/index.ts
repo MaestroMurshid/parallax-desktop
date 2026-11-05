@@ -52,7 +52,9 @@ export interface Bridge {
   /** Children of an entry — the layers behind its rings (§6.2). */
   listChildren(entryId: string): Promise<Entry[]>;
   listEdges(): Promise<Edge[]>;
-  createEntry(draft: NewEntryDraft): Promise<Entry>;
+  /** `questionId` marks that question answered, the way a spoken answer's
+   *  stopRecording does -- a typed answer closes the thread just the same. */
+  createEntry(draft: NewEntryDraft, questionId?: string | null): Promise<Entry>;
   /** Manual placement override (§5.1). Auto-placement stays the default; this
    *  just overwrites the frozen position, it never re-solves the field. */
   moveEntry(id: string, x: number, y: number): Promise<Entry>;

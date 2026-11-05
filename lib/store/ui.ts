@@ -60,7 +60,13 @@ export interface UiSlice {
   dragging: { id: string; x: number; y: number } | null;
   /** Typed-note composer open (§4). */
   composing: boolean;
+  /** Set while the composer is writing an answer: the entry it joins on to,
+   *  and the question it closes, when one was picked. */
+  composeAnswering: { entryId: string; questionId: string | null } | null;
   setComposing(v: boolean): void;
+  /** Opens the composer, optionally as a reply -- the typed twin of
+   *  startRecording(answeringEntryId, answeringQuestionId). */
+  openComposer(answeringEntryId?: string | null, answeringQuestionId?: string | null): void;
   /** Drag-to-connect in flight (§5.4); committed only when a relation is named. */
   connecting: { fromId: string; x: number; y: number } | null;
   setConnecting(c: { fromId: string; x: number; y: number } | null): void;
@@ -121,6 +127,7 @@ export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set
     }),
   dragging: null,
   composing: false,
+  composeAnswering: null,
   connecting: null,
   connectSource: null,
   pendingLink: null,
@@ -147,7 +154,16 @@ export const createUiSlice: StateCreator<AppState, Mutators, [], UiSlice> = (set
     set({ liveRegister: v });
   },
   setComposing(v) {
-    set({ composing: v });
+    // Opened bare from the pill it is a new note; closed, it answers nothing.
+    set({ composing: v, composeAnswering: null });
+  },
+  openComposer(answeringEntryId = null, answeringQuestionId = null) {
+    set({
+      composing: true,
+      composeAnswering: answeringEntryId
+        ? { entryId: answeringEntryId, questionId: answeringQuestionId }
+        : null,
+    });
   },
   setConnecting(c) {
     set({ connecting: c });
